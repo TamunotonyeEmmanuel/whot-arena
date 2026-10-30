@@ -2,9 +2,9 @@
 
 ## Deploy to Vercel and Render
 
-This repository is prepared for a Vercel static frontend and a Render API/database. Deployment still requires your Vercel and Render accounts. Active rooms and voice notes are in process memory, so the Render API must remain a single paid instance; do not enable multiple instances or a sleeping/free web service for live games.
+This repository is prepared for a Vercel static frontend and free Render API/database resources. Free Render is a demo tier, not suitable for production: the API sleeps after 15 minutes without inbound traffic (including WebSocket traffic), wake-up may take about a minute, and the free PostgreSQL database expires after 30 days with a 14-day recovery window before deletion. Free databases also have no backups and a 1 GB limit. Active rooms and voice notes are in process memory, so rooms disappear on sleep/restart and the API must remain a single instance.
 
-1. In Render, create a Blueprint from this repository and select `render.yaml`. The Blueprint provisions a PostgreSQL database and one API instance. Set the prompted `CORS_ORIGINS` value to the exact production Vercel origin, for example `https://whot-arena.vercel.app` (no trailing slash). Keep `ENVIRONMENT=production`; the Blueprint generates `JWT_SECRET` and uses the database's internal connection string. Wait for `/health` to pass and note the API URL, normally `https://whot-arena-api.onrender.com`.
+1. In Render, create a Blueprint from this repository and select `render.yaml`. The Blueprint provisions a free PostgreSQL database and one free API instance. Set the prompted `CORS_ORIGINS` value to the exact production Vercel origin, `https://whot-arena.vercel.app` (no trailing slash). Keep `ENVIRONMENT=production`; the Blueprint generates `JWT_SECRET` and uses the database's internal connection string. Wait for `/health` to pass and note the API URL, normally `https://whot-arena-api.onrender.com`.
 2. In Vercel, import the same repository and set the project Root Directory to `web`. The included `web/vercel.json` builds the Vite app and rewrites client routes to `index.html`.
 3. Before deploying on Vercel, set these Production environment variables using the actual Render API hostname:
 
@@ -14,7 +14,7 @@ This repository is prepared for a Vercel static frontend and a Render API/databa
 	```
 
 4. Deploy the Vercel project. If its production domain differs from the origin entered in Render, update Render's `CORS_ORIGINS` to the exact assigned domain and redeploy/restart the API.
-5. Verify the Vercel site can register/login, create/join a room in two browsers, record/play a voice note, and reconnect. Use the `wss://` endpoint; microphone capture requires HTTPS.
+5. Verify the Vercel site can register/login, create/join a room in two browsers, record/play a voice note, and reconnect. Use the `wss://` endpoint; microphone capture requires HTTPS. Expect the first request after idle to wait for the Render service to wake.
 
 Vercel Preview deployments have distinct origins. They are intentionally not wildcard-allowed; add an exact preview origin to Render `CORS_ORIGINS` only when needed. Never place `JWT_SECRET`, database credentials, or Render secrets in Vercel variables; `VITE_*` values are public and embedded in the browser bundle.
 
