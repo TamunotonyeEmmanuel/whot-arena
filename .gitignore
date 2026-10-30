@@ -17,6 +17,7 @@ mobile/ios/Flutter/ephemeral/
 web/node_modules/
 web/dist/
 web/coverage/
+web/.vercel/
 web/.env*
 !web/.env.example
 web/*.tsbuildinfo
