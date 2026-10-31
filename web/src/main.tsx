@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client'
 import { BrowserRouter, Link, NavLink, Navigate, Route, Routes, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { ArrowLeft, ArrowRight, BookOpen, Check, ChevronDown, CircleHelp, Clock3, Crown, DoorOpen, Gamepad2, History, Home, LogIn, LogOut, Menu, Mic, Plus, Radio, Settings, Shield, Sparkles, Square, Trophy, UserRound, Users, Volume2, X } from 'lucide-react'
 import './styles.css'
+import { gameSoundsEnabled, playGameSound, primeGameAudio, setGameSoundsEnabled } from './audio'
 
 type Card = { id: string; shape: string; number: number }
 type Player = { id: string; name: string; count: number; connected: boolean }
@@ -50,6 +51,7 @@ function ArenaProvider({ children }: { children: React.ReactNode }) {
   const retryRef = useRef<number | null>(null)
   const activeRef = useRef(true)
   const voiceUrlsRef = useRef(new Set<string>())
+  const previousViewRef = useRef<RoomView | null>(null)
   sessionRef.current = session
 
   function saveSession(next: Session) {
@@ -126,6 +128,35 @@ function ArenaProvider({ children }: { children: React.ReactNode }) {
     for (const url of voiceUrlsRef.current) URL.revokeObjectURL(url)
     voiceUrlsRef.current.clear()
   }, [])
+
+  useEffect(() => {
+    const unlock = () => primeGameAudio()
+    window.addEventListener('pointerdown', unlock, { once: true })
+    window.addEventListener('keydown', unlock, { once: true })
+    return () => {
+      window.removeEventListener('pointerdown', unlock)
+      window.removeEventListener('keydown', unlock)
+    }
+  }, [])
+
+  useEffect(() => {
+    const previous = previousViewRef.current
+    previousViewRef.current = view
+    if (!view || !previous || previous.code !== view.code) return
+    if (previous.status !== 'finished' && view.status === 'finished') {
+      playGameSound(view.winner === sessionRef.current?.player_id ? 'win' : 'lose')
+    } else if (previous.status === 'lobby' && view.status === 'playing') {
+      playGameSound('start')
+    } else if (previous.players.length < view.players.length) {
+      playGameSound('join')
+    } else if (previous.hand.length < view.hand.length) {
+      playGameSound('draw')
+    } else if (previous.top?.id !== view.top?.id) {
+      playGameSound('play')
+    } else if (previous.turn !== view.turn && view.turn === sessionRef.current?.player_id) {
+      playGameSound('turn')
+    }
+  }, [view])
 
   async function connectRoom(action: string, values: Record<string, unknown> = {}) {
     setBusy(true); setError('')
@@ -540,10 +571,11 @@ function Leaderboard() {
 function SettingsPage() {
   const { user } = useArena()
   const [nickname, setNickname] = useState(localStorage.getItem('whot.nickname') || user?.username || 'Guest')
-  const [sound, setSound] = useState(localStorage.getItem('whot.sound') !== 'off')
+  const [sound, setSound] = useState(gameSoundsEnabled)
   const [saved, setSaved] = useState(false)
-  function save() { localStorage.setItem('whot.nickname', nickname.slice(0, 20)); localStorage.setItem('whot.sound', sound ? 'on' : 'off'); setSaved(true); window.setTimeout(() => setSaved(false), 2200) }
-  return <><PageTitle eyebrow="PREFERENCES" title="Make it yours." detail="Local settings for this browser. Your account data stays on the server." /><div className="settings-layout"><section className="content-panel settings-panel"><span className="small-label">PLAYER IDENTITY</span><h2>Table name</h2><p>This name appears to other players when you join as a guest.</p><label className="field-label">Display name<input value={nickname} maxLength={20} onChange={event => setNickname(event.target.value)} /></label><button className="button button-green" onClick={save}><Check size={16} /> {saved ? 'Saved' : 'Save preferences'}</button></section><section className="content-panel settings-panel"><span className="small-label">GAME EXPERIENCE</span><h2>Audio cues</h2><p>Audio is not yet available in this release. Keep your preference ready for a future update.</p><label className="toggle-row"><span><strong>Enable game sounds</strong><small>Local preference only</small></span><input type="checkbox" checked={sound} onChange={event => setSound(event.target.checked)} /></label></section><div className="info-banner"><Shield size={16} /> Account email and password are managed by your player account, not stored in these local settings.</div></div></>
+  function save() { localStorage.setItem('whot.nickname', nickname.slice(0, 20)); setSaved(true); window.setTimeout(() => setSaved(false), 2200) }
+  function toggleSound(enabled: boolean) { setSound(enabled); setGameSoundsEnabled(enabled); if (enabled) playGameSound('preview') }
+  return <><PageTitle eyebrow="PREFERENCES" title="Make it yours." detail="Local settings for this browser. Your account data stays on the server." /><div className="settings-layout"><section className="content-panel settings-panel"><span className="small-label">PLAYER IDENTITY</span><h2>Table name</h2><p>This name appears to other players when you join as a guest.</p><label className="field-label">Display name<input value={nickname} maxLength={20} onChange={event => setNickname(event.target.value)} /></label><button className="button button-green" onClick={save}><Check size={16} /> {saved ? 'Saved' : 'Save preference'}</button></section><section className="content-panel settings-panel"><span className="small-label">GAME EXPERIENCE</span><h2>Audio cues</h2><p>Hear subtle cues when players join, cards move, your turn begins, and a round ends.</p><label className="toggle-row"><span><strong>Enable game sounds</strong><small>Saved automatically on this device</small></span><input type="checkbox" checked={sound} onChange={event => toggleSound(event.target.checked)} /></label></section><div className="info-banner"><Shield size={16} /> Account email and password are managed by your player account, not stored in these local settings.</div></div></>
 }
 
 const rules = [

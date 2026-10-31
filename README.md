@@ -4,7 +4,7 @@ Responsive React/TypeScript browser client, Flutter mobile client, and FastAPI
 WebSocket server. Supports **2–4 human players**, private room codes, guest
 nicknames, public quick match, server-side dealing/validation, special cards,
 private hands, room-only voice notes, reconnect, registered-player match history, rematches, a
-leaderboard, 30-second disconnect autopilot, and 45-second turn timeout.
+leaderboard, optional synthesized game cues, 30-second disconnect autopilot, and 45-second turn timeout.
 
 ## Important scope
 This is a development release, not a fully operated public service. The server
@@ -12,7 +12,7 @@ keeps active rooms in memory and must run as a **single process**; a restart
 erases active rooms. Reconnect credentials are bearer secrets. Match history is
 recorded for new matches played by registered users; earlier match rows cannot
 be associated with participants. The UI uses CSS card faces and symbols; no
-licensed deck artwork or sound assets are included. Rate limiting, distributed
+licensed deck artwork or sound assets are included; game cues are generated with the browser Web Audio API. Rate limiting, distributed
 room state, observability, and production abuse controls still need work.
 
 ## Browser client
