@@ -341,17 +341,17 @@ const navItems = [
 
 const RADIO_STATIONS = [
   {
-    id: 'soundcity-ph',
-    name: 'Soundcity 96.5 FM — Port Harcourt',
-    url: 'https://streamingv2.shoutcast.com/soundcity-radio-port-harcourt-965',
+    id: 'cool',
+    name: 'Cool FM Lagos 96.9',
+    url: 'https://coolfmlagos969-atunwadigital.streamguys1.com/coolfmlagos969',
   },
 ]
 
 function WhotArenaRadio() {
   const [playing, setPlaying] = useState(false)
   const [volume, setVolume] = useState(() => {
-    const stored = Number(localStorage.getItem('whot.radio.volume') ?? '15')
-    return Number.isFinite(stored) ? Math.max(0, Math.min(100, stored)) : 15
+    const saved = Number(localStorage.getItem('whot.radio.volume') ?? '15')
+    return Number.isFinite(saved) ? Math.min(100, Math.max(0, saved)) : 15
   })
   const [error, setError] = useState('')
   const [open, setOpen] = useState(false)
@@ -365,7 +365,7 @@ function WhotArenaRadio() {
     audioRef.current = audio
     const onError = () => {
       setPlaying(false)
-      setError('Soundcity stream is unavailable. Please try again later.')
+      setError('Cool FM stream is unavailable. Try again later.')
     }
     const onPause = () => setPlaying(false)
     const onPlay = () => setPlaying(true)
@@ -401,8 +401,8 @@ function WhotArenaRadio() {
       await audio.play()
     } catch (reason) {
       setPlaying(false)
-      setError('Unable to play Soundcity. The stream may be offline or blocked by the browser.')
-      console.error('Soundcity radio playback failed:', reason)
+      setError('Unable to play Cool FM. The stream may be offline or blocked by the browser.')
+      console.error('Cool FM playback failed:', reason)
     }
   }
 
