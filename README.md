@@ -3,7 +3,7 @@
 Responsive React/TypeScript browser client, Flutter mobile client, and FastAPI
 WebSocket server. Supports **2–4 human players**, private room codes, guest
 nicknames, public quick match, server-side dealing/validation, special cards,
-private hands, room-only live voice, reconnect, registered-player match history, rematches, a
+private hands, room-only voice notes, reconnect, registered-player match history, rematches, a
 leaderboard, optional synthesized game cues, 10-minute lobby reconnection, 30-second disconnect autopilot, and 45-second turn timeout.
 
 ## Important scope
@@ -108,10 +108,10 @@ production. The standard 54-card deck uses 49 shaped cards plus five WHOT 20
 cards. There are no 6 or 9 cards, and every shape's exact number set is defined
 in `backend/app/game.py`; no licensed physical deck artwork is included.
 
-During a live game, the browser requests microphone permission and connects
-players with peer-to-peer WebRTC audio. Players join unmuted after granting
-permission and can mute or unmute themselves. The game server relays encrypted
-connection-negotiation messages but does not carry or persist the live audio.
+During a live game, players can record voice notes up to 15 seconds. The browser
+asks for microphone permission only when recording begins. Notes are delivered
+only to players in that room, remain in memory while the room exists, and are
+not persisted.
 
 ## Security/production limitations
 Set `ENVIRONMENT=production`, a random `JWT_SECRET` of at least 32 characters,

@@ -44,6 +44,34 @@ def test_exhausted_market_ends_round_and_scores_every_hand():
     assert r.winner == "b"
     assert "Market exhausted" in r.last_action
 
+def test_taking_last_market_card_immediately_scores_and_declares_winner():
+    r = setup()
+    r.deck = [{"shape": "circle", "number": 3, "id": "last-market-card"}]
+    r.discard = [{"shape": "circle", "number": 7, "id": "top"}]
+    r.players[0].hand = [{"shape": "circle", "number": 10, "id": "a1"}]
+    r.players[1].hand = [{"shape": "circle", "number": 14, "id": "b1"}]
+
+    r.draw("a")
+
+    assert r.status == "finished"
+    assert r.deck == []
+    assert r.final_scores == {"a": 13, "b": 14}
+    assert r.winner == "a"
+    assert "Market exhausted" in r.last_action
+
+def test_discard_pile_is_not_recycled_when_market_finishes():
+    r = setup()
+    r.deck = []
+    r.discard = [
+        {"shape": "circle", "number": 5, "id": "old"},
+        {"shape": "circle", "number": 7, "id": "top"},
+    ]
+
+    r.draw("a")
+
+    assert r.status == "finished"
+    assert [card["id"] for card in r.discard] == ["old", "top"]
+
 def test_general_market_player_continues_without_drawing_when_cards_remain():
     r = setup()
     r.discard = [{"shape": "circle", "number": 7, "id": "top"}]
@@ -123,6 +151,17 @@ def test_view_does_not_expose_reconnect_token():
     rendered = repr(r.view("a"))
     assert r.players[0].reconnect_token not in rendered
     assert r.players[1].reconnect_token not in rendered
+
+def test_table_chat_is_room_scoped_and_limited():
+    r = setup()
+    message = r.add_chat_message("a", "  Good game!  ")
+    assert message["text"] == "Good game!"
+    assert r.view("b")["chat_messages"][0]["name"] == "Ada"
+    try:
+        r.add_chat_message("a", "x" * 501)
+        assert False
+    except ValueError as error:
+        assert "500 characters" in str(error)
 
 def test_same_registered_account_cannot_join_room_twice():
     r = Room("TEST", "a", [Player("a", "Ada", user_id=42)])

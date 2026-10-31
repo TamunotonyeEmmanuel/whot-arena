@@ -11,18 +11,10 @@ This repository is prepared for a Vercel static frontend and free Render API/dat
 	```dotenv
 	VITE_API_URL=https://whot-arena-api.onrender.com
 	VITE_WS_URL=wss://whot-arena-api.onrender.com/ws
-	VITE_TURN_URL=turns://your-turn-host:5349
-	VITE_TURN_USERNAME=<turn-username>
-	VITE_TURN_CREDENTIAL=<turn-credential>
 	```
 
-	The TURN values are required for reliable live voice across mobile carriers,
-	NATs, and restrictive Wi-Fi. They are embedded in the browser build, so use
-	short-lived TURN credentials from a TURN provider rather than an unrelated
-	account password.
-
 4. Deploy the Vercel project. If its production domain differs from the origin entered in Render, update Render's `CORS_ORIGINS` to the exact assigned domain and redeploy/restart the API.
-5. Verify the Vercel site can register/login, create/join a room in two browsers, connect/mute/unmute live voice, and reconnect. Use the `wss://` endpoint; microphone capture requires HTTPS. Expect the first request after idle to wait for the Render service to wake.
+5. Verify the Vercel site can register/login, create/join a room in two browsers, record/play a voice note, and reconnect. Use the `wss://` endpoint; microphone capture requires HTTPS. Expect the first request after idle to wait for the Render service to wake.
 
 Vercel Preview deployments have distinct origins. They are intentionally not wildcard-allowed; add an exact preview origin to Render `CORS_ORIGINS` only when needed. Never place `JWT_SECRET`, database credentials, or Render secrets in Vercel variables; `VITE_*` values are public and embedded in the browser bundle.
 
@@ -58,7 +50,7 @@ The web container listens on port 80 internally and is published as port 8080 by
 
 For a separate static frontend host, build from `web/` with production `VITE_API_URL` and `VITE_WS_URL`, then publish `web/dist`. Configure SPA fallback to `index.html`. Set backend `CORS_ORIGINS` to the static site's exact HTTPS origin.
 
-Live voice requires microphone permission and a secure browser context; use HTTPS in production (localhost is treated as secure for development). Preserve WebSocket upgrades for WebRTC signaling. The included public STUN server does not guarantee peer connectivity on every network; configure authenticated TURN infrastructure before treating live voice as production-reliable.
+Voice recording requires microphone permission and a secure browser context; use HTTPS in production (localhost is treated as secure for development). Preserve WebSocket upgrades and allow frames of at least 1 MB so a 512 KB note plus base64 and JSON framing can pass safely.
 
 ## Backend and database operations
 

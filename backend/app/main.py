@@ -315,6 +315,8 @@ async def ws_endpoint(ws: WebSocket):
                                 "content_type": voice["content_type"],
                                 "audio": base64.b64encode(voice["audio"]).decode("ascii"),
                             }
+                        elif action == "chat":
+                            room.add_chat_message(pid, msg.get("text"))
                         else:
                             raise ValueError("Unknown action")
                     if voice_response:

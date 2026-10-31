@@ -14,6 +14,8 @@ VOICE_MAX_BYTES = 512_000
 VOICE_ROOM_MAX_BYTES = 4_000_000
 VOICE_HISTORY_LIMIT = 20
 VOICE_COOLDOWN_SECONDS = 1.0
+CHAT_HISTORY_LIMIT = 100
+CHAT_MAX_CHARS = 500
 LAST_CARD_REQUIRES_REPLACEMENT = {1, 2, 5, 8, 14, 20}
 # Explicit house rules: 1 extra turn, 2 +2, 5 +3, 8 skip, 14 market (+1 each opponent),
 # 20 wild request shape. Special actions do not stack. Penalty draws end the target turn.
@@ -57,6 +59,7 @@ class Room:
     rules: HouseRules = field(default_factory=HouseRules)
     voice_messages: list = field(default_factory=list)
     voice_sent_at: dict = field(default_factory=dict)
+    chat_messages: list = field(default_factory=list)
 
     def player(self, pid):
         return next((p for p in self.players if p.id == pid), None)
@@ -82,12 +85,7 @@ class Room:
         drawn = 0
         for _ in range(count):
             if not self.deck:
-                if len(self.discard) <= 1:
-                    break
-                top = self.discard.pop()
-                self.deck = self.discard[:]
-                random.shuffle(self.deck)
-                self.discard = [top]
+                break
             p.hand.append(self.deck.pop())
             drawn += 1
         return drawn
@@ -147,6 +145,7 @@ class Room:
             raise ValueError("All players must reconnect before a rematch")
         self.voice_messages.clear()
         self.voice_sent_at.clear()
+        self.chat_messages.clear()
         self.status = "lobby"
         self.start(pid)
         self.last_action = "Rematch started"
@@ -189,6 +188,26 @@ class Room:
         return next((message for message in self.voice_messages
                      if message["id"] == message_id), None)
 
+    def add_chat_message(self, pid, text):
+        player = self.player(pid)
+        if not player or not player.connected:
+            raise ValueError("Join this room before sending a message")
+        if self.status != "playing":
+            raise ValueError("Table chat is only available during a game")
+        if not isinstance(text, str):
+            raise ValueError("Message text is required")
+        text = text.strip()
+        if not text:
+            raise ValueError("Message cannot be empty")
+        if len(text) > CHAT_MAX_CHARS:
+            raise ValueError("Message is over 500 characters")
+        message = {"id": secrets.token_hex(6), "player_id": pid, "name": player.name,
+                   "text": text, "sent_at": time.time()}
+        self.chat_messages.append(message)
+        self.chat_messages = self.chat_messages[-CHAT_HISTORY_LIMIT:]
+        self.updated_at = time.time()
+        return message
+
     def legal(self, card):
         top = self.discard[-1]
         return (card["number"] == 20 or
@@ -218,6 +237,9 @@ class Room:
                 self.finish_exhausted_market()
                 return
             self.last_action += " and drew a replacement card"
+            if not self.deck:
+                self.finish_exhausted_market()
+                return
         elif not p.hand:
             self.winner = pid
             self.status = "finished"
@@ -229,7 +251,7 @@ class Room:
             self.updated_at = self.turn_started
         elif n in (2, 5):
             required = self.rules.pick_two if n == 2 else self.rules.pick_three
-            if self._draw(self.players[(self.turn + 1) % len(self.players)], required) < required:
+            if self._draw(self.players[(self.turn + 1) % len(self.players)], required) < required or not self.deck:
                 self.finish_exhausted_market()
                 return
             self._advance(2)
@@ -238,7 +260,7 @@ class Room:
         elif n == 14:
             for other in self.players:
                 if other.id != pid:
-                    if self._draw(other, self.rules.general_market) < self.rules.general_market:
+                    if self._draw(other, self.rules.general_market) < self.rules.general_market or not self.deck:
                         self.finish_exhausted_market()
                         return
             self.turn_started = time.time()
@@ -251,7 +273,7 @@ class Room:
     def draw(self, pid):
         if self.status != "playing" or self.current().id != pid:
             raise ValueError("Not your turn")
-        if self._draw(self.current()) == 0:
+        if self._draw(self.current()) == 0 or not self.deck:
             self.finish_exhausted_market()
             return
         self.last_action = f"{self.current().name} drew a card"
@@ -290,6 +312,7 @@ class Room:
             "is_public": self.is_public,
             "voice_messages": [{key: value for key, value in message.items()
                                 if key != "audio"} for message in self.voice_messages],
+            "chat_messages": self.chat_messages,
             "rules": {"cards_per_player": self.rules.cards_per_player,
                       "pick_two": self.rules.pick_two,
                       "pick_three": self.rules.pick_three,

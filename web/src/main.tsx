@@ -8,6 +8,7 @@ import { gameSoundsEnabled, playGameSound, primeGameAudio, setGameSoundsEnabled 
 type Card = { id: string; shape: string; number: number }
 type Player = { id: string; name: string; count: number; connected: boolean; voice_ready?: boolean }
 type VoiceMessage = { id: string; player_id: string; name: string; content_type: string; size: number; sent_at: number }
+type ChatMessage = { id: string; player_id: string; name: string; text: string; sent_at: number }
 type RtcSignal = { id: string; from: string; signal: { type: 'offer' | 'answer' | 'ice'; sdp?: RTCSessionDescriptionInit; candidate?: RTCIceCandidateInit } }
 type RoomView = {
   code: string; status: 'lobby' | 'playing' | 'finished'; host: string; you: string
@@ -16,6 +17,7 @@ type RoomView = {
   final_scores: Record<string, number>
   market_count: number
   voice_messages: VoiceMessage[]
+  chat_messages: ChatMessage[]
   is_public: boolean; rules: { cards_per_player: number; pick_two: number; pick_three: number; general_market: number; penalty_stacking: boolean }
 }
 type Session = { player_id: string; code: string; reconnect_token: string }
@@ -517,7 +519,7 @@ function GameTable() {
           ))}
         </div>
         <div className="center-piles">
-          <div className="pile-block"><span className="pile-label">DRAW PILE</span><div className="pile-stack" onClick={() => myTurn && send('draw')} role="button" tabIndex={0} onKeyDown={event => event.key === 'Enter' && myTurn && send('draw')} aria-label={`Draw one card and pass. ${view.market_count} cards remain`}><CardFace back large /><span className="market-count">{view.market_count}</span><span className="pile-count">{myTurn ? 'TAP TO DRAW' : `${view.market_count} CARDS`}</span></div></div>
+          <div className="pile-block"><span className="pile-label">DRAW PILE</span><div className={`pile-stack${view.market_count > 0 && view.market_count <= 5 ? ' pile-stack-low' : ''}`} onClick={() => myTurn && send('draw')} role="button" tabIndex={0} onKeyDown={event => event.key === 'Enter' && myTurn && send('draw')} aria-label={`Draw one card and pass. ${view.market_count} cards remain`}><CardFace back large /><span className="market-count">{view.market_count}</span><span className="pile-count">{myTurn ? 'TAP TO DRAW' : `${view.market_count} CARDS`}</span></div></div>
           <div className="table-arrow">{myTurn ? <Sparkles size={19} /> : <ArrowRight size={19} />}</div>
           <div className="pile-block"><span className="pile-label">ON THE TABLE</span><div className="top-card-slot"><CardFace card={view.top} large selected /><div className="top-glow" /></div></div>
         </div>
@@ -541,7 +543,7 @@ function GameTable() {
         </section>
       )}
       </div>
-      <LiveVoicePanel players={view.players} playerId={session?.player_id || ''} enabled={view.status === 'playing'} />
+      <VoicePanel messages={view.voice_messages || []} chatMessages={view.chat_messages || []} playerId={session?.player_id || ''} enabled={view.status === 'playing'} />
       </div>
     </div>
   )
@@ -714,14 +716,44 @@ function LiveVoicePanel({ players, playerId, enabled }: { players: Player[]; pla
   return <aside className="voice-panel live-voice-panel content-panel" aria-label="Live table voice"><div className="voice-heading"><span className={`voice-icon ${status === 'live' ? 'voice-live' : ''}`}><Volume2 size={17} /></span><div><strong>Live table voice</strong><small>{statusText}</small></div><span className={`status-dot ${status === 'live' ? 'online' : ''}`} /></div><div className="live-voice-room"><div className={`live-mic-orbit ${status === 'live' && !muted ? 'mic-active' : ''}`}><span>{muted ? <MicOff size={27} /> : <Mic size={27} />}</span></div><strong>{muted ? 'Your microphone is muted' : status === 'live' ? 'Your microphone is live' : 'Waiting for microphone'}</strong><small>{voiceError || (connectionSlow ? 'Direct voice connection failed. This network may require a TURN server.' : 'Audio is shared only with players at this table.')}</small></div><div className="voice-compose">{status === 'blocked' ? <button type="button" className="button button-green full-button" onClick={() => { startPromiseRef.current = null; setStatus('starting'); void startMicrophone() }}><Mic size={16} /> Allow microphone</button> : playbackBlocked ? <button type="button" className="button button-green full-button" onClick={enablePlayback}><Volume2 size={16} /> Enable speaker</button> : <button type="button" className={`button ${muted ? 'button-green' : 'button-outline'} full-button`} disabled={status !== 'live'} onClick={toggleMute}>{muted ? <><Mic size={16} /> Unmute microphone</> : <><MicOff size={16} /> Mute microphone</>}</button>}<span className="voice-hint">The browser will ask permission the first time you join voice.</span></div></aside>
 }
 
-function VoicePanel({ messages, enabled }: { messages: VoiceMessage[]; enabled: boolean }) {
+function VoicePanel({ messages, chatMessages, playerId, enabled }: { messages: VoiceMessage[]; chatMessages: ChatMessage[]; playerId: string; enabled: boolean }) {
   const { voiceUrls, requestVoice, send } = useArena()
   const [recording, setRecording] = useState(false)
   const [error, setError] = useState('')
+  const [notification, setNotification] = useState('')
+  const [open, setOpen] = useState(false)
+  const [textMessage, setTextMessage] = useState('')
+  const [unread, setUnread] = useState(0)
+  const previousMessageCountRef = useRef(messages.length)
+  const previousChatCountRef = useRef(chatMessages.length)
   const recorderRef = useRef<MediaRecorder | null>(null)
   const streamRef = useRef<MediaStream | null>(null)
   const timerRef = useRef<number | null>(null)
   const chunksRef = useRef<Blob[]>([])
+
+  useEffect(() => {
+    if (messages.length > previousMessageCountRef.current) {
+      const latest = messages[messages.length - 1]
+      setNotification(`New voice note from ${latest.name}`)
+      if (!open && latest.player_id !== playerId) setUnread(previous => previous + 1)
+      playGameSound('join')
+      const timer = window.setTimeout(() => setNotification(''), 3500)
+      previousMessageCountRef.current = messages.length
+      return () => window.clearTimeout(timer)
+    }
+    previousMessageCountRef.current = messages.length
+  }, [messages, open, playerId])
+
+  useEffect(() => {
+    if (chatMessages.length > previousChatCountRef.current) {
+      const latest = chatMessages[chatMessages.length - 1]
+      if (!open && latest.player_id !== playerId) {
+        setUnread(previous => previous + 1)
+        playGameSound('join')
+      }
+    }
+    previousChatCountRef.current = chatMessages.length
+  }, [chatMessages, open, playerId])
 
   useEffect(() => () => {
     if (timerRef.current) window.clearTimeout(timerRef.current)
@@ -784,28 +816,39 @@ function VoicePanel({ messages, enabled }: { messages: VoiceMessage[]; enabled: 
     if (recorderRef.current?.state === 'recording') recorderRef.current.stop()
   }
 
-  return (
-    <aside className="voice-panel content-panel" aria-label="Game voice messages">
-      <div className="voice-heading"><span className="voice-icon"><Volume2 size={17} /></span><div><strong>Voice notes</strong><small>Only players at this table</small></div><span className="voice-count">{messages.length}/20</span></div>
-      <div className="voice-feed" aria-live="polite">
-        {messages.length ? messages.map(message => (
-          <div className="voice-message" key={message.id}>
-            <div className="voice-message-meta"><strong>{message.name}</strong><time>{new Date(message.sent_at * 1000).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</time></div>
-            {voiceUrls[message.id]
-              ? <audio controls preload="none" src={voiceUrls[message.id]} aria-label={`Voice message from ${message.name}`} />
-              : <button className="voice-play" onClick={() => requestVoice(message.id)}><Volume2 size={14} /> Listen <span>{Math.max(1, Math.round(message.size / 16_000))} KB</span></button>}
-          </div>
-        )) : <div className="voice-empty"><Mic size={19} /><span>No voice notes yet.</span><small>Send a quick hello to the table.</small></div>}
+  function sendTextMessage(event: React.FormEvent) {
+    event.preventDefault()
+    const text = textMessage.trim()
+    if (!text) return
+    send('chat', { text })
+    setTextMessage('')
+  }
+
+  function toggleChat() {
+    setOpen(previous => !previous)
+    setUnread(0)
+  }
+
+  const feed = [
+    ...chatMessages.map(message => ({ kind: 'text' as const, sent_at: message.sent_at, message })),
+    ...messages.map(message => ({ kind: 'voice' as const, sent_at: message.sent_at, message })),
+  ].sort((a, b) => a.sent_at - b.sent_at)
+
+  return <div className="table-chat-shell">
+    <button type="button" className={`chat-fab ${open ? 'chat-fab-open' : ''}`} onClick={toggleChat} aria-label={open ? 'Close table chat' : 'Open table chat'}>{open ? <X size={21} /> : <><Mic size={20} />{unread > 0 && <span>{Math.min(unread, 9)}</span>}</>}</button>
+    {open && <aside className="voice-panel table-chat-phone content-panel" aria-label="Table chat">
+      <div className="voice-heading"><span className="voice-icon"><Volume2 size={17} /></span><div><strong>Table chat</strong><small>{notification || 'Text and voice notes · room only'}</small></div><button type="button" className="icon-button" onClick={toggleChat} aria-label="Close chat"><X size={17} /></button></div>
+      <div className="voice-feed chat-feed" aria-live="polite">
+        {feed.length ? feed.map(item => item.kind === 'text' ? <div className={`chat-bubble ${item.message.player_id === playerId ? 'chat-bubble-mine' : ''}`} key={`text-${item.message.id}`}><div className="voice-message-meta"><strong>{item.message.name}</strong><time>{new Date(item.message.sent_at * 1000).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</time></div><p>{item.message.text}</p></div> : <div className={`voice-message ${item.message.player_id === playerId ? 'chat-bubble-mine' : ''}`} key={`voice-${item.message.id}`}><div className="voice-message-meta"><strong>{item.message.name}</strong><time>{new Date(item.message.sent_at * 1000).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</time></div>{voiceUrls[item.message.id] ? <audio controls preload="none" src={voiceUrls[item.message.id]} aria-label={`Voice message from ${item.message.name}`} /> : <button className="voice-play" onClick={() => requestVoice(item.message.id)}><Volume2 size={14} /> Listen <span>{Math.max(1, Math.round(item.message.size / 16_000))} KB</span></button>}</div>) : <div className="voice-empty"><Mic size={19} /><span>No messages yet.</span><small>Say hello to the table.</small></div>}
       </div>
-      <div className="voice-compose">
-        <button className={`button ${recording ? 'button-recording' : 'button-green'} full-button`} disabled={!enabled && !recording} onClick={recording ? stopRecording : () => void recordVoice()}>
-          {recording ? <><Square size={14} fill="currentColor" /> Stop recording</> : <><Mic size={16} /> Record voice note</>}
-        </button>
-        <span className="voice-hint">{recording ? 'Recording… stops automatically at 15 seconds' : enabled ? 'Up to 15 seconds · microphone permission required' : 'Recording is available during a game'}</span>
+      <div className="voice-compose chat-compose">
+        <form onSubmit={sendTextMessage}><input value={textMessage} maxLength={500} onChange={event => setTextMessage(event.target.value)} placeholder="Message the table…" aria-label="Message the table" disabled={!enabled} /><button type="submit" className="icon-button" disabled={!enabled || !textMessage.trim()} aria-label="Send message"><ArrowRight size={18} /></button></form>
+        <button className={`button ${recording ? 'button-recording' : 'button-outline'} full-button`} disabled={!enabled && !recording} onClick={recording ? stopRecording : () => void recordVoice()}>{recording ? <><Square size={14} fill="currentColor" /> Stop recording</> : <><Mic size={16} /> Send voice message</>}</button>
+        <span className="voice-hint">{recording ? 'Recording… stops automatically at 15 seconds' : 'Voice messages up to 15 seconds'}</span>
         {error && <span className="voice-error" role="alert">{error}</span>}
       </div>
-    </aside>
-  )
+    </aside>}
+  </div>
 }
 
 function Profile() {
@@ -887,7 +930,7 @@ function App() {
   return <BrowserRouter><ArenaProvider><AppFrame />{launching && <LaunchScreen onDone={finishLaunch} />}</ArenaProvider></BrowserRouter>
 }
 
-export { App, CardFace, VoicePanel }
+export { App, CardFace, LiveVoicePanel, VoicePanel }
 
 const rootElement = document.getElementById('root')
 if (rootElement) createRoot(rootElement).render(<React.StrictMode><App /></React.StrictMode>)
