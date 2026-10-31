@@ -2,6 +2,7 @@ export type GameSound = 'join' | 'start' | 'turn' | 'play' | 'draw' | 'win' | 'l
 
 const SOUND_KEY = 'whot.sound'
 let context: AudioContext | null = null
+let pendingSound: GameSound | null = null
 
 export function gameSoundsEnabled() {
   return localStorage.getItem(SOUND_KEY) !== 'off'
@@ -13,7 +14,7 @@ export function setGameSoundsEnabled(enabled: boolean) {
 
 function getContext() {
   if (typeof window === 'undefined') return null
-  const AudioContextClass = window.AudioContext
+  const AudioContextClass = window.AudioContext || (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext
   if (!AudioContextClass) return null
   context ??= new AudioContextClass()
   return context
@@ -60,12 +61,9 @@ const cues: Record<GameSound, Note[]> = {
   ],
 }
 
-export function playGameSound(sound: GameSound) {
-  if (!gameSoundsEnabled()) return
-  const audio = getContext()
-  if (!audio) return
-  if (audio.state === 'suspended') void audio.resume()
-  const start = audio.currentTime + .01
+function scheduleSound(audio: AudioContext, sound: GameSound) {
+  if (audio.state !== 'running') return
+  const start = audio.currentTime + .02
   for (const note of cues[sound]) {
     const oscillator = audio.createOscillator()
     const gain = audio.createGain()
@@ -74,7 +72,7 @@ export function playGameSound(sound: GameSound) {
     oscillator.type = note.wave || 'sine'
     oscillator.frequency.setValueAtTime(note.frequency, noteStart)
     gain.gain.setValueAtTime(.0001, noteStart)
-    gain.gain.exponentialRampToValueAtTime(note.volume || .04, noteStart + .012)
+    gain.gain.exponentialRampToValueAtTime((note.volume || .04) * 2.25, noteStart + .012)
     gain.gain.exponentialRampToValueAtTime(.0001, noteEnd)
     oscillator.connect(gain)
     gain.connect(audio.destination)
@@ -83,8 +81,29 @@ export function playGameSound(sound: GameSound) {
   }
 }
 
+export function playGameSound(sound: GameSound) {
+  if (!gameSoundsEnabled()) return
+  const audio = getContext()
+  if (!audio) return
+  if (audio.state === 'running') {
+    scheduleSound(audio, sound)
+    return
+  }
+  pendingSound = sound
+  void audio.resume().then(() => {
+    const queued = pendingSound
+    pendingSound = null
+    if (queued && gameSoundsEnabled()) scheduleSound(audio, queued)
+  }).catch(() => undefined)
+}
+
 export function primeGameAudio() {
   if (!gameSoundsEnabled()) return
   const audio = getContext()
-  if (audio?.state === 'suspended') void audio.resume()
+  if (!audio || audio.state === 'running') return
+  void audio.resume().then(() => {
+    const queued = pendingSound
+    pendingSound = null
+    if (queued && gameSoundsEnabled()) scheduleSound(audio, queued)
+  }).catch(() => undefined)
 }
