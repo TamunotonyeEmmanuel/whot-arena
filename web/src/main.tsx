@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useEffect, useRef, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import { BrowserRouter, Link, NavLink, Navigate, Route, Routes, useLocation, useNavigate, useParams } from 'react-router-dom'
-import { ArrowLeft, ArrowRight, BookOpen, Check, ChevronDown, CircleHelp, Clock3, Crown, DoorOpen, Gamepad2, History, Home, LogIn, LogOut, Menu, Mic, MicOff, Plus, Radio, Settings, Shield, Sparkles, Square, Trophy, UserRound, Users, Volume2, X } from 'lucide-react'
+import { ArrowLeft, ArrowRight, BatteryFull, BookOpen, Check, ChevronDown, CircleHelp, Clock3, Crown, DoorOpen, Gamepad2, History, Home, LogIn, LogOut, Menu, MessageCircle, Mic, MicOff, Plus, Radio, Settings, Shield, Signal, Sparkles, Square, Trophy, UserRound, Users, Volume2, Wifi, X } from 'lucide-react'
 import './styles.css'
 import { gameSoundsEnabled, playGameSound, primeGameAudio, setGameSoundsEnabled } from './audio'
 
@@ -833,19 +833,24 @@ function VoicePanel({ messages, chatMessages, playerId, enabled }: { messages: V
     ...chatMessages.map(message => ({ kind: 'text' as const, sent_at: message.sent_at, message })),
     ...messages.map(message => ({ kind: 'voice' as const, sent_at: message.sent_at, message })),
   ].sort((a, b) => a.sent_at - b.sent_at)
+  const phoneTime = new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
 
   return <div className="table-chat-shell">
-    <button type="button" className={`chat-fab ${open ? 'chat-fab-open' : ''}`} onClick={toggleChat} aria-label={open ? 'Close table chat' : 'Open table chat'}>{open ? <X size={21} /> : <><Mic size={20} />{unread > 0 && <span>{Math.min(unread, 9)}</span>}</>}</button>
+    <button type="button" className={`chat-fab ${open ? 'chat-fab-open' : ''}`} onClick={toggleChat} aria-label={open ? 'Close table chat' : 'Open table chat'}>{open ? <X size={21} /> : <><MessageCircle size={21} />{unread > 0 && <span>{Math.min(unread, 9)}</span>}</>}</button>
     {open && <aside className="voice-panel table-chat-phone content-panel" aria-label="Table chat">
-      <div className="voice-heading"><span className="voice-icon"><Volume2 size={17} /></span><div><strong>Table chat</strong><small>{notification || 'Text and voice notes · room only'}</small></div><button type="button" className="icon-button" onClick={toggleChat} aria-label="Close chat"><X size={17} /></button></div>
+      <div className="iphone-screen">
+      <div className="iphone-statusbar" aria-hidden="true"><strong>{phoneTime}</strong><span className="iphone-island" /><span className="iphone-signals"><Signal size={12} fill="currentColor" /><Wifi size={13} /><BatteryFull size={16} /></span></div>
+      <div className="iphone-chat-header"><button type="button" className="icon-button iphone-back" onClick={toggleChat} aria-label="Close chat"><ArrowLeft size={19} /></button><span className="iphone-contact"><Users size={17} /></span><div><strong>WHOT Table</strong><small><span /> {notification || 'Players online'}</small></div><button type="button" className="icon-button" onClick={toggleChat} aria-label="Close chat"><X size={17} /></button></div>
+      <div className="iphone-chat-date">Today</div>
       <div className="voice-feed chat-feed" aria-live="polite">
         {feed.length ? feed.map(item => item.kind === 'text' ? <div className={`chat-bubble ${item.message.player_id === playerId ? 'chat-bubble-mine' : ''}`} key={`text-${item.message.id}`}><div className="voice-message-meta"><strong>{item.message.name}</strong><time>{new Date(item.message.sent_at * 1000).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</time></div><p>{item.message.text}</p></div> : <div className={`voice-message ${item.message.player_id === playerId ? 'chat-bubble-mine' : ''}`} key={`voice-${item.message.id}`}><div className="voice-message-meta"><strong>{item.message.name}</strong><time>{new Date(item.message.sent_at * 1000).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</time></div>{voiceUrls[item.message.id] ? <audio controls preload="none" src={voiceUrls[item.message.id]} aria-label={`Voice message from ${item.message.name}`} /> : <button className="voice-play" onClick={() => requestVoice(item.message.id)}><Volume2 size={14} /> Listen <span>{Math.max(1, Math.round(item.message.size / 16_000))} KB</span></button>}</div>) : <div className="voice-empty"><Mic size={19} /><span>No messages yet.</span><small>Say hello to the table.</small></div>}
       </div>
       <div className="voice-compose chat-compose">
-        <form onSubmit={sendTextMessage}><input value={textMessage} maxLength={500} onChange={event => setTextMessage(event.target.value)} placeholder="Message the table…" aria-label="Message the table" disabled={!enabled} /><button type="submit" className="icon-button" disabled={!enabled || !textMessage.trim()} aria-label="Send message"><ArrowRight size={18} /></button></form>
-        <button className={`button ${recording ? 'button-recording' : 'button-outline'} full-button`} disabled={!enabled && !recording} onClick={recording ? stopRecording : () => void recordVoice()}>{recording ? <><Square size={14} fill="currentColor" /> Stop recording</> : <><Mic size={16} /> Send voice message</>}</button>
-        <span className="voice-hint">{recording ? 'Recording… stops automatically at 15 seconds' : 'Voice messages up to 15 seconds'}</span>
+        <form onSubmit={sendTextMessage}><button type="button" className={`iphone-mic ${recording ? 'iphone-mic-recording' : ''}`} disabled={!enabled && !recording} onClick={recording ? stopRecording : () => void recordVoice()} aria-label={recording ? 'Stop recording' : 'Record voice message'}>{recording ? <Square size={13} fill="currentColor" /> : <Mic size={17} />}</button><input value={textMessage} maxLength={500} onChange={event => setTextMessage(event.target.value)} placeholder={recording ? 'Recording voice note…' : 'Message'} aria-label="Message the table" disabled={!enabled || recording} /><button type="submit" className="icon-button iphone-send" disabled={!enabled || !textMessage.trim() || recording} aria-label="Send message"><ArrowRight size={17} /></button></form>
+        <span className="voice-hint">{recording ? 'Tap the red button to send · 15 seconds maximum' : 'Tap the microphone to send a voice message'}</span>
         {error && <span className="voice-error" role="alert">{error}</span>}
+      </div>
+      <span className="iphone-homebar" aria-hidden="true" />
       </div>
     </aside>}
   </div>
