@@ -216,3 +216,65 @@ html[data-theme="dark"] .table-chat-phone .voice-message-meta strong{color:#f2ff
   color: #f4f7ed;
   animation: none;
 }
+/* ==========================================
+   WHOT ARENA — UNIFIED LOADING POSITION
+   ========================================== */
+
+/* Center both startup and table-loading screens */
+.launch-screen,
+.launch-screen.table-loading {
+  position: fixed !important;
+  inset: 0 !important;
+
+  width: 100vw !important;
+  height: 100dvh !important;
+
+  display: flex !important;
+  flex-direction: column !important;
+
+  align-items: center !important;
+  justify-content: center !important;
+
+  text-align: center !important;
+
+  padding: 0 !important;
+  margin: 0 !important;
+
+  box-sizing: border-box !important;
+
+  background: #102b22 !important;
+  color: #f4f7ed !important;
+
+  z-index: 99999 !important;
+}
+
+/* Keep the logo centered */
+.launch-card {
+  flex-shrink: 0;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+/* Center the WHOT ARENA branding */
+.launch-wordmark {
+  justify-content: center;
+  align-items: baseline;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+/* Center the progress bar */
+.launch-progress {
+  margin-left: auto;
+  margin-right: auto;
+}
+
+/* Keep the loading message centered */
+.launch-screen > small {
+  text-align: center;
+}
+
+/* Table loading stays visible until React removes it */
+.launch-screen.table-loading {
+  animation: none !important;
+}
