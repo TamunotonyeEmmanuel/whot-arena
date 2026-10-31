@@ -34,10 +34,11 @@ type ArenaContextValue = {
 
 const API_URL = (import.meta.env.VITE_API_URL || 'http://localhost:8000').replace(/\/$/, '')
 const WS_URL = import.meta.env.VITE_WS_URL || `${API_URL.replace(/^http/, 'ws')}/ws`
+const TURN_URLS = (import.meta.env.VITE_TURN_URL || '').split(',').map(value => value.trim()).filter(value => /^(stun|turn|turns):/.test(value))
 const RTC_ICE_SERVERS: RTCIceServer[] = [
   { urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'] },
-  ...(import.meta.env.VITE_TURN_URL ? [{
-    urls: import.meta.env.VITE_TURN_URL,
+  ...(TURN_URLS.length ? [{
+    urls: TURN_URLS,
     username: import.meta.env.VITE_TURN_USERNAME || '',
     credential: import.meta.env.VITE_TURN_CREDENTIAL || '',
   }] : []),
@@ -544,7 +545,7 @@ function GameTable() {
 function LiveVoicePanel({ players, playerId, enabled }: { players: Player[]; playerId: string; enabled: boolean }) {
   const { rtcSignals, sendRtcSignal, send } = useArena()
   const [muted, setMuted] = useState(false)
-  const [status, setStatus] = useState<'starting' | 'live' | 'blocked' | 'unsupported'>('starting')
+  const [status, setStatus] = useState<'starting' | 'live' | 'blocked' | 'unsupported' | 'failed'>('starting')
   const [connectedPeers, setConnectedPeers] = useState<string[]>([])
   const [playbackBlocked, setPlaybackBlocked] = useState(false)
   const [connectionSlow, setConnectionSlow] = useState(false)
@@ -578,13 +579,27 @@ function LiveVoicePanel({ players, playerId, enabled }: { players: Player[]; pla
     return startPromiseRef.current
   }
 
-  function createPeer(remoteId: string, stream: MediaStream) {
+  function createPeer(remoteId: string, stream: MediaStream): RTCPeerConnection | null {
     const existing = peersRef.current.get(remoteId)
     if (existing) return existing
-    const peer = new RTCPeerConnection({ iceServers: RTC_ICE_SERVERS, iceCandidatePoolSize: 4 })
+    let peer: RTCPeerConnection
+    try {
+      peer = new RTCPeerConnection({ iceServers: RTC_ICE_SERVERS, iceCandidatePoolSize: 4 })
+    } catch {
+      setStatus('failed')
+      return null
+    }
     stream.getAudioTracks().forEach(track => peer.addTrack(track, stream))
     peer.onicecandidate = event => {
-      if (event.candidate) sendRtcSignal(remoteId, { type: 'ice', candidate: event.candidate.toJSON() })
+      if (event.candidate) {
+        const candidate = typeof event.candidate.toJSON === 'function' ? event.candidate.toJSON() : {
+          candidate: event.candidate.candidate,
+          sdpMid: event.candidate.sdpMid,
+          sdpMLineIndex: event.candidate.sdpMLineIndex,
+          usernameFragment: event.candidate.usernameFragment,
+        }
+        sendRtcSignal(remoteId, { type: 'ice', candidate })
+      }
     }
     peer.ontrack = event => {
       const audio = audioRef.current.get(remoteId) || new Audio()
@@ -631,10 +646,11 @@ function LiveVoicePanel({ players, playerId, enabled }: { players: Player[]; pla
     }
     for (const remoteId of remoteIds) {
       const peer = createPeer(remoteId, stream)
+      if (!peer) continue
       if (playerId < remoteId && !offeredRef.current.has(remoteId)) {
         offeredRef.current.add(remoteId)
         void peer.createOffer().then(offer => peer.setLocalDescription(offer)).then(() => {
-          if (peer.localDescription) sendRtcSignal(remoteId, { type: 'offer', sdp: peer.localDescription.toJSON() })
+          if (peer.localDescription) sendRtcSignal(remoteId, { type: 'offer', sdp: { type: peer.localDescription.type, sdp: peer.localDescription.sdp } })
         }).catch(() => offeredRef.current.delete(remoteId))
       }
     }
@@ -648,13 +664,14 @@ function LiveVoicePanel({ players, playerId, enabled }: { players: Player[]; pla
         const stream = await startMicrophone()
         if (!stream) return
         const peer = createPeer(message.from, stream)
+        if (!peer) return
         if (message.signal.type === 'offer' && message.signal.sdp) {
           await peer.setRemoteDescription(message.signal.sdp)
           for (const candidate of pendingIceRef.current.get(message.from) || []) await peer.addIceCandidate(candidate)
           pendingIceRef.current.delete(message.from)
           const answer = await peer.createAnswer()
           await peer.setLocalDescription(answer)
-          if (peer.localDescription) sendRtcSignal(message.from, { type: 'answer', sdp: peer.localDescription.toJSON() })
+          if (peer.localDescription) sendRtcSignal(message.from, { type: 'answer', sdp: { type: peer.localDescription.type, sdp: peer.localDescription.sdp } })
         } else if (message.signal.type === 'answer' && message.signal.sdp) {
           await peer.setRemoteDescription(message.signal.sdp)
           for (const candidate of pendingIceRef.current.get(message.from) || []) await peer.addIceCandidate(candidate)
@@ -686,7 +703,7 @@ function LiveVoicePanel({ players, playerId, enabled }: { players: Player[]; pla
   }
 
   const voiceCount = status === 'live' ? connectedPeers.length + 1 : 0
-  const statusText = status === 'live' ? `${voiceCount} ${voiceCount === 1 ? 'player' : 'players'} in voice` : status === 'blocked' ? 'Microphone permission is required' : status === 'unsupported' ? 'Live voice is unavailable in this browser' : 'Opening microphone…'
+  const statusText = status === 'live' ? `${voiceCount} ${voiceCount === 1 ? 'player' : 'players'} in voice` : status === 'blocked' ? 'Microphone permission is required' : status === 'unsupported' ? 'Live voice is unavailable in this browser' : status === 'failed' ? 'Could not start live voice' : 'Opening microphone…'
   return <aside className="voice-panel live-voice-panel content-panel" aria-label="Live table voice"><div className="voice-heading"><span className={`voice-icon ${status === 'live' ? 'voice-live' : ''}`}><Volume2 size={17} /></span><div><strong>Live table voice</strong><small>{statusText}</small></div><span className={`status-dot ${status === 'live' ? 'online' : ''}`} /></div><div className="live-voice-room"><div className={`live-mic-orbit ${status === 'live' && !muted ? 'mic-active' : ''}`}><span>{muted ? <MicOff size={27} /> : <Mic size={27} />}</span></div><strong>{muted ? 'Your microphone is muted' : status === 'live' ? 'Your microphone is live' : 'Waiting for microphone'}</strong><small>{connectionSlow ? 'Direct voice connection failed. This network may require a TURN server.' : 'Audio is shared only with players at this table.'}</small></div><div className="voice-compose">{status === 'blocked' ? <button type="button" className="button button-green full-button" onClick={() => { startPromiseRef.current = null; setStatus('starting'); void startMicrophone() }}><Mic size={16} /> Allow microphone</button> : playbackBlocked ? <button type="button" className="button button-green full-button" onClick={enablePlayback}><Volume2 size={16} /> Enable speaker</button> : <button type="button" className={`button ${muted ? 'button-green' : 'button-outline'} full-button`} disabled={status !== 'live'} onClick={toggleMute}>{muted ? <><Mic size={16} /> Unmute microphone</> : <><MicOff size={16} /> Mute microphone</>}</button>}<span className="voice-hint">The browser will ask permission the first time you join voice.</span></div></aside>
 }
 
