@@ -316,12 +316,22 @@ function CreateRoom() {
   const navigate = useNavigate()
   const [name, setName] = useState(user?.username || localStorage.getItem('whot.nickname') || 'Guest')
   const [roomError, setRoomError] = useState('')
+  const [loadingLabel, setLoadingLabel] = useState('')
   async function create(action: 'create' | 'quick_match') {
     setRoomError('')
-    try { const next = await connectRoom(action, { name: name.trim() || 'Guest' }); navigate(`/lobby/${next.code}`) }
-    catch (error) { setRoomError(error instanceof Error ? error.message : 'Could not create room') }
+    setLoadingLabel(action === 'create' ? 'OPENING YOUR TABLE' : 'FINDING YOUR MATCH')
+    try {
+      const [next] = await Promise.all([
+        connectRoom(action, { name: name.trim() || 'Guest' }),
+        new Promise(resolve => window.setTimeout(resolve, 1200)),
+      ])
+      navigate(`/lobby/${next.code}`)
+    } catch (error) {
+      setLoadingLabel('')
+      setRoomError(error instanceof Error ? error.message : 'Could not create room')
+    }
   }
-  return <><PageTitle eyebrow="FIND YOUR TABLE" title="Let's play." detail="Set up a private game or find a player for a quick match." /><div className="setup-layout"><section className="content-panel setup-panel"><span className="setup-number">01</span><span className="small-label">PRIVATE ROOM</span><h2>Bring your own crew.</h2><p>Create a room and share its six-character code. Your friends can join from the web or mobile app.</p><label className="field-label">Your table name<input value={name} maxLength={20} onChange={event => setName(event.target.value)} onBlur={() => localStorage.setItem('whot.nickname', name)} placeholder="Choose a nickname" /></label><button disabled={busy} onClick={() => void create('create')} className="button button-green full-button"><Plus size={17} /> {busy ? 'Opening table…' : 'Create private room'}</button></section><section className="content-panel setup-panel quick-match-panel"><span className="setup-number">02</span><span className="small-label">QUICK MATCH</span><h2>Meet at the table.</h2><p>Open a public lobby and pair up with the next player who joins quick match.</p><div className="quick-match-meta"><span><Users size={15} /> 2–4 players</span><span><Clock3 size={15} /> Usually under a minute</span></div><button disabled={busy} onClick={() => void create('quick_match')} className="button button-lime full-button"><Sparkles size={17} /> {busy ? 'Finding players…' : 'Find a quick match'}</button></section></div>{roomError && <div role="alert" className="form-error form-error-block">{roomError}</div>}<div className="house-rule-callout"><Shield size={17} /><span><strong>Fair play is server-side.</strong> The game server deals cards, checks moves, and decides the winner.</span><Link to="/help">Rules <ArrowRight size={14} /></Link></div></>
+  return <><PageTitle eyebrow="FIND YOUR TABLE" title="Let's play." detail="Set up a private game or find a player for a quick match." /><div className="setup-layout"><section className="content-panel setup-panel"><span className="setup-number">01</span><span className="small-label">PRIVATE ROOM</span><h2>Bring your own crew.</h2><p>Create a room and share its six-character code. Your friends can join from the web or mobile app.</p><label className="field-label">Your table name<input value={name} maxLength={20} onChange={event => setName(event.target.value)} onBlur={() => localStorage.setItem('whot.nickname', name)} placeholder="Choose a nickname" /></label><button disabled={busy} onClick={() => void create('create')} className="button button-green full-button"><Plus size={17} /> {busy ? 'Opening table…' : 'Create private room'}</button></section><section className="content-panel setup-panel quick-match-panel"><span className="setup-number">02</span><span className="small-label">QUICK MATCH</span><h2>Meet at the table.</h2><p>Open a public lobby and pair up with the next player who joins quick match.</p><div className="quick-match-meta"><span><Users size={15} /> 2–4 players</span><span><Clock3 size={15} /> Usually under a minute</span></div><button disabled={busy} onClick={() => void create('quick_match')} className="button button-lime full-button"><Sparkles size={17} /> {busy ? 'Finding players…' : 'Find a quick match'}</button></section></div>{roomError && <div role="alert" className="form-error form-error-block">{roomError}</div>}<div className="house-rule-callout"><Shield size={17} /><span><strong>Fair play is server-side.</strong> The game server deals cards, checks moves, and decides the winner.</span><Link to="/help">Rules <ArrowRight size={14} /></Link></div>{loadingLabel && <LoadingScreen message={loadingLabel} action />}</>
 }
 
 function JoinRoom() {
@@ -590,12 +600,16 @@ function HelpPage() {
   return <><PageTitle eyebrow="HOW TO PLAY" title="Know the table." detail="These are WHOT Arena's chosen house rules, enforced by the game server." /><section className="rules-intro"><div><span className="small-label">THE OBJECT</span><h2>Be the first to play every card in your hand.</h2><p>Match the top card by shape or number, or draw one card and pass.</p></div><div className="rule-visual"><span className="rule-number">20</span><span>✦</span><small>WILD</small></div></section><div className="rules-grid">{rules.map(([number, title, description]) => <article className="rule-row" key={number}><span className={`rule-token tone-${shapeTone[number === '20' ? 'whot' : 'star']}`}>{number}</span><div><strong>{title}</strong><p>{description}</p></div><ChevronDown size={16} /></article>)}</div><div className="rules-note"><BookOpen size={17} /><div><strong>A note on variants</strong><p>Nigerian WHOT has regional and household variations. Arena uses its displayed rules: five cards each, no penalty stacking, and the next player draws then loses their turn after Pick Two or Pick Three. You may draw and pass even when you have a playable card.</p></div></div><div className="help-actions"><Link className="button button-green" to="/create"><Gamepad2 size={16} /> Start a game</Link><Link className="text-link" to="/settings">Game settings <ArrowRight size={15} /></Link></div></>
 }
 
+function LoadingScreen({ message, action = false }: { message: string; action?: boolean }) {
+  return <div className={`launch-screen ${action ? 'action-loading' : ''}`} role="status" aria-label={message}><div className="launch-glow" /><div className="launch-card" aria-hidden="true"><span>W</span></div><div className="launch-wordmark"><strong>WHOT</strong><span>ARENA</span></div><div className="launch-progress" aria-hidden="true"><span /></div><small>{message}</small></div>
+}
+
 function LaunchScreen({ onDone }: { onDone: () => void }) {
   useEffect(() => {
-    const timer = window.setTimeout(onDone, 1450)
+    const timer = window.setTimeout(onDone, 2500)
     return () => window.clearTimeout(timer)
   }, [onDone])
-  return <div className="launch-screen" role="status" aria-label="Loading WHOT Arena"><div className="launch-glow" /><div className="launch-card" aria-hidden="true"><span>W</span></div><div className="launch-wordmark"><strong>WHOT</strong><span>ARENA</span></div><div className="launch-progress" aria-hidden="true"><span /></div><small>SETTING THE TABLE</small></div>
+  return <LoadingScreen message="SETTING THE TABLE" />
 }
 
 function App() {
