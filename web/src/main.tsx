@@ -650,7 +650,10 @@ function LiveVoicePanel({ players, playerId, enabled }: { players: Player[]; pla
   const relayContextRef = useRef<AudioContext | null>(null)
   const relayProcessorRef = useRef<ScriptProcessorNode | null>(null)
   const relayPlaybackRef = useRef<AudioContext | null>(null)
-  const relayPlaybackTimeRef = useRef(0)
+  // Each remote speaker needs an independent playback clock.
+  const relayPlaybackTimesRef = useRef(new Map<string, number>())
+  // React may batch incoming WebSocket packets into a single render.
+  const handledAudioIdsRef = useRef(new Set<string>())
 
   function startRelayCapture(stream: MediaStream) {
     if (relayProcessorRef.current) return
@@ -767,6 +770,8 @@ function LiveVoicePanel({ players, playerId, enabled }: { players: Player[]; pla
       relayContextRef.current = null
       void relayPlaybackRef.current?.close()
       relayPlaybackRef.current = null
+      relayPlaybackTimesRef.current.clear()
+      handledAudioIdsRef.current.clear()
       peersRef.current.clear()
       audioRef.current.clear()
     }
@@ -823,22 +828,51 @@ function LiveVoicePanel({ players, playerId, enabled }: { players: Player[]; pla
   }, [rtcSignals, players])
 
   useEffect(() => {
-    const packet = liveAudioPackets[liveAudioPackets.length - 1]
-    if (!packet || packet.from === playerId || connectedPeers.includes(packet.from)) return
+    const pending = liveAudioPackets.filter(packet => {
+      if (handledAudioIdsRef.current.has(packet.id)) return false
+      handledAudioIdsRef.current.add(packet.id)
+      return packet.from !== playerId && !connectedPeers.includes(packet.from)
+    })
+    // Keep deduplication bounded across long sessions.
+    if (handledAudioIdsRef.current.size > 500) {
+      const recent = [...handledAudioIdsRef.current].slice(-250)
+      handledAudioIdsRef.current = new Set(recent)
+    }
+    if (!pending.length) return
+
     const context = relayPlaybackRef.current || new AudioContext()
     relayPlaybackRef.current = context
-    if (context.state !== 'running') { setPlaybackBlocked(true); return }
-    const bytes = Uint8Array.from(atob(packet.audio), character => character.charCodeAt(0))
-    const samples = new Int16Array(bytes.buffer)
-    const buffer = context.createBuffer(1, samples.length, 16000)
-    const channel = buffer.getChannelData(0)
-    for (let index = 0; index < samples.length; index += 1) channel[index] = samples[index] / 0x8000
-    const source = context.createBufferSource()
-    source.buffer = buffer
-    source.connect(context.destination)
-    const startsAt = Math.max(context.currentTime + .02, relayPlaybackTimeRef.current)
-    source.start(startsAt)
-    relayPlaybackTimeRef.current = startsAt + buffer.duration
+    if (context.state !== 'running') {
+      setPlaybackBlocked(true)
+      return
+    }
+
+    for (const packet of pending) {
+      try {
+        const bytes = Uint8Array.from(atob(packet.audio), character => character.charCodeAt(0))
+        if (bytes.byteLength < 2 || bytes.byteLength % 2 !== 0) continue
+        const samples = new Int16Array(bytes.buffer, bytes.byteOffset, bytes.byteLength / 2)
+        const buffer = context.createBuffer(1, samples.length, 16000)
+        const channel = buffer.getChannelData(0)
+        for (let index = 0; index < samples.length; index += 1) {
+          channel[index] = samples[index] / 0x8000
+        }
+
+        const previousTime = relayPlaybackTimesRef.current.get(packet.from) || 0
+        // A small initial buffer smooths packet arrival; drop accumulated latency.
+        const now = context.currentTime
+        const startAt = previousTime < now || previousTime > now + 0.35
+          ? now + 0.08
+          : previousTime
+        const source = context.createBufferSource()
+        source.buffer = buffer
+        source.connect(context.destination)
+        source.start(startAt)
+        relayPlaybackTimesRef.current.set(packet.from, startAt + buffer.duration)
+      } catch {
+        // A damaged packet should not stop playback of subsequent packets.
+      }
+    }
   }, [liveAudioPackets, playerId, connectedPeers])
 
   useEffect(() => {
