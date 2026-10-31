@@ -338,17 +338,31 @@ const navItems = [
   { to: '/history', label: 'Game history', icon: History },
 ]
 
+const MUSIC_KEY = 'whot.music'
+const MUSIC_CHANGE_EVENT = 'whot-music-change'
+const backgroundMusicEnabled = () => localStorage.getItem(MUSIC_KEY) !== 'off'
+function setBackgroundMusicEnabled(enabled: boolean) {
+  localStorage.setItem(MUSIC_KEY, enabled ? 'on' : 'off')
+  window.dispatchEvent(new CustomEvent(MUSIC_CHANGE_EVENT, { detail: enabled }))
+}
 
 function ArenaBackgroundMusic() {
   const { view } = useArena()
   const audioRef = useRef<HTMLAudioElement | null>(null)
   const playbackAllowedRef = useRef(true)
+  const [musicEnabled, setMusicEnabled] = useState(backgroundMusicEnabled)
   const location = useLocation()
   const inGame = location.pathname.startsWith('/game/')
   const playerLeftGame = Boolean(inGame && view && (view.pause_reason === 'disconnect' || view.players.some(player => !player.is_bot && !player.connected)))
   const liveVoiceActive = Boolean(inGame && view?.players.some(player => !player.is_bot && player.voice_speaking))
   const musicPaused = playerLeftGame || liveVoiceActive
-  playbackAllowedRef.current = !musicPaused
+  playbackAllowedRef.current = musicEnabled && !musicPaused
+
+  useEffect(() => {
+    const update = (event: Event) => setMusicEnabled((event as CustomEvent<boolean>).detail)
+    window.addEventListener(MUSIC_CHANGE_EVENT, update)
+    return () => window.removeEventListener(MUSIC_CHANGE_EVENT, update)
+  }, [])
 
   useEffect(() => {
     const audio = new Audio('/audio/whot-background.mp3')
@@ -382,12 +396,12 @@ function ArenaBackgroundMusic() {
     const audio = audioRef.current
     if (!audio) return
     audio.volume = 0.01
-    if (musicPaused) {
+    if (!musicEnabled || musicPaused) {
       audio.pause()
       return
     }
     if (audio.paused) void Promise.resolve(audio.play()).catch(() => undefined)
-  }, [inGame, musicPaused])
+  }, [inGame, musicEnabled, musicPaused])
 
   return null
 }
@@ -1171,12 +1185,14 @@ function SettingsPage() {
   const { user } = useArena()
   const [nickname, setNickname] = useState(localStorage.getItem('whot.nickname') || user?.username || 'Guest')
   const [sound, setSound] = useState(gameSoundsEnabled)
+  const [music, setMusic] = useState(backgroundMusicEnabled)
   const [theme, setTheme] = useState<ColorTheme>(preferredTheme)
   const [saved, setSaved] = useState(false)
   function save() { localStorage.setItem('whot.nickname', nickname.slice(0, 20)); setSaved(true); window.setTimeout(() => setSaved(false), 2200) }
   function toggleSound(enabled: boolean) { setSound(enabled); setGameSoundsEnabled(enabled); if (enabled) playGameSound('preview') }
+  function toggleMusic(enabled: boolean) { setMusic(enabled); setBackgroundMusicEnabled(enabled) }
   function changeTheme(next: ColorTheme) { setTheme(next); applyColorTheme(next) }
-  return <><PageTitle eyebrow="PREFERENCES" title="Make it yours." detail="Local settings for this browser. Your account data stays on the server." /><div className="settings-layout"><section className="content-panel settings-panel"><span className="small-label">PLAYER IDENTITY</span><h2>Table name</h2><p>This name appears to other players when you join as a guest.</p><label className="field-label">Display name<input value={nickname} maxLength={20} onChange={event => setNickname(event.target.value)} /></label><button className="button button-green" onClick={save}><Check size={16} /> {saved ? 'Saved' : 'Save preference'}</button></section><section className="content-panel settings-panel"><span className="small-label">APPEARANCE</span><h2>Color mode</h2><p>Choose the Arena appearance that is most comfortable for you.</p><div className="theme-options"><button type="button" className={`theme-option ${theme === 'light' ? 'theme-option-active' : ''}`} onClick={() => changeTheme('light')}><Sun size={18} /><span><strong>Light</strong><small>Bright and clean</small></span></button><button type="button" className={`theme-option ${theme === 'dark' ? 'theme-option-active' : ''}`} onClick={() => changeTheme('dark')}><Moon size={18} /><span><strong>Dark</strong><small>Easy on the eyes</small></span></button></div></section><section className="content-panel settings-panel"><span className="small-label">GAME EXPERIENCE</span><h2>Audio cues</h2><p>Hear subtle cues when players join, cards move, your turn begins, and a round ends.</p><label className="toggle-row"><span><strong>Enable game sounds</strong><small>Saved automatically on this device</small></span><input type="checkbox" checked={sound} onChange={event => toggleSound(event.target.checked)} /></label><button type="button" className="button button-outline" disabled={!sound} onClick={() => playGameSound('preview')}><Volume2 size={16} /> Test sound</button></section><div className="info-banner"><Shield size={16} /> Account email and password are managed by your player account, not stored in these local settings.</div></div></>
+  return <><PageTitle eyebrow="PREFERENCES" title="Make it yours." detail="Local settings for this browser. Your account data stays on the server." /><div className="settings-layout"><section className="content-panel settings-panel"><span className="small-label">PLAYER IDENTITY</span><h2>Table name</h2><p>This name appears to other players when you join as a guest.</p><label className="field-label">Display name<input value={nickname} maxLength={20} onChange={event => setNickname(event.target.value)} /></label><button className="button button-green" onClick={save}><Check size={16} /> {saved ? 'Saved' : 'Save preference'}</button></section><section className="content-panel settings-panel"><span className="small-label">APPEARANCE</span><h2>Color mode</h2><p>Choose the Arena appearance that is most comfortable for you.</p><div className="theme-options"><button type="button" className={`theme-option ${theme === 'light' ? 'theme-option-active' : ''}`} onClick={() => changeTheme('light')}><Sun size={18} /><span><strong>Light</strong><small>Bright and clean</small></span></button><button type="button" className={`theme-option ${theme === 'dark' ? 'theme-option-active' : ''}`} onClick={() => changeTheme('dark')}><Moon size={18} /><span><strong>Dark</strong><small>Easy on the eyes</small></span></button></div></section><section className="content-panel settings-panel"><span className="small-label">GAME EXPERIENCE</span><h2>Audio controls</h2><p>Control background music separately from card and match sound effects.</p><label className="toggle-row"><span><strong>Background music</strong><small>Turn the Arena music on or off</small></span><input type="checkbox" checked={music} onChange={event => toggleMusic(event.target.checked)} /></label><label className="toggle-row"><span><strong>Enable game sounds</strong><small>Card, turn, and victory effects</small></span><input type="checkbox" checked={sound} onChange={event => toggleSound(event.target.checked)} /></label><button type="button" className="button button-outline" disabled={!sound} onClick={() => playGameSound('preview')}><Volume2 size={16} /> Test sound</button></section><div className="info-banner"><Shield size={16} /> Account email and password are managed by your player account, not stored in these local settings.</div></div></>
 }
 
 const rules = [
