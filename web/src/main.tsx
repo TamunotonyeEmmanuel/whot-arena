@@ -373,7 +373,7 @@ function ArenaBackgroundMusic() {
   }, [])
 
   useEffect(() => {
-    if (audioRef.current) audioRef.current.volume = inGame ? 0.004 : 0.015
+    if (audioRef.current) audioRef.current.volume = inGame ? 0.01 : 0.015
   }, [inGame])
 
   return null
@@ -675,6 +675,7 @@ function LiveVoicePanel({ players, playerId, enabled }: { players: Player[]; pla
   const [muted, setMuted] = useState(true)
   const [status, setStatus] = useState<'idle' | 'starting' | 'live' | 'blocked' | 'unsupported' | 'failed'>('idle')
   const [connectedPeers, setConnectedPeers] = useState<string[]>([])
+  const [directAudioPeers, setDirectAudioPeers] = useState<string[]>([])
   const [playbackBlocked, setPlaybackBlocked] = useState(false)
   const [connectionSlow, setConnectionSlow] = useState(false)
   const [voiceError, setVoiceError] = useState('')
@@ -691,10 +692,21 @@ function LiveVoicePanel({ players, playerId, enabled }: { players: Player[]; pla
   const relayContextRef = useRef<AudioContext | null>(null)
   const relayProcessorRef = useRef<ScriptProcessorNode | null>(null)
   const relayPlaybackRef = useRef<AudioContext | null>(null)
+  const directAudioPeersRef = useRef(new Set<string>())
+  const relaySourcesRef = useRef(new Map<string, Set<AudioBufferSourceNode>>())
   // Each remote speaker needs an independent playback clock.
   const relayPlaybackTimesRef = useRef(new Map<string, number>())
   // React may batch incoming WebSocket packets into a single render.
   const handledAudioIdsRef = useRef(new Set<string>())
+
+  function unlockLivePlayback() {
+    const playback = relayPlaybackRef.current || new AudioContext()
+    relayPlaybackRef.current = playback
+    if (playback.state !== 'running') {
+      void playback.resume().then(() => setPlaybackBlocked(false)).catch(() => setPlaybackBlocked(true))
+    }
+    audioRef.current.forEach(audio => { void Promise.resolve(audio.play()).catch(() => setPlaybackBlocked(true)) })
+  }
 
   function startRelayCapture(stream: MediaStream) {
     if (relayProcessorRef.current) return
@@ -709,7 +721,11 @@ function LiveVoicePanel({ players, playerId, enabled }: { players: Player[]; pla
       const ratio = context.sampleRate / 16000
       const samples = new Int16Array(Math.floor(input.length / ratio))
       for (let index = 0; index < samples.length; index += 1) {
-        const value = Math.max(-1, Math.min(1, input[Math.floor(index * ratio)]))
+        const start = Math.floor(index * ratio)
+        const end = Math.min(input.length, Math.floor((index + 1) * ratio))
+        let total = 0
+        for (let sample = start; sample < end; sample += 1) total += input[sample]
+        const value = Math.max(-1, Math.min(1, total / Math.max(1, end - start)))
         samples[index] = value < 0 ? value * 0x8000 : value * 0x7fff
       }
       const bytes = new Uint8Array(samples.buffer)
@@ -722,6 +738,7 @@ function LiveVoicePanel({ players, playerId, enabled }: { players: Player[]; pla
     silent.connect(context.destination)
     relayContextRef.current = context
     relayProcessorRef.current = processor
+    void context.resume().catch(() => setVoiceError('Tap the mic again to allow live audio.'))
   }
 
   async function startMicrophone() {
@@ -780,10 +797,15 @@ function LiveVoicePanel({ players, playerId, enabled }: { players: Player[]; pla
       }
     }
     peer.ontrack = event => {
+      directAudioPeersRef.current.add(remoteId)
+      relaySourcesRef.current.get(remoteId)?.forEach(source => { try { source.stop() } catch { /* already stopped */ } })
+      relaySourcesRef.current.delete(remoteId)
+      relayPlaybackTimesRef.current.delete(remoteId)
       const audio = audioRef.current.get(remoteId) || new Audio()
       audio.autoplay = true
       audio.srcObject = event.streams[0]
       audioRef.current.set(remoteId, audio)
+      setDirectAudioPeers(previous => previous.includes(remoteId) ? previous : [...previous, remoteId])
       void audio.play().then(() => setPlaybackBlocked(false)).catch(() => setPlaybackBlocked(true))
     }
     peer.onconnectionstatechange = () => {
@@ -793,6 +815,8 @@ function LiveVoicePanel({ players, playerId, enabled }: { players: Player[]; pla
         playGameSound('join')
       } else if (['failed', 'closed', 'disconnected'].includes(peer.connectionState)) {
         setConnectedPeers(previous => previous.filter(id => id !== remoteId))
+        setDirectAudioPeers(previous => previous.filter(id => id !== remoteId))
+        directAudioPeersRef.current.delete(remoteId)
       }
     }
     peersRef.current.set(remoteId, peer)
@@ -812,6 +836,9 @@ function LiveVoicePanel({ players, playerId, enabled }: { players: Player[]; pla
       void relayPlaybackRef.current?.close()
       relayPlaybackRef.current = null
       relayPlaybackTimesRef.current.clear()
+      relaySourcesRef.current.forEach(sources => sources.forEach(source => { try { source.stop() } catch { /* already stopped */ } }))
+      relaySourcesRef.current.clear()
+      directAudioPeersRef.current.clear()
       handledAudioIdsRef.current.clear()
       peersRef.current.clear()
       audioRef.current.clear()
@@ -828,6 +855,8 @@ function LiveVoicePanel({ players, playerId, enabled }: { players: Player[]; pla
         peersRef.current.delete(remoteId)
         offeredRef.current.delete(remoteId)
         setConnectedPeers(previous => previous.filter(id => id !== remoteId))
+        setDirectAudioPeers(previous => previous.filter(id => id !== remoteId))
+        directAudioPeersRef.current.delete(remoteId)
       }
     }
     for (const remoteId of remoteIds) {
@@ -872,7 +901,7 @@ function LiveVoicePanel({ players, playerId, enabled }: { players: Player[]; pla
     const pending = liveAudioPackets.filter(packet => {
       if (handledAudioIdsRef.current.has(packet.id)) return false
       handledAudioIdsRef.current.add(packet.id)
-      return packet.from !== playerId && !connectedPeers.includes(packet.from)
+      return packet.from !== playerId && !directAudioPeersRef.current.has(packet.from)
     })
     // Keep deduplication bounded across long sessions.
     if (handledAudioIdsRef.current.size > 500) {
@@ -902,19 +931,26 @@ function LiveVoicePanel({ players, playerId, enabled }: { players: Player[]; pla
         const previousTime = relayPlaybackTimesRef.current.get(packet.from) || 0
         // A small initial buffer smooths packet arrival; drop accumulated latency.
         const now = context.currentTime
-        const startAt = previousTime < now || previousTime > now + 0.35
-          ? now + 0.08
+        const startAt = previousTime < now || previousTime > now + 1
+          ? now + 0.14
           : previousTime
         const source = context.createBufferSource()
         source.buffer = buffer
         source.connect(context.destination)
+        const sources = relaySourcesRef.current.get(packet.from) || new Set<AudioBufferSourceNode>()
+        sources.add(source)
+        relaySourcesRef.current.set(packet.from, sources)
+        source.onended = () => {
+          sources.delete(source)
+          if (!sources.size) relaySourcesRef.current.delete(packet.from)
+        }
         source.start(startAt)
         relayPlaybackTimesRef.current.set(packet.from, startAt + buffer.duration)
       } catch {
         // A damaged packet should not stop playback of subsequent packets.
       }
     }
-  }, [liveAudioPackets, playerId, connectedPeers])
+  }, [liveAudioPackets, playerId, directAudioPeers])
 
   useEffect(() => {
     const waitingFor = players.some(player => player.id !== playerId && player.connected && player.voice_ready)
@@ -924,6 +960,7 @@ function LiveVoicePanel({ players, playerId, enabled }: { players: Player[]; pla
   }, [players, playerId, connectedPeers.length])
 
   function toggleMute() {
+    unlockLivePlayback()
     if (!localStreamRef.current) {
       setStatus('starting')
       startPromiseRef.current = null
@@ -941,7 +978,7 @@ function LiveVoicePanel({ players, playerId, enabled }: { players: Player[]; pla
     void Promise.all([...audioRef.current.values()].map(audio => audio.play()).concat(relayPlayback ? [relayPlayback.resume()] : [])).then(() => setPlaybackBlocked(false)).catch(() => setPlaybackBlocked(true))
   }
 
-  const voiceCount = connectedPeers.length + 1
+  const voiceCount = players.filter(player => player.connected && !player.is_bot).length
   const statusText = `${voiceCount} ${voiceCount === 1 ? 'player' : 'players'} connected`
   return <aside className={`voice-panel live-voice-panel content-panel ${drawerOpen ? 'voice-drawer-open' : ''}`} aria-label="Live table voice"><button type="button" className="voice-drawer-toggle" onClick={() => setDrawerOpen(open => !open)} aria-expanded={drawerOpen} aria-label={drawerOpen ? 'Close live voice controls' : 'Open live voice controls'}>{muted ? <Mic size={20} /> : <MicOff size={20} />}<ChevronDown size={14} /></button><div className="voice-heading"><span className={`voice-icon ${status === 'live' ? 'voice-live' : ''}`}><Volume2 size={17} /></span><div><strong>Live table voice</strong><small>{statusText}</small></div><span className="status-dot online" /></div><div className="live-voice-room"><button type="button" className={`live-mic-orbit ${status === 'live' && !muted ? 'mic-active' : ''}`} onClick={toggleMute} disabled={!enabled || status === 'starting' || status === 'unsupported' || status === 'failed'} aria-label={!localStreamRef.current ? 'Start live microphone' : muted ? 'Unmute live microphone' : 'Mute live microphone'}><span>{muted ? <MicOff size={27} /> : <Mic size={27} />}</span></button><strong>{status === 'starting' ? 'Opening microphone…' : muted ? 'Tap the mic to speak live' : 'You are speaking live'}</strong><small>{voiceError || (connectionSlow ? 'Direct voice connection failed. This network may require a TURN server.' : 'Nothing is recorded. Everyone at the table hears you live.')}</small></div><div className="voice-compose">{status === 'blocked' ? <button type="button" className="button button-green full-button" onClick={() => { startPromiseRef.current = null; setStatus('starting'); void startMicrophone() }}><Mic size={16} /> Allow microphone</button> : playbackBlocked ? <button type="button" className="button button-green full-button" onClick={enablePlayback}><Volume2 size={16} /> Enable speaker</button> : <button type="button" className={`button ${muted ? 'button-green' : 'button-outline'} full-button`} disabled={!enabled || status === 'starting'} onClick={toggleMute}>{muted ? <><Mic size={16} /> Tap to speak</> : <><MicOff size={16} /> Stop speaking</>}</button>}<span className="voice-hint">Live only · no recording is saved</span></div></aside>
 }
