@@ -3,7 +3,7 @@
 Responsive React/TypeScript browser client, Flutter mobile client, and FastAPI
 WebSocket server. Supports **2–4 human players**, private room codes, guest
 nicknames, public quick match, server-side dealing/validation, special cards,
-private hands, room-only voice notes, reconnect, registered-player match history, rematches, a
+private hands, room-only live voice, reconnect, registered-player match history, rematches, a
 leaderboard, optional synthesized game cues, 10-minute lobby reconnection, 30-second disconnect autopilot, and 45-second turn timeout.
 
 ## Important scope
@@ -99,14 +99,15 @@ WHOT 20 can be played anytime and requests a shape.
 14: all other players draw one. Penalty stacking is disabled.
 Players may draw one and pass even when holding a playable card; the draw ends their turn.
 The first player to empty their hand wins immediately.
-These are configurable Nigerian WHOT house-rule choices; confirm them
-before production. The deck uses an explicitly defined shape/number set
-in `backend/app/game.py` rather than a licensed physical deck artwork.
+These are configurable Nigerian WHOT house-rule choices; confirm them before
+production. The standard 54-card deck uses 49 shaped cards plus five WHOT 20
+cards. There are no 6 or 9 cards, and every shape's exact number set is defined
+in `backend/app/game.py`; no licensed physical deck artwork is included.
 
-During a live game, players can record voice notes up to 15 seconds. The browser
-asks for microphone permission, limits each clip to 512 KB, and delivers it only
-to members of that room. Clips stay in memory while the room exists and are
-limited to 20 recent notes / 4 MB per room; they are not persisted.
+During a live game, the browser requests microphone permission and connects
+players with peer-to-peer WebRTC audio. Players join unmuted after granting
+permission and can mute or unmute themselves. The game server relays encrypted
+connection-negotiation messages but does not carry or persist the live audio.
 
 ## Security/production limitations
 Set `ENVIRONMENT=production`, a random `JWT_SECRET` of at least 32 characters,

@@ -95,6 +95,20 @@ def test_match_authorization_privacy_and_reconnect(server_url):
             assert len(receive_type(restored, "state")["data"]["hand"]) == 5
 
 
+def test_live_voice_signaling_is_relayed_only_to_target_player(server_url):
+    with connect(server_url) as host:
+        host_session, _ = create(host)
+        with connect(server_url) as guest:
+            guest_session, _ = join(guest, host_session["code"], "Ben")
+            receive_type(host, "state")
+            offer = {"type": "offer", "sdp": {"type": "offer", "sdp": "test-sdp"}}
+            send(host, {"action": "rtc_signal", "target": guest_session["player_id"],
+                        "signal": offer})
+            relayed = receive_type(guest, "rtc_relay")
+            assert relayed["from"] == host_session["player_id"]
+            assert relayed["signal"] == offer
+
+
 def test_room_rejects_fifth_player_and_duplicate_session(server_url):
     sockets = []
     try:

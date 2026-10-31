@@ -1,4 +1,15 @@
-from app.game import HouseRules, Room, Player
+from app.game import SHAPES, HouseRules, Room, Player
+
+def test_standard_nigerian_whot_deck_distribution():
+    assert SHAPES == {
+        "circle": [1, 2, 3, 4, 5, 7, 8, 10, 11, 12, 13, 14],
+        "triangle": [1, 2, 3, 4, 5, 7, 8, 10, 11, 12, 13, 14],
+        "cross": [1, 2, 3, 5, 7, 10, 11, 13, 14],
+        "square": [1, 2, 3, 5, 7, 10, 11, 13, 14],
+        "star": [1, 2, 3, 4, 5, 7, 8],
+    }
+    assert sum(map(len, SHAPES.values())) == 49
+    assert all(6 not in numbers and 9 not in numbers for numbers in SHAPES.values())
 def setup():
     r = Room("TEST", "a", [Player("a", "Ada"), Player("b", "Ben")])
     r.start("a")
@@ -82,7 +93,7 @@ def test_whot_sets_shape_for_the_next_player():
     r.play("a", "wild", "star")
     assert r.requested_shape == "star"
     assert r.current().id == "b"
-    assert r.legal({"shape": "star", "number": 9, "id": "matching"})
+    assert r.legal({"shape": "star", "number": 7, "id": "matching"})
 
 def test_view_does_not_expose_reconnect_token():
     r = setup()

@@ -4,10 +4,10 @@ import time
 from dataclasses import dataclass, field
 from typing import Optional
 
-SHAPES = {"circle": list(range(1, 14)),
-          "triangle": list(range(1, 14)),
-          "cross": list(range(1, 14)),
-          "square": list(range(1, 14)),
+SHAPES = {"circle": [1, 2, 3, 4, 5, 7, 8, 10, 11, 12, 13, 14],
+          "triangle": [1, 2, 3, 4, 5, 7, 8, 10, 11, 12, 13, 14],
+          "cross": [1, 2, 3, 5, 7, 10, 11, 13, 14],
+          "square": [1, 2, 3, 5, 7, 10, 11, 13, 14],
           "star": [1, 2, 3, 4, 5, 7, 8]}
 VOICE_CONTENT_TYPES = {"audio/webm", "audio/ogg", "audio/mp4", "audio/wav"}
 VOICE_MAX_BYTES = 512_000

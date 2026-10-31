@@ -265,6 +265,24 @@ async def ws_endpoint(ws: WebSocket):
                             room.draw(pid)
                         elif action == "rematch":
                             room.rematch(pid)
+                        elif action == "rtc_signal":
+                            target = str(msg.get("target", ""))
+                            signal = msg.get("signal")
+                            target_player = room.player(target)
+                            target_ws = connections.get(target)
+                            if not target_player or not target_ws or not target_player.connected:
+                                raise ValueError("Voice participant is unavailable")
+                            if not isinstance(signal, dict) or signal.get("type") not in {
+                                "offer", "answer", "ice"
+                            }:
+                                raise ValueError("Invalid voice signal")
+                            voice_response = {
+                                "type": "rtc_relay",
+                                "id": secrets.token_hex(8),
+                                "from": pid,
+                                "signal": signal,
+                                "target_ws": target_ws,
+                            }
                         elif action == "voice":
                             encoded_audio = msg.get("audio")
                             if not isinstance(encoded_audio, str):
@@ -292,7 +310,8 @@ async def ws_endpoint(ws: WebSocket):
                         else:
                             raise ValueError("Unknown action")
                     if voice_response:
-                        await send(ws, voice_response)
+                        target_ws = voice_response.pop("target_ws", None)
+                        await send(target_ws or ws, voice_response)
                     else:
                         await broadcast(room)
             except ValueError as e:

@@ -1,13 +1,14 @@
 import React, { createContext, useContext, useEffect, useRef, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import { BrowserRouter, Link, NavLink, Navigate, Route, Routes, useLocation, useNavigate, useParams } from 'react-router-dom'
-import { ArrowLeft, ArrowRight, BookOpen, Check, ChevronDown, CircleHelp, Clock3, Crown, DoorOpen, Gamepad2, History, Home, LogIn, LogOut, Menu, Mic, Plus, Radio, Settings, Shield, Sparkles, Square, Trophy, UserRound, Users, Volume2, X } from 'lucide-react'
+import { ArrowLeft, ArrowRight, BookOpen, Check, ChevronDown, CircleHelp, Clock3, Crown, DoorOpen, Gamepad2, History, Home, LogIn, LogOut, Menu, Mic, MicOff, Plus, Radio, Settings, Shield, Sparkles, Square, Trophy, UserRound, Users, Volume2, X } from 'lucide-react'
 import './styles.css'
 import { gameSoundsEnabled, playGameSound, primeGameAudio, setGameSoundsEnabled } from './audio'
 
 type Card = { id: string; shape: string; number: number }
 type Player = { id: string; name: string; count: number; connected: boolean }
 type VoiceMessage = { id: string; player_id: string; name: string; content_type: string; size: number; sent_at: number }
+type RtcSignal = { id: string; from: string; signal: { type: 'offer' | 'answer' | 'ice'; sdp?: RTCSessionDescriptionInit; candidate?: RTCIceCandidateInit } }
 type RoomView = {
   code: string; status: 'lobby' | 'playing' | 'finished'; host: string; you: string
   turn: string | null; players: Player[]; hand: Card[]; top: Card | null
@@ -22,6 +23,7 @@ type ArenaContextValue = {
   view: RoomView | null; session: Session | null; user: User | null; error: string
   connected: boolean; busy: boolean; clearError: () => void
   voiceUrls: Record<string, string>; requestVoice: (messageId: string) => void
+  rtcSignals: RtcSignal[]; sendRtcSignal: (target: string, signal: RtcSignal['signal']) => void
   connectRoom: (action: string, values?: Record<string, unknown>) => Promise<Session>
   send: (action: string, values?: Record<string, unknown>) => void
   leaveRoom: () => void
@@ -46,6 +48,7 @@ function ArenaProvider({ children }: { children: React.ReactNode }) {
   const [error, setError] = useState('')
   const [connected, setConnected] = useState(false)
   const [voiceUrls, setVoiceUrls] = useState<Record<string, string>>({})
+  const [rtcSignals, setRtcSignals] = useState<RtcSignal[]>([])
   const [busy, setBusy] = useState(false)
   const socketRef = useRef<WebSocket | null>(null)
   const sessionRef = useRef<Session | null>(session)
@@ -71,7 +74,7 @@ function ArenaProvider({ children }: { children: React.ReactNode }) {
         socket.send(JSON.stringify(payload))
       }
       socket.onmessage = event => {
-        let message: { type?: string; data?: RoomView; message?: string; player_id?: string; code?: string; reconnect_token?: string; id?: string; content_type?: string; audio?: string }
+        let message: { type?: string; data?: RoomView; message?: string; player_id?: string; code?: string; reconnect_token?: string; id?: string; content_type?: string; audio?: string; from?: string; signal?: RtcSignal['signal'] }
         try { message = JSON.parse(String(event.data)) } catch { setError('Received an unreadable server message.'); return }
         if (message.type === 'session' && message.player_id && message.code && message.reconnect_token) {
           const next = { player_id: message.player_id, code: message.code, reconnect_token: message.reconnect_token }
@@ -88,6 +91,8 @@ function ArenaProvider({ children }: { children: React.ReactNode }) {
             if (oldUrl) { URL.revokeObjectURL(oldUrl); voiceUrlsRef.current.delete(oldUrl) }
             return { ...previous, [message.id!]: url }
           })
+        } else if (message.type === 'rtc_relay' && message.id && message.from && message.signal) {
+          setRtcSignals(previous => [...previous.slice(-99), { id: message.id!, from: message.from!, signal: message.signal! }])
         } else if (message.type === 'left') {
           socket.onclose = null
           socket.close()
@@ -208,6 +213,10 @@ function ArenaProvider({ children }: { children: React.ReactNode }) {
     send('voice_get', { message_id: messageId })
   }
 
+  function sendRtcSignal(target: string, signal: RtcSignal['signal']) {
+    send('rtc_signal', { target, signal })
+  }
+
   async function authenticate(registering: boolean, values: Record<string, string>) {
     setBusy(true); setError('')
     try {
@@ -230,7 +239,7 @@ function ArenaProvider({ children }: { children: React.ReactNode }) {
     if (socketRef.current) { socketRef.current.onclose = null; socketRef.current.close() }
   }
 
-  return <Context.Provider value={{ view, session, user, error, connected, busy, voiceUrls, requestVoice, clearError: () => setError(''), connectRoom, send, leaveRoom, authenticate, signOut }}>{children}</Context.Provider>
+  return <Context.Provider value={{ view, session, user, error, connected, busy, voiceUrls, requestVoice, rtcSignals, sendRtcSignal, clearError: () => setError(''), connectRoom, send, leaveRoom, authenticate, signOut }}>{children}</Context.Provider>
 }
 
 function useArena() {
@@ -471,10 +480,143 @@ function GameTable() {
         </section>
       )}
       </div>
-      <VoicePanel messages={view.voice_messages || []} enabled={view.status === 'playing'} />
+      <LiveVoicePanel players={view.players} playerId={session?.player_id || ''} enabled={view.status === 'playing'} />
       </div>
     </div>
   )
+}
+
+function LiveVoicePanel({ players, playerId, enabled }: { players: Player[]; playerId: string; enabled: boolean }) {
+  const { rtcSignals, sendRtcSignal } = useArena()
+  const [muted, setMuted] = useState(false)
+  const [status, setStatus] = useState<'starting' | 'live' | 'blocked' | 'unsupported'>('starting')
+  const [connectedPeers, setConnectedPeers] = useState<string[]>([])
+  const localStreamRef = useRef<MediaStream | null>(null)
+  const startPromiseRef = useRef<Promise<MediaStream | null> | null>(null)
+  const peersRef = useRef(new Map<string, RTCPeerConnection>())
+  const audioRef = useRef(new Map<string, HTMLAudioElement>())
+  const offeredRef = useRef(new Set<string>())
+  const handledSignalsRef = useRef(new Set<string>())
+  const pendingIceRef = useRef(new Map<string, RTCIceCandidateInit[]>())
+
+  async function startMicrophone() {
+    if (localStreamRef.current) return localStreamRef.current
+    if (startPromiseRef.current) return startPromiseRef.current
+    if (!navigator.mediaDevices?.getUserMedia || typeof RTCPeerConnection === 'undefined') {
+      setStatus('unsupported')
+      return null
+    }
+    startPromiseRef.current = navigator.mediaDevices.getUserMedia({
+      audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+      video: false,
+    }).then(stream => {
+      localStreamRef.current = stream
+      setStatus('live')
+      return stream
+    }).catch(() => {
+      setStatus('blocked')
+      return null
+    })
+    return startPromiseRef.current
+  }
+
+  function createPeer(remoteId: string, stream: MediaStream) {
+    const existing = peersRef.current.get(remoteId)
+    if (existing) return existing
+    const peer = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] })
+    stream.getAudioTracks().forEach(track => peer.addTrack(track, stream))
+    peer.onicecandidate = event => {
+      if (event.candidate) sendRtcSignal(remoteId, { type: 'ice', candidate: event.candidate.toJSON() })
+    }
+    peer.ontrack = event => {
+      const audio = audioRef.current.get(remoteId) || new Audio()
+      audio.autoplay = true
+      audio.srcObject = event.streams[0]
+      audioRef.current.set(remoteId, audio)
+      void audio.play().catch(() => undefined)
+    }
+    peer.onconnectionstatechange = () => {
+      if (peer.connectionState === 'connected') {
+        setConnectedPeers(previous => previous.includes(remoteId) ? previous : [...previous, remoteId])
+        playGameSound('join')
+      } else if (['failed', 'closed', 'disconnected'].includes(peer.connectionState)) {
+        setConnectedPeers(previous => previous.filter(id => id !== remoteId))
+      }
+    }
+    peersRef.current.set(remoteId, peer)
+    return peer
+  }
+
+  useEffect(() => {
+    if (enabled) void startMicrophone()
+    return () => {
+      localStreamRef.current?.getTracks().forEach(track => track.stop())
+      peersRef.current.forEach(peer => peer.close())
+      audioRef.current.forEach(audio => { audio.pause(); audio.srcObject = null })
+      peersRef.current.clear()
+      audioRef.current.clear()
+    }
+  }, [enabled])
+
+  useEffect(() => {
+    const stream = localStreamRef.current
+    if (!enabled || !stream || !playerId) return
+    const remoteIds = players.filter(player => player.id !== playerId && player.connected).map(player => player.id)
+    for (const [remoteId, peer] of peersRef.current) {
+      if (!remoteIds.includes(remoteId)) {
+        peer.close()
+        peersRef.current.delete(remoteId)
+        offeredRef.current.delete(remoteId)
+        setConnectedPeers(previous => previous.filter(id => id !== remoteId))
+      }
+    }
+    for (const remoteId of remoteIds) {
+      const peer = createPeer(remoteId, stream)
+      if (playerId < remoteId && !offeredRef.current.has(remoteId)) {
+        offeredRef.current.add(remoteId)
+        void peer.createOffer().then(offer => peer.setLocalDescription(offer)).then(() => {
+          if (peer.localDescription) sendRtcSignal(remoteId, { type: 'offer', sdp: peer.localDescription.toJSON() })
+        }).catch(() => offeredRef.current.delete(remoteId))
+      }
+    }
+  }, [players, playerId, enabled, status])
+
+  useEffect(() => {
+    for (const message of rtcSignals) {
+      if (handledSignalsRef.current.has(message.id) || !players.some(player => player.id === message.from)) continue
+      handledSignalsRef.current.add(message.id)
+      void (async () => {
+        const stream = await startMicrophone()
+        if (!stream) return
+        const peer = createPeer(message.from, stream)
+        if (message.signal.type === 'offer' && message.signal.sdp) {
+          await peer.setRemoteDescription(message.signal.sdp)
+          for (const candidate of pendingIceRef.current.get(message.from) || []) await peer.addIceCandidate(candidate)
+          pendingIceRef.current.delete(message.from)
+          const answer = await peer.createAnswer()
+          await peer.setLocalDescription(answer)
+          if (peer.localDescription) sendRtcSignal(message.from, { type: 'answer', sdp: peer.localDescription.toJSON() })
+        } else if (message.signal.type === 'answer' && message.signal.sdp) {
+          await peer.setRemoteDescription(message.signal.sdp)
+          for (const candidate of pendingIceRef.current.get(message.from) || []) await peer.addIceCandidate(candidate)
+          pendingIceRef.current.delete(message.from)
+        } else if (message.signal.type === 'ice' && message.signal.candidate) {
+          if (peer.remoteDescription) await peer.addIceCandidate(message.signal.candidate)
+          else pendingIceRef.current.set(message.from, [...(pendingIceRef.current.get(message.from) || []), message.signal.candidate])
+        }
+      })().catch(() => setConnectedPeers(previous => previous.filter(id => id !== message.from)))
+    }
+  }, [rtcSignals, players])
+
+  function toggleMute() {
+    const next = !muted
+    localStreamRef.current?.getAudioTracks().forEach(track => { track.enabled = !next })
+    audioRef.current.forEach(audio => { void audio.play().catch(() => undefined) })
+    setMuted(next)
+  }
+
+  const statusText = status === 'live' ? `${connectedPeers.length} ${connectedPeers.length === 1 ? 'player' : 'players'} connected` : status === 'blocked' ? 'Microphone permission is required' : status === 'unsupported' ? 'Live voice is unavailable in this browser' : 'Opening microphone…'
+  return <aside className="voice-panel live-voice-panel content-panel" aria-label="Live table voice"><div className="voice-heading"><span className={`voice-icon ${status === 'live' ? 'voice-live' : ''}`}><Volume2 size={17} /></span><div><strong>Live table voice</strong><small>{statusText}</small></div><span className={`status-dot ${status === 'live' ? 'online' : ''}`} /></div><div className="live-voice-room"><div className={`live-mic-orbit ${status === 'live' && !muted ? 'mic-active' : ''}`}><span>{muted ? <MicOff size={27} /> : <Mic size={27} />}</span></div><strong>{muted ? 'Your microphone is muted' : status === 'live' ? 'Your microphone is live' : 'Waiting for microphone'}</strong><small>Audio is shared only with players at this table.</small></div><div className="voice-compose">{status === 'blocked' ? <button type="button" className="button button-green full-button" onClick={() => { startPromiseRef.current = null; setStatus('starting'); void startMicrophone() }}><Mic size={16} /> Allow microphone</button> : <button type="button" className={`button ${muted ? 'button-green' : 'button-outline'} full-button`} disabled={status !== 'live'} onClick={toggleMute}>{muted ? <><Mic size={16} /> Unmute microphone</> : <><MicOff size={16} /> Mute microphone</>}</button>}<span className="voice-hint">The browser will ask permission the first time you join voice.</span></div></aside>
 }
 
 function VoicePanel({ messages, enabled }: { messages: VoiceMessage[]; enabled: boolean }) {
@@ -650,7 +792,7 @@ function App() {
   return <BrowserRouter><ArenaProvider><AppFrame />{launching && <LaunchScreen onDone={finishLaunch} />}</ArenaProvider></BrowserRouter>
 }
 
-export { App, CardFace }
+export { App, CardFace, VoicePanel }
 
 const rootElement = document.getElementById('root')
 if (rootElement) createRoot(rootElement).render(<React.StrictMode><App /></React.StrictMode>)
