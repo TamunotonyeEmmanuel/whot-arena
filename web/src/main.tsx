@@ -13,6 +13,8 @@ type RoomView = {
   code: string; status: 'lobby' | 'playing' | 'finished'; host: string; you: string
   turn: string | null; players: Player[]; hand: Card[]; top: Card | null
   requested_shape: string | null; winner: string | null; last_action: string
+  final_scores: Record<string, number>
+  market_count: number
   voice_messages: VoiceMessage[]
   is_public: boolean; rules: { cards_per_player: number; pick_two: number; pick_three: number; general_market: number; penalty_stacking: boolean }
 }
@@ -35,12 +37,15 @@ type ArenaContextValue = {
 const API_URL = (import.meta.env.VITE_API_URL || 'http://localhost:8000').replace(/\/$/, '')
 const WS_URL = import.meta.env.VITE_WS_URL || `${API_URL.replace(/^http/, 'ws')}/ws`
 const TURN_URLS = (import.meta.env.VITE_TURN_URL || '').split(',').map(value => value.trim()).filter(value => /^(stun|turn|turns):/.test(value))
+const TURN_USERNAME = import.meta.env.VITE_TURN_USERNAME || ''
+const TURN_CREDENTIAL = import.meta.env.VITE_TURN_CREDENTIAL || ''
+const CONFIGURED_TURN_URLS = TURN_USERNAME && TURN_CREDENTIAL ? TURN_URLS : []
 const RTC_ICE_SERVERS: RTCIceServer[] = [
   { urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'] },
-  ...(TURN_URLS.length ? [{
-    urls: TURN_URLS,
-    username: import.meta.env.VITE_TURN_USERNAME || '',
-    credential: import.meta.env.VITE_TURN_CREDENTIAL || '',
+  ...(CONFIGURED_TURN_URLS.length ? [{
+    urls: CONFIGURED_TURN_URLS,
+    username: TURN_USERNAME,
+    credential: TURN_CREDENTIAL,
   }] : []),
 ]
 const Context = createContext<ArenaContextValue | null>(null)
@@ -506,13 +511,13 @@ function GameTable() {
           {opponents.map((player, index) => (
             <div className={`opponent ${!player.connected ? 'player-away' : ''} ${view.turn === player.id ? 'opponent-turn' : ''}`} key={player.id}>
               <div className="opponent-avatar-wrap"><div className={`avatar opponent-avatar avatar-${index}`}>{player.name.slice(0, 1).toUpperCase()}</div><span className={`status-dot ${player.connected ? 'online' : ''}`} /></div>
-              <strong>{player.name}</strong><span>{player.count} cards</span>{view.turn === player.id && <span className="opponent-turn-label">THEIR TURN</span>}
+              <strong>{player.name}</strong><span className={player.count === 1 ? 'last-card-label' : ''}>{player.count === 1 ? 'LAST CARD' : `${player.count} cards`}</span>{view.turn === player.id && <span className="opponent-turn-label">THEIR TURN</span>}
               <div className="opponent-card-fan">{Array.from({ length: Math.min(player.count, 3) }, (_, cardIndex) => <CardFace key={cardIndex} back />)}</div>
             </div>
           ))}
         </div>
         <div className="center-piles">
-          <div className="pile-block"><span className="pile-label">DRAW PILE</span><div className="pile-stack" onClick={() => myTurn && send('draw')} role="button" tabIndex={0} onKeyDown={event => event.key === 'Enter' && myTurn && send('draw')} aria-label="Draw one card and pass"><CardFace back large /><span className="pile-count">{myTurn ? 'TAP TO DRAW' : 'DRAW'}</span></div></div>
+          <div className="pile-block"><span className="pile-label">DRAW PILE</span><div className="pile-stack" onClick={() => myTurn && send('draw')} role="button" tabIndex={0} onKeyDown={event => event.key === 'Enter' && myTurn && send('draw')} aria-label={`Draw one card and pass. ${view.market_count} cards remain`}><CardFace back large /><span className="market-count">{view.market_count}</span><span className="pile-count">{myTurn ? 'TAP TO DRAW' : `${view.market_count} CARDS`}</span></div></div>
           <div className="table-arrow">{myTurn ? <Sparkles size={19} /> : <ArrowRight size={19} />}</div>
           <div className="pile-block"><span className="pile-label">ON THE TABLE</span><div className="top-card-slot"><CardFace card={view.top} large selected /><div className="top-glow" /></div></div>
         </div>
@@ -523,14 +528,14 @@ function GameTable() {
       {view.status === 'finished' ? (
         <section className="round-result">
           <div className="result-icon">{view.winner === session?.player_id ? <Crown size={26} /> : <Trophy size={26} />}</div>
-          <div><span className="small-label">ROUND COMPLETE</span><h2>{view.winner === session?.player_id ? 'You won the round!' : `${view.players.find(player => player.id === view.winner)?.name || 'A player'} won.`}</h2><p>The server records the result for registered players. The host can start a rematch when everyone is connected.</p></div>
+          <div><span className="small-label">ROUND COMPLETE</span><h2>{view.winner === session?.player_id ? 'You won the round!' : `${view.players.find(player => player.id === view.winner)?.name || 'A player'} won.`}</h2><p>The server records the result for registered players. The host can start a rematch when everyone is connected.</p>{Object.keys(view.final_scores || {}).length > 0 && <div className="final-scores">{view.players.map(player => <span key={player.id}><strong>{player.name}</strong> {view.final_scores[player.id]} pts</span>)}</div>}</div>
           {view.host === session?.player_id && view.players.every(player => player.connected)
             ? <button className="button button-green" onClick={() => send('rematch')}>Rematch <ArrowRight size={16} /></button>
             : <Link to="/create" className="button button-green">New table <ArrowRight size={16} /></Link>}
         </section>
       ) : (
         <section className="hand-panel">
-          <div className="hand-heading"><div><span className="small-label">YOUR HAND</span><strong>{view.hand.length} cards</strong></div><span className="hand-hint">{myTurn ? 'Choose a matching card or draw to pass' : 'Cards only you can see'}</span></div>
+          <div className="hand-heading"><div><span className="small-label">YOUR HAND</span><strong className={view.hand.length === 1 ? 'last-card-label' : ''}>{view.hand.length === 1 ? 'LAST CARD' : `${view.hand.length} cards`}</strong></div><span className="hand-hint">{myTurn ? 'Choose a matching card or draw to pass' : 'Cards only you can see'}</span></div>
           <div className="hand-cards">{view.hand.map((card, index) => <CardFace key={card.id} card={card} playable={myTurn && isLegal(card)} selected={selectedWhot?.id === card.id} index={index} onClick={() => play(card)} />)}</div>
           {selectedWhot && <div className="shape-picker"><div><span className="small-label">WHOT 20</span><strong>Choose the next shape</strong></div><div className="shape-controls">{shapes.map(item => <button key={item} className={`shape-choice ${shape === item ? 'shape-choice-active' : ''}`} onClick={() => setShape(item)} aria-label={item}>{shapeGlyph[item]}<span>{item}</span></button>)}<button className="button button-lime" onClick={confirmWhot}><Check size={15} /> Play WHOT</button></div></div>}
         </section>
@@ -549,6 +554,7 @@ function LiveVoicePanel({ players, playerId, enabled }: { players: Player[]; pla
   const [connectedPeers, setConnectedPeers] = useState<string[]>([])
   const [playbackBlocked, setPlaybackBlocked] = useState(false)
   const [connectionSlow, setConnectionSlow] = useState(false)
+  const [voiceError, setVoiceError] = useState('')
   const localStreamRef = useRef<MediaStream | null>(null)
   const startPromiseRef = useRef<Promise<MediaStream | null> | null>(null)
   const peersRef = useRef(new Map<string, RTCPeerConnection>())
@@ -584,8 +590,9 @@ function LiveVoicePanel({ players, playerId, enabled }: { players: Player[]; pla
     if (existing) return existing
     let peer: RTCPeerConnection
     try {
-      peer = new RTCPeerConnection({ iceServers: RTC_ICE_SERVERS, iceCandidatePoolSize: 4 })
-    } catch {
+      peer = new RTCPeerConnection({ iceServers: RTC_ICE_SERVERS })
+    } catch (reason) {
+      setVoiceError(reason instanceof Error ? reason.message : 'The browser rejected the voice connection settings.')
       setStatus('failed')
       return null
     }
@@ -704,7 +711,7 @@ function LiveVoicePanel({ players, playerId, enabled }: { players: Player[]; pla
 
   const voiceCount = status === 'live' ? connectedPeers.length + 1 : 0
   const statusText = status === 'live' ? `${voiceCount} ${voiceCount === 1 ? 'player' : 'players'} in voice` : status === 'blocked' ? 'Microphone permission is required' : status === 'unsupported' ? 'Live voice is unavailable in this browser' : status === 'failed' ? 'Could not start live voice' : 'Opening microphone…'
-  return <aside className="voice-panel live-voice-panel content-panel" aria-label="Live table voice"><div className="voice-heading"><span className={`voice-icon ${status === 'live' ? 'voice-live' : ''}`}><Volume2 size={17} /></span><div><strong>Live table voice</strong><small>{statusText}</small></div><span className={`status-dot ${status === 'live' ? 'online' : ''}`} /></div><div className="live-voice-room"><div className={`live-mic-orbit ${status === 'live' && !muted ? 'mic-active' : ''}`}><span>{muted ? <MicOff size={27} /> : <Mic size={27} />}</span></div><strong>{muted ? 'Your microphone is muted' : status === 'live' ? 'Your microphone is live' : 'Waiting for microphone'}</strong><small>{connectionSlow ? 'Direct voice connection failed. This network may require a TURN server.' : 'Audio is shared only with players at this table.'}</small></div><div className="voice-compose">{status === 'blocked' ? <button type="button" className="button button-green full-button" onClick={() => { startPromiseRef.current = null; setStatus('starting'); void startMicrophone() }}><Mic size={16} /> Allow microphone</button> : playbackBlocked ? <button type="button" className="button button-green full-button" onClick={enablePlayback}><Volume2 size={16} /> Enable speaker</button> : <button type="button" className={`button ${muted ? 'button-green' : 'button-outline'} full-button`} disabled={status !== 'live'} onClick={toggleMute}>{muted ? <><Mic size={16} /> Unmute microphone</> : <><MicOff size={16} /> Mute microphone</>}</button>}<span className="voice-hint">The browser will ask permission the first time you join voice.</span></div></aside>
+  return <aside className="voice-panel live-voice-panel content-panel" aria-label="Live table voice"><div className="voice-heading"><span className={`voice-icon ${status === 'live' ? 'voice-live' : ''}`}><Volume2 size={17} /></span><div><strong>Live table voice</strong><small>{statusText}</small></div><span className={`status-dot ${status === 'live' ? 'online' : ''}`} /></div><div className="live-voice-room"><div className={`live-mic-orbit ${status === 'live' && !muted ? 'mic-active' : ''}`}><span>{muted ? <MicOff size={27} /> : <Mic size={27} />}</span></div><strong>{muted ? 'Your microphone is muted' : status === 'live' ? 'Your microphone is live' : 'Waiting for microphone'}</strong><small>{voiceError || (connectionSlow ? 'Direct voice connection failed. This network may require a TURN server.' : 'Audio is shared only with players at this table.')}</small></div><div className="voice-compose">{status === 'blocked' ? <button type="button" className="button button-green full-button" onClick={() => { startPromiseRef.current = null; setStatus('starting'); void startMicrophone() }}><Mic size={16} /> Allow microphone</button> : playbackBlocked ? <button type="button" className="button button-green full-button" onClick={enablePlayback}><Volume2 size={16} /> Enable speaker</button> : <button type="button" className={`button ${muted ? 'button-green' : 'button-outline'} full-button`} disabled={status !== 'live'} onClick={toggleMute}>{muted ? <><Mic size={16} /> Unmute microphone</> : <><MicOff size={16} /> Mute microphone</>}</button>}<span className="voice-hint">The browser will ask permission the first time you join voice.</span></div></aside>
 }
 
 function VoicePanel({ messages, enabled }: { messages: VoiceMessage[]; enabled: boolean }) {

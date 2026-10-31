@@ -52,6 +52,7 @@ class Room:
     created_at: float = field(default_factory=time.time)
     updated_at: float = field(default_factory=time.time)
     result_recorded: bool = False
+    final_scores: dict = field(default_factory=dict)
     is_public: bool = False
     rules: HouseRules = field(default_factory=HouseRules)
     voice_messages: list = field(default_factory=list)
@@ -78,6 +79,7 @@ class Room:
         self.updated_at = time.time()
 
     def _draw(self, p, count=1):
+        drawn = 0
         for _ in range(count):
             if not self.deck:
                 if len(self.discard) <= 1:
@@ -87,6 +89,25 @@ class Room:
                 random.shuffle(self.deck)
                 self.discard = [top]
             p.hand.append(self.deck.pop())
+            drawn += 1
+        return drawn
+
+    @staticmethod
+    def hand_score(player):
+        return sum(card["number"] * (2 if card["shape"] == "star" else 1)
+                   for card in player.hand)
+
+    def finish_exhausted_market(self):
+        self.final_scores = {player.id: self.hand_score(player) for player in self.players}
+        winner = min(self.players,
+                     key=lambda player: (self.final_scores[player.id], len(player.hand),
+                                         self.players.index(player)))
+        self.winner = winner.id
+        self.status = "finished"
+        self.updated_at = time.time()
+        totals = ", ".join(f"{player.name}: {self.final_scores[player.id]}"
+                           for player in self.players)
+        self.last_action = f"Market exhausted — {winner.name} wins on points. {totals}"
 
     def start(self, pid):
         if pid != self.host or self.status != "lobby":
@@ -112,6 +133,7 @@ class Room:
         self.requested_shape = None
         self.winner = None
         self.result_recorded = False
+        self.final_scores = {}
         self.turn_started = time.time()
         self.last_action = "Game started"
         self.updated_at = self.turn_started
@@ -192,7 +214,9 @@ class Room:
         self.requested_shape = shape if card["number"] == 20 else None
         self.last_action = f"{p.name} played {card['number']}"
         if not p.hand and card["number"] in LAST_CARD_REQUIRES_REPLACEMENT:
-            self._draw(p)
+            if self._draw(p) == 0:
+                self.finish_exhausted_market()
+                return
             self.last_action += " and drew a replacement card"
         elif not p.hand:
             self.winner = pid
@@ -204,24 +228,32 @@ class Room:
             self.turn_started = time.time()
             self.updated_at = self.turn_started
         elif n in (2, 5):
-            self._draw(self.players[(self.turn + 1) % len(self.players)],
-                       self.rules.pick_two if n == 2 else self.rules.pick_three)
+            required = self.rules.pick_two if n == 2 else self.rules.pick_three
+            if self._draw(self.players[(self.turn + 1) % len(self.players)], required) < required:
+                self.finish_exhausted_market()
+                return
             self._advance(2)
         elif n == 8:
             self._advance(2)
         elif n == 14:
             for other in self.players:
                 if other.id != pid:
-                    self._draw(other, self.rules.general_market)
+                    if self._draw(other, self.rules.general_market) < self.rules.general_market:
+                        self.finish_exhausted_market()
+                        return
             self.turn_started = time.time()
             self.updated_at = self.turn_started
         else:
             self._advance()
+        if len(p.hand) == 1:
+            self.last_action += f" — {p.name} has LAST CARD!"
 
     def draw(self, pid):
         if self.status != "playing" or self.current().id != pid:
             raise ValueError("Not your turn")
-        self._draw(self.current())
+        if self._draw(self.current()) == 0:
+            self.finish_exhausted_market()
+            return
         self.last_action = f"{self.current().name} drew a card"
         self._advance()
 
@@ -251,8 +283,10 @@ class Room:
                         for p in self.players],
             "hand": self.player(pid).hand if self.player(pid) else [],
             "top": self.discard[-1] if self.discard else None,
+            "market_count": len(self.deck),
             "requested_shape": self.requested_shape,
             "winner": self.winner, "last_action": self.last_action,
+            "final_scores": self.final_scores,
             "is_public": self.is_public,
             "voice_messages": [{key: value for key, value in message.items()
                                 if key != "audio"} for message in self.voice_messages],

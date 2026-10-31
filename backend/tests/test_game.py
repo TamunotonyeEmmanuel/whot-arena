@@ -18,6 +18,7 @@ def test_deal():
     r = setup()
     assert all(len(p.hand) == 5 for p in r.players)
     assert r.status == "playing"
+    assert r.view("a")["market_count"] == 43
 def test_turn_restriction():
     r = setup()
     try:
@@ -29,6 +30,19 @@ def test_draw_advances():
     r = setup()
     r.draw("a")
     assert r.current().id == "b"
+
+def test_exhausted_market_ends_round_and_scores_every_hand():
+    r = setup()
+    r.deck = []
+    r.discard = [{"shape": "circle", "number": 7, "id": "top"}]
+    r.players[0].hand = [{"shape": "circle", "number": 10, "id": "a1"},
+                         {"shape": "star", "number": 5, "id": "a2"}]
+    r.players[1].hand = [{"shape": "circle", "number": 14, "id": "b1"}]
+    r.draw("a")
+    assert r.status == "finished"
+    assert r.final_scores == {"a": 20, "b": 14}
+    assert r.winner == "b"
+    assert "Market exhausted" in r.last_action
 
 def test_general_market_player_continues_without_drawing_when_cards_remain():
     r = setup()
@@ -167,6 +181,15 @@ def test_last_card_wins_immediately():
     r.play("a", "finish")
     assert r.status == "finished"
     assert r.winner == "a"
+
+def test_reaching_one_card_announces_last_card():
+    r = setup()
+    r.discard = [{"shape": "circle", "number": 7, "id": "top"}]
+    r.players[0].hand = [{"shape": "circle", "number": 3, "id": "play"},
+                         {"shape": "star", "number": 3, "id": "last"}]
+    r.play("a", "play")
+    assert len(r.players[0].hand) == 1
+    assert "Ada has LAST CARD!" in r.last_action
 
 def test_special_cards_cannot_be_played_as_the_winning_card():
     for number in (1, 2, 5, 8, 14, 20):

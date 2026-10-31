@@ -100,6 +100,9 @@ WHOT 20 can be played anytime and requests a shape.
 Players may draw one and pass even when holding a playable card; the draw ends their turn.
 The first player to empty their hand wins immediately, except that 1, 2, 5, 8,
 14, and 20 cannot finish a round; playing one last requires drawing a replacement.
+If the market and recyclable discard pile are exhausted, the round ends on
+points: face values count normally, Stars count double, and WHOT counts 20. The
+lowest hand total wins.
 These are configurable Nigerian WHOT house-rule choices; confirm them before
 production. The standard 54-card deck uses 49 shaped cards plus five WHOT 20
 cards. There are no 6 or 9 cards, and every shape's exact number set is defined
