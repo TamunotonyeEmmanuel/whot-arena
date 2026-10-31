@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { createRoot } from 'react-dom/client'
 import { BrowserRouter, Link, NavLink, Navigate, Route, Routes, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { ArrowLeft, ArrowRight, BatteryFull, BookOpen, Check, ChevronDown, CircleHelp, Clock3, Crown, DoorOpen, Gamepad2, History, Home, LogIn, LogOut, Menu, MessageCircle, Mic, MicOff, Plus, Radio, Settings, Shield, Signal, Sparkles, Square, Trophy, UserRound, Users, Volume2, Wifi, X } from 'lucide-react'
@@ -835,7 +836,7 @@ function VoicePanel({ messages, chatMessages, playerId, enabled }: { messages: V
   ].sort((a, b) => a.sent_at - b.sent_at)
   const phoneTime = new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
 
-  return <div className="table-chat-shell">
+  return createPortal(<div className="table-chat-shell">
     <button type="button" className={`chat-fab ${open ? 'chat-fab-open' : ''}`} onClick={toggleChat} aria-label={open ? 'Close table chat' : 'Open table chat'}>{open ? <X size={21} /> : <><MessageCircle size={21} />{unread > 0 && <span>{Math.min(unread, 9)}</span>}</>}</button>
     {open && <aside className="voice-panel table-chat-phone content-panel" aria-label="Table chat">
       <div className="iphone-screen">
@@ -853,7 +854,7 @@ function VoicePanel({ messages, chatMessages, playerId, enabled }: { messages: V
       <span className="iphone-homebar" aria-hidden="true" />
       </div>
     </aside>}
-  </div>
+  </div>, document.body)
 }
 
 function Profile() {
