@@ -630,7 +630,7 @@ function GameTable() {
 }
 
 function LiveVoicePanel({ players, playerId, enabled }: { players: Player[]; playerId: string; enabled: boolean }) {
-  const { rtcSignals, sendRtcSignal, liveAudioPackets, send } = useArena()
+  const { rtcSignals, sendRtcSignal, send } = useArena()
   const [muted, setMuted] = useState(true)
   const [status, setStatus] = useState<'idle' | 'starting' | 'live' | 'blocked' | 'unsupported' | 'failed'>('idle')
   const [connectedPeers, setConnectedPeers] = useState<string[]>([])
@@ -647,41 +647,6 @@ function LiveVoicePanel({ players, playerId, enabled }: { players: Player[]; pla
   const offeredRef = useRef(new Set<string>())
   const handledSignalsRef = useRef(new Set<string>())
   const pendingIceRef = useRef(new Map<string, RTCIceCandidateInit[]>())
-  const relayContextRef = useRef<AudioContext | null>(null)
-  const relayProcessorRef = useRef<ScriptProcessorNode | null>(null)
-  const relayPlaybackRef = useRef<AudioContext | null>(null)
-  // Each remote speaker needs an independent playback clock.
-  const relayPlaybackTimesRef = useRef(new Map<string, number>())
-  // React may batch incoming WebSocket packets into a single render.
-  const handledAudioIdsRef = useRef(new Set<string>())
-
-  function startRelayCapture(stream: MediaStream) {
-    if (relayProcessorRef.current) return
-    const context = new AudioContext()
-    const source = context.createMediaStreamSource(stream)
-    const processor = context.createScriptProcessor(2048, 1, 1)
-    const silent = context.createGain()
-    silent.gain.value = 0
-    processor.onaudioprocess = event => {
-      if (mutedRef.current) return
-      const input = event.inputBuffer.getChannelData(0)
-      const ratio = context.sampleRate / 16000
-      const samples = new Int16Array(Math.floor(input.length / ratio))
-      for (let index = 0; index < samples.length; index += 1) {
-        const value = Math.max(-1, Math.min(1, input[Math.floor(index * ratio)]))
-        samples[index] = value < 0 ? value * 0x8000 : value * 0x7fff
-      }
-      const bytes = new Uint8Array(samples.buffer)
-      let binary = ''
-      for (let index = 0; index < bytes.length; index += 1) binary += String.fromCharCode(bytes[index])
-      send('rtc_audio', { audio: btoa(binary) })
-    }
-    source.connect(processor)
-    processor.connect(silent)
-    silent.connect(context.destination)
-    relayContextRef.current = context
-    relayProcessorRef.current = processor
-  }
 
   async function startMicrophone() {
     if (localStreamRef.current) return localStreamRef.current
@@ -705,7 +670,7 @@ function LiveVoicePanel({ players, playerId, enabled }: { players: Player[]; pla
       }
       setMuted(false)
       setStatus('live')
-      startRelayCapture(stream)
+      // WebRTC-only voice: do not send a second copy of microphone audio via WebSocket.
       return stream
     }).catch(() => {
       setStatus('blocked')
@@ -764,14 +729,6 @@ function LiveVoicePanel({ players, playerId, enabled }: { players: Player[]; pla
       localStreamRef.current?.getTracks().forEach(track => track.stop())
       peersRef.current.forEach(peer => peer.close())
       audioRef.current.forEach(audio => { audio.pause(); audio.srcObject = null })
-      relayProcessorRef.current?.disconnect()
-      relayProcessorRef.current = null
-      void relayContextRef.current?.close()
-      relayContextRef.current = null
-      void relayPlaybackRef.current?.close()
-      relayPlaybackRef.current = null
-      relayPlaybackTimesRef.current.clear()
-      handledAudioIdsRef.current.clear()
       peersRef.current.clear()
       audioRef.current.clear()
     }
@@ -828,54 +785,6 @@ function LiveVoicePanel({ players, playerId, enabled }: { players: Player[]; pla
   }, [rtcSignals, players])
 
   useEffect(() => {
-    const pending = liveAudioPackets.filter(packet => {
-      if (handledAudioIdsRef.current.has(packet.id)) return false
-      handledAudioIdsRef.current.add(packet.id)
-      return packet.from !== playerId && !connectedPeers.includes(packet.from)
-    })
-    // Keep deduplication bounded across long sessions.
-    if (handledAudioIdsRef.current.size > 500) {
-      const recent = [...handledAudioIdsRef.current].slice(-250)
-      handledAudioIdsRef.current = new Set(recent)
-    }
-    if (!pending.length) return
-
-    const context = relayPlaybackRef.current || new AudioContext()
-    relayPlaybackRef.current = context
-    if (context.state !== 'running') {
-      setPlaybackBlocked(true)
-      return
-    }
-
-    for (const packet of pending) {
-      try {
-        const bytes = Uint8Array.from(atob(packet.audio), character => character.charCodeAt(0))
-        if (bytes.byteLength < 2 || bytes.byteLength % 2 !== 0) continue
-        const samples = new Int16Array(bytes.buffer, bytes.byteOffset, bytes.byteLength / 2)
-        const buffer = context.createBuffer(1, samples.length, 16000)
-        const channel = buffer.getChannelData(0)
-        for (let index = 0; index < samples.length; index += 1) {
-          channel[index] = samples[index] / 0x8000
-        }
-
-        const previousTime = relayPlaybackTimesRef.current.get(packet.from) || 0
-        // A small initial buffer smooths packet arrival; drop accumulated latency.
-        const now = context.currentTime
-        const startAt = previousTime < now || previousTime > now + 0.35
-          ? now + 0.08
-          : previousTime
-        const source = context.createBufferSource()
-        source.buffer = buffer
-        source.connect(context.destination)
-        source.start(startAt)
-        relayPlaybackTimesRef.current.set(packet.from, startAt + buffer.duration)
-      } catch {
-        // A damaged packet should not stop playback of subsequent packets.
-      }
-    }
-  }, [liveAudioPackets, playerId, connectedPeers])
-
-  useEffect(() => {
     const waitingFor = players.some(player => player.id !== playerId && player.connected && player.voice_ready)
     if (!waitingFor || connectedPeers.length) { setConnectionSlow(false); return }
     const timer = window.setTimeout(() => setConnectionSlow(true), 12000)
@@ -896,8 +805,7 @@ function LiveVoicePanel({ players, playerId, enabled }: { players: Player[]; pla
   }
 
   function enablePlayback() {
-    const relayPlayback = relayPlaybackRef.current
-    void Promise.all([...audioRef.current.values()].map(audio => audio.play()).concat(relayPlayback ? [relayPlayback.resume()] : [])).then(() => setPlaybackBlocked(false)).catch(() => setPlaybackBlocked(true))
+    void Promise.all([...audioRef.current.values()].map(audio => audio.play())).then(() => setPlaybackBlocked(false)).catch(() => setPlaybackBlocked(true))
   }
 
   const voiceCount = connectedPeers.length + 1
