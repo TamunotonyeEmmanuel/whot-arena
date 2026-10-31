@@ -2,7 +2,7 @@ import React, { createContext, useContext, useEffect, useRef, useState } from 'r
 import { createPortal } from 'react-dom'
 import { createRoot } from 'react-dom/client'
 import { BrowserRouter, Link, NavLink, Navigate, Route, Routes, useLocation, useNavigate, useParams } from 'react-router-dom'
-import { ArrowLeft, ArrowRight, BatteryFull, BookOpen, Check, ChevronDown, CircleHelp, Clock3, Crown, DoorOpen, Gamepad2, History, Home, LogIn, LogOut, Menu, MessageCircle, Mic, MicOff, Moon, Pause, Play, Plus, Radio, Settings, Share2, Shield, Signal, Sparkles, Sun, Trophy, UserRound, Users, Volume2, Wallet, Wifi, X } from 'lucide-react'
+import { ArrowLeft, ArrowRight, BatteryFull, BookOpen, Check, ChevronDown, CircleHelp, Clock3, Crown, DoorOpen, Gamepad2, History, Home, LogIn, LogOut, Menu, MessageCircle, Mic, MicOff, Moon, Pause, Play, Plus, Radio, Settings, Share2, Shield, Signal, Smartphone, Sparkles, Sun, Trophy, UserRound, Users, Volume2, Wallet, Wifi, X } from 'lucide-react'
 import './styles.css'
 import { gameSoundsEnabled, playGameSound, primeGameAudio, setGameSoundsEnabled } from './audio'
 
@@ -71,6 +71,9 @@ const Context = createContext<ArenaContextValue | null>(null)
 const readStored = <T,>(key: string): T | null => {
   try { return JSON.parse(localStorage.getItem(key) || 'null') as T | null } catch { return null }
 }
+const accessToken = () => localStorage.getItem('whot.token') || sessionStorage.getItem('whot.token')
+const legacySessionToken = sessionStorage.getItem('whot.token')
+if (legacySessionToken && !localStorage.getItem('whot.token')) localStorage.setItem('whot.token', legacySessionToken)
 type ColorTheme = 'light' | 'dark'
 const preferredTheme = (): ColorTheme => {
   const saved = localStorage.getItem('whot.theme')
@@ -91,7 +94,7 @@ function ArenaProvider({ children }: { children: React.ReactNode }) {
     catch { return null }
   })
   const [savedSession, setSavedSession] = useState<Session | null>(() => readStored<Session>('whot.session'))
-  const [user, setUser] = useState<User | null>(() => readStored<User>('whot.user'))
+  const [user, setUser] = useState<User | null>(() => accessToken() ? readStored<User>('whot.user') : null)
   const [error, setError] = useState('')
   const [connected, setConnected] = useState(false)
   const [voiceUrls, setVoiceUrls] = useState<Record<string, string>>({})
@@ -255,7 +258,7 @@ function ArenaProvider({ children }: { children: React.ReactNode }) {
     if (socketRef.current) { socketRef.current.onclose = null; socketRef.current.close() }
     sessionRef.current = null
     try {
-      const savedToken = sessionStorage.getItem('whot.token')
+      const savedToken = accessToken()
       const next = await openSocket({ action, ...values, ...(savedToken ? { access_token: savedToken } : {}) })
       return next
     } finally { setBusy(false) }
@@ -320,7 +323,8 @@ function ArenaProvider({ children }: { children: React.ReactNode }) {
       })
       const body = await response.json()
       if (!response.ok) throw new Error(body.detail || 'Authentication failed')
-      sessionStorage.setItem('whot.token', body.access_token)
+      localStorage.setItem('whot.token', body.access_token)
+      sessionStorage.removeItem('whot.token')
       localStorage.setItem('whot.user', JSON.stringify(body.user))
       setUser(body.user)
     } catch (reason) { throw reason instanceof Error ? reason : new Error('Authentication failed') }
@@ -328,7 +332,7 @@ function ArenaProvider({ children }: { children: React.ReactNode }) {
   }
 
   function signOut() {
-    sessionStorage.removeItem('whot.token'); localStorage.removeItem('whot.user')
+    sessionStorage.removeItem('whot.token'); localStorage.removeItem('whot.token'); localStorage.removeItem('whot.user')
     localStorage.removeItem('whot.session'); sessionStorage.removeItem('whot.session'); sessionRef.current = null
     setUser(null); setSession(null); setSavedSession(null); setView(null)
     if (socketRef.current) { socketRef.current.onclose = null; socketRef.current.close() }
@@ -506,24 +510,13 @@ function Landing() {
 function Dashboard() {
   const { user, session, view, connected, leaveRoom } = useArena()
   const navigate = useNavigate()
-  const [profile, setProfile] = useState(user)
-  useEffect(() => {
-    const token = sessionStorage.getItem('whot.token')
-    if (!token) return
-    fetch(`${API_URL}/api/profile`, { headers: { Authorization: `Bearer ${token}` } })
-      .then(async response => { if (response.ok) setProfile(await response.json() as User) })
-      .catch(() => undefined)
-  }, [user?.id])
   const resumePath = session && view?.status !== 'lobby' ? `/game/${session.code}` : session ? `/lobby/${session.code}` : '/create'
   return <><PageTitle eyebrow="PLAYER DASHBOARD" title={`Good to see you${user ? `, ${user.username}` : ''}.`} detail="Pick up a game or see how you stack up." action={<Link className="button button-lime" to="/create"><Plus size={17} /> New game</Link>} />
-    <div className="stats-row"><Stat icon={<Trophy />} label="Wins" value={profile?.wins ?? '—'} tone="gold" /><Stat icon={<Gamepad2 />} label="Games played" value={profile?.matches_played ?? '—'} tone="green" /><Stat icon={<Sparkles />} label="Virtual Naira" value={profile ? `₦${profile.arena_coins.toLocaleString()}` : '—'} tone="gold" /><Stat icon={<Radio />} label="Room status" value={session ? 'In room' : 'Ready'} tone="coral" /></div>
     {session && <section className="open-table-banner content-panel"><div className="open-table-icon"><Radio size={19} /></div><div><span className="small-label">OPEN TABLE · {session.code}</span><h2>{connected && view ? 'Your table is ready to resume.' : 'Reconnecting to your table…'}</h2><p>{connected && view ? 'Continue from where you left off.' : 'Wait for the connection, or close this saved table session.'}</p></div><div className="open-table-actions"><Link className="button button-green" to={resumePath}><Gamepad2 size={16} /> Resume table</Link><button type="button" className="button button-outline" onClick={() => { leaveRoom(); navigate('/create') }}>Close open table</button></div></section>}
     <div className="dashboard-grid"><section className="content-panel feature-panel"><div className="panel-topline"><span className="small-label">YOUR NEXT GAME</span><span className="status-tag"><span className="status-dot online" /> OPEN</span></div><h2>Make the first move.</h2><p>Create a private table, invite up to three friends, and let the cards decide.</p><div className="panel-actions"><Link className="button button-green" to="/create"><Plus size={17} /> Create a room</Link><Link className="text-link" to="/join">Join with a code <ArrowRight size={15} /></Link></div><div className="panel-mark">W</div></section><section className="content-panel rank-panel"><div className="panel-topline"><span className="small-label">THE ARENA</span><Trophy size={18} /></div><h3>Play. Win. Climb.</h3><p>Rankings update after completed matches with registered players.</p><Link className="text-link" to="/leaderboard">View leaderboard <ArrowRight size={15} /></Link><div className="rank-decoration"><span /><span /><span /><span /><span /></div></section></div>
     <div className="section-heading"><div><span className="small-label">KEEP EXPLORING</span><h2>Make yourself at home</h2></div></div><div className="quick-grid"><Link to="/help" className="quick-action"><span className="quick-icon green"><BookOpen size={19} /></span><span><strong>Rules at a glance</strong><small>Learn the Arena's house rules</small></span><ArrowRight size={17} /></Link><Link to="/profile" className="quick-action"><span className="quick-icon coral"><UserRound size={19} /></span><span><strong>Your player profile</strong><small>Account and match statistics</small></span><ArrowRight size={17} /></Link><Link to="/settings" className="quick-action"><span className="quick-icon gold"><Settings size={19} /></span><span><strong>Game settings</strong><small>Set your name and preferences</small></span><ArrowRight size={17} /></Link></div>
   </>
 }
-
-function Stat({ icon, label, value, tone }: { icon: React.ReactNode; label: string; value: React.ReactNode; tone: string }) { return <div className="stat-card"><span className={`stat-icon ${tone}`}>{icon}</span><span className="stat-label">{label}</span><strong>{value}</strong></div> }
 
 function AuthPage({ registering = false }: { registering?: boolean }) {
   const { authenticate, user, busy } = useArena()
@@ -1129,7 +1122,7 @@ function VoicePanel({ messages, chatMessages, playerId, enabled, players, balanc
   useEffect(() => {
     if (!username) return
     let active = true
-    const load = () => fetch(`${API_URL}/api/messages?limit=100`, { headers: { Authorization: `Bearer ${sessionStorage.getItem('whot.token')}` } })
+    const load = () => fetch(`${API_URL}/api/messages?limit=100`, { headers: { Authorization: `Bearer ${accessToken()}` } })
       .then(async response => { if (response.ok && active) setDirectMessages(await response.json() as DirectMessage[]) })
       .catch(() => undefined)
     void load()
@@ -1140,7 +1133,7 @@ function VoicePanel({ messages, chatMessages, playerId, enabled, players, balanc
   useEffect(() => {
     if (!username || recipient.trim().length < 2) { setPlayerMatches([]); return }
     const timer = window.setTimeout(() => {
-      void fetch(`${API_URL}/api/players/search?q=${encodeURIComponent(recipient.trim())}`, { headers: { Authorization: `Bearer ${sessionStorage.getItem('whot.token')}` } })
+      void fetch(`${API_URL}/api/players/search?q=${encodeURIComponent(recipient.trim())}`, { headers: { Authorization: `Bearer ${accessToken()}` } })
         .then(async response => { if (response.ok) setPlayerMatches(await response.json() as PlayerSearchResult[]) })
         .catch(() => undefined)
     }, 250)
@@ -1184,7 +1177,7 @@ function VoicePanel({ messages, chatMessages, playerId, enabled, players, balanc
     if (!recipient.trim() || !directText.trim()) return
     setDirectError('')
     try {
-      const response = await fetch(`${API_URL}/api/messages`, { method: 'POST', headers: { Authorization: `Bearer ${sessionStorage.getItem('whot.token')}`, 'content-type': 'application/json' }, body: JSON.stringify({ recipient_username: recipient.trim(), text: directText.trim() }) })
+      const response = await fetch(`${API_URL}/api/messages`, { method: 'POST', headers: { Authorization: `Bearer ${accessToken()}`, 'content-type': 'application/json' }, body: JSON.stringify({ recipient_username: recipient.trim(), text: directText.trim() }) })
       if (!response.ok) throw new Error((await response.json()).detail || 'Could not send message')
       const message = await response.json() as DirectMessage
       setDirectMessages(previous => [...previous, message])
@@ -1210,7 +1203,7 @@ function VoicePanel({ messages, chatMessages, playerId, enabled, players, balanc
 
   const appTitle = phoneApp === 'home' ? 'WHOT Phone' : phoneApp === 'messenger' ? 'Messenger' : phoneApp === 'bank' ? 'Arena Bank' : 'Game Settings'
   return createPortal(<div className="table-chat-shell">
-    <button type="button" className={`chat-fab ${open ? 'chat-fab-open' : ''}`} onClick={toggleChat} aria-label={open ? 'Close game phone' : 'Open game phone'}>{open ? <X size={21} /> : <><MessageCircle size={21} />{unread > 0 && <span>{Math.min(unread, 9)}</span>}</>}</button>
+    <button type="button" className={`chat-fab ${open ? 'chat-fab-open' : ''}`} onClick={toggleChat} aria-label={open ? 'Close game phone' : 'Open game phone'}>{open ? <X size={21} /> : <><Smartphone size={22} />{unread > 0 && <span>{Math.min(unread, 9)}</span>}</>}</button>
     {open && <aside className="table-chat-phone" aria-label="WHOT game phone">
       <div className="iphone-screen">
         <div className="iphone-statusbar" aria-hidden="true"><strong>{phoneTime}</strong><span className="iphone-island" /><span className="iphone-signals"><Signal size={12} fill="currentColor" /><Wifi size={13} /><BatteryFull size={16} /></span></div>
@@ -1230,7 +1223,7 @@ function Profile() {
   const [profile, setProfile] = useState<User | null>(user)
   const [status, setStatus] = useState('')
   useEffect(() => {
-    const token = sessionStorage.getItem('whot.token')
+    const token = accessToken()
     if (!token) return
     fetch(`${API_URL}/api/profile`, { headers: { Authorization: `Bearer ${token}` } }).then(async response => {
       if (!response.ok) throw new Error('Sign in to view your account profile.')
@@ -1242,7 +1235,7 @@ function Profile() {
     setStatus('Saving your Arena style…')
     const payload = { theme: profile.selected_theme, card_back: profile.selected_card_back, avatar: profile.selected_avatar, [field]: value }
     try {
-      const response = await fetch(`${API_URL}/api/profile/cosmetics`, { method: 'PUT', headers: { Authorization: `Bearer ${sessionStorage.getItem('whot.token')}`, 'content-type': 'application/json' }, body: JSON.stringify(payload) })
+      const response = await fetch(`${API_URL}/api/profile/cosmetics`, { method: 'PUT', headers: { Authorization: `Bearer ${accessToken()}`, 'content-type': 'application/json' }, body: JSON.stringify(payload) })
       if (!response.ok) throw new Error((await response.json()).detail || 'Could not save cosmetics')
       const result = await response.json() as User
       setProfile(result); localStorage.setItem('whot.user', JSON.stringify(result)); setStatus('Arena style saved.')
@@ -1262,7 +1255,7 @@ function HistoryPage() {
   const [loading, setLoading] = useState(Boolean(user))
   const [error, setError] = useState('')
   useEffect(() => {
-    const token = sessionStorage.getItem('whot.token')
+    const token = accessToken()
     if (!token) return
     fetch(`${API_URL}/api/history?limit=50`, { headers: { Authorization: `Bearer ${token}` } })
       .then(async response => { if (!response.ok) throw new Error('Could not load match history'); setMatches(await response.json() as MatchHistory[]) })
