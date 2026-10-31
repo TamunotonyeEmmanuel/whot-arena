@@ -209,3 +209,10 @@ html[data-theme="dark"] .table-chat-phone .voice-message-meta strong{color:#f2ff
     font-size: 27px;
   }
 }
+/* Unified WHOT Arena loading animation */
+
+.launch-screen.table-loading {
+  background: #102b22;
+  color: #f4f7ed;
+  animation: none;
+}

@@ -489,7 +489,7 @@ function JoinRoom() {
     try { const next = await connectRoom('join', { code: code.trim().toUpperCase(), name: name.trim() || 'Guest' }); navigate(`/lobby/${next.code}`) }
     catch (error) { setFormError(error instanceof Error ? error.message : 'Could not join room') }
   }
-  return <><PageTitle eyebrow="JOIN A TABLE" title="Got a room code?" detail="Ask your host for the code and pull up a chair." /><form className="join-panel content-panel" onSubmit={submit}><div className="join-card-icon"><DoorOpen size={24} /></div><label className="field-label">Room code<input className="code-input" value={code} onChange={event => setCode(event.target.value.replace(/[^a-z0-9]/gi, '').slice(0, 6))} placeholder="ABC123" maxLength={6} required autoCapitalize="characters" /></label><label className="field-label">Your table name<input value={name} maxLength={20} onChange={event => setName(event.target.value)} placeholder="Choose a nickname" /></label>{formError && <div role="alert" className="form-error">{formError}</div>}<button disabled={busy || code.length !== 6} className="button button-green full-button"><DoorOpen size={17} /> {busy ? 'Joining table…' : 'Join this room'}</button><p className="fine-print"><Shield size={14} /> You only see your own cards once play begins.</p></form></>
+  return <><PageTitle eyebrow="JOIN A TABLE" title="Got a room code?" detail="Ask your host for the code and pull up a chair." /><form className="join-panel content-panel" onSubmit={submit}><div className="join-card-icon"><DoorOpen size={24} /></div><label className="field-label">Room code<input className="code-input" value={code} onChange={event => setCode(event.target.value.replace(/[^a-z0-9]/gi, '').slice(0, 6))} placeholder="ABC123" maxLength={6} required autoCapitalize="characters" /></label><label className="field-label">Your table name<input value={name} maxLength={20} onChange={event => setName(event.target.value)} placeholder="Choose a nickname" /></label>{formError && <div role="alert" className="form-error">{formError}</div>}<button disabled={busy || code.length !== 6} className="button button-green full-button"><DoorOpen size={17} /> {busy ? 'Joining table…' : 'Join this room'}</button><p className="fine-print"><Shield size={14} /> You only see your own cards once play begins.</p></form>{busy && <LoadingScreen message="JOINING YOUR TABLE" action />}</>
 }
 
 function Lobby() {
@@ -1023,7 +1023,19 @@ function HelpPage() {
 }
 
 function LoadingScreen({ message, action = false }: { message: string; action?: boolean }) {
-  return <div className={`launch-screen ${action ? 'action-loading' : ''}`} role="status" aria-label={message}><div className="launch-glow" /><div className="launch-card" aria-hidden="true"><span>W</span></div>{action ? <div className="action-signal" aria-hidden="true"><span /><span /><span /></div> : <><div className="launch-wordmark"><strong>WHOT</strong><span>ARENA</span></div><div className="launch-progress" aria-hidden="true"><span /></div><small>{message}</small></>}</div>
+  return (
+    <div
+      className={`launch-screen ${action ? 'table-loading' : ''}`}
+      role="status"
+      aria-label={message}
+    >
+      <div className="launch-glow" />
+      <div className="launch-card" aria-hidden="true"><span>W</span></div>
+      <div className="launch-wordmark"><strong>WHOT</strong><span>ARENA</span></div>
+      <div className="launch-progress" aria-hidden="true"><span /></div>
+      <small>{message}</small>
+    </div>
+  )
 }
 
 function LaunchScreen({ onDone }: { onDone: () => void }) {
