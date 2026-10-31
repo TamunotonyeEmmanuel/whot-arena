@@ -95,3 +95,79 @@ html[data-theme="dark"] .table-chat-phone .voice-message-meta strong{color:#f2ff
 .match-scoreboard{display:grid;justify-items:center;gap:5px;margin-left:auto;color:#7a867d}.match-scoreboard>span{font-size:7px;font-weight:800;letter-spacing:1.2px}.match-scoreboard>div{display:flex;gap:5px}.match-scoreboard>div>span{min-width:82px;display:grid;grid-template-columns:1fr auto;align-items:center;gap:1px 8px;padding:5px 8px;border:1px solid #dce4d9;border-radius:6px;background:#fff}.match-scoreboard strong{max-width:72px;overflow:hidden;color:#35493c;font-size:9px;text-overflow:ellipsis;white-space:nowrap}.match-scoreboard b{grid-row:1/3;grid-column:2;color:#194c36;font-size:17px}.match-scoreboard small{color:#909b92;font-size:7px}.match-scoreboard .score-champion{border-color:#d6b851;background:#fff8d8}.winner-announcement.match-champion{border-color:#f3cc55;background:linear-gradient(145deg,#102b22ed,#214d35ed);box-shadow:0 22px 80px #07171099,0 0 0 10px #f1c84d29}.winner-announcement>small{color:#f2d87f;font-size:9px;font-weight:700;letter-spacing:.7px}@media(max-width:760px){.game-topline{align-items:flex-start;flex-wrap:wrap}.match-scoreboard{order:3;width:100%;margin-top:7px}.match-scoreboard>div{width:100%;justify-content:center;overflow-x:auto}.match-scoreboard>div>span{min-width:76px}}
 .top-card-slot>.whot-card{animation:card-land-on-table .52s cubic-bezier(.16,.84,.28,1) both}.hand-cards .whot-card{animation:card-draw-from-market .58s cubic-bezier(.16,.8,.25,1) both;animation-delay:calc(var(--card-index)*45ms)}.table-dealing .pile-stack{animation:deck-shuffle .8s ease-in-out 2}.table-dealing .opponent-card-fan .whot-card{animation:opponent-deal .42s cubic-bezier(.2,.75,.25,1) both}.table-dealing .opponent-card-fan .whot-card:nth-child(2){animation-delay:.1s}.table-dealing .opponent-card-fan .whot-card:nth-child(3){animation-delay:.2s}.table-penalty-active{box-shadow:inset 0 0 0 2px #ffb257,inset 0 0 70px #8c172a99,0 9px 20px #4937211c}.table-penalty-active .top-card-slot>.whot-card{animation:penalty-card-glow 1s ease-in-out infinite}.penalty-hand .card-playable{z-index:2;animation:penalty-blocker-shake .85s ease-in-out infinite!important;box-shadow:0 0 0 3px #ffbd57,0 0 20px #e86b39cc!important}.penalty-hand .hand-hint{color:#a7372b;font-weight:800}.pile-stack:active .whot-card{animation:pile-card-lift .22s ease-out}@keyframes card-draw-from-market{0%{opacity:0;transform:translateY(-155px) translateX(18px) rotate(16deg) scale(.62);filter:blur(2px)}60%{opacity:1;transform:translateY(8px) translateX(0) rotate(-3deg) scale(1.04);filter:blur(0)}100%{opacity:1;transform:translateY(0) rotate(0) scale(1)}}@keyframes card-land-on-table{0%{opacity:0;transform:translateX(-120px) translateY(35px) rotate(-18deg) scale(.72)}65%{opacity:1;transform:translateX(5px) translateY(-4px) rotate(3deg) scale(1.04)}100%{transform:translate(0) rotate(0) scale(1)}}@keyframes deck-shuffle{0%,100%{transform:translateX(0) rotate(0)}25%{transform:translateX(-9px) rotate(-5deg)}50%{transform:translateX(10px) rotate(5deg)}75%{transform:translateX(-5px) rotate(-2deg)}}@keyframes opponent-deal{from{opacity:0;transform:translateY(95px) translateX(-35px) rotate(18deg) scale(.65)}to{opacity:1;transform:translate(0) rotate(0) scale(1)}}@keyframes penalty-blocker-shake{0%,100%{transform:translateY(-4px) rotate(0)}25%{transform:translateY(-7px) rotate(-2.5deg)}50%{transform:translateY(-4px) rotate(2.5deg)}75%{transform:translateY(-7px) rotate(-1.5deg)}}@keyframes penalty-card-glow{0%,100%{transform:scale(1);filter:drop-shadow(0 0 5px #ffb057)}50%{transform:scale(1.05) rotate(1deg);filter:drop-shadow(0 0 17px #ff6b46)}}@keyframes pile-card-lift{to{transform:translateY(-18px) rotate(-6deg) scale(1.04)}}
 .firework-sky{position:absolute;inset:0;overflow:hidden;background:linear-gradient(#06151040,#102b2208)}.firework-sky .firework{--cycle:3.5s;position:absolute;width:6px;height:6px;filter:drop-shadow(0 0 5px hsl(var(--hue) 100% 70%));transform:scale(var(--burst-size))}.firework-sky .firework::before{content:"";position:absolute;left:2px;top:2px;width:2px;height:38px;border-radius:50%;opacity:0;background:linear-gradient(to bottom,#fff,hsla(var(--hue),100%,70%,.8) 20%,transparent);box-shadow:0 5px 8px hsla(var(--hue),100%,70%,.65);animation:real-firework-launch var(--cycle) cubic-bezier(.2,.68,.35,1) infinite;animation-delay:var(--delay)}.firework-sky .firework i{position:absolute;inset:-7px;border-radius:50%;opacity:0;background:#fff;box-shadow:0 0 10px 5px #fff,0 0 24px 12px hsla(var(--hue),100%,65%,.9);animation:real-firework-flash var(--cycle) ease-out infinite;animation-delay:var(--delay)}.firework-sky .firework span{--angle:calc(var(--spark)*11.25deg);position:absolute;left:2px;top:2px;width:3px;height:18px;border-radius:50%;opacity:0;background:linear-gradient(to bottom,#fff 0 12%,hsl(var(--hue) 100% 72%) 20% 58%,transparent 100%);box-shadow:0 0 5px hsl(var(--hue) 100% 68%);transform-origin:50% 0;animation:real-firework-burst var(--cycle) cubic-bezier(.12,.64,.32,1) infinite;animation-delay:var(--delay)}.firework-sky .firework span:nth-of-type(2n){--distance:calc(68px + (var(--spark)*1px));height:12px;filter:hue-rotate(38deg)}.firework-sky .firework span:nth-of-type(3n){width:2px;height:23px;filter:hue-rotate(-42deg)}.firework-sky .firework span:nth-of-type(5n){height:8px;filter:brightness(1.45)}@keyframes real-firework-launch{0%,5%{opacity:0;transform:translateY(58vh) scaleY(.5)}8%{opacity:1}25%{opacity:.9;transform:translateY(0) scaleY(1)}26%,100%{opacity:0;transform:translateY(0)}}@keyframes real-firework-flash{0%,24%{opacity:0;transform:scale(.1)}25%{opacity:1;transform:scale(.45)}28%{opacity:.9;transform:scale(1.35)}34%,100%{opacity:0;transform:scale(2.2)}}@keyframes real-firework-burst{0%,24%{opacity:0;transform:rotate(var(--angle)) translateY(0) scaleY(.15)}25%{opacity:1}48%{opacity:.95;transform:rotate(var(--angle)) translateY(calc(var(--distance)*-1)) scaleY(1)}62%{opacity:.65;transform:rotate(var(--angle)) translateY(calc(var(--distance)*-1.16)) translateX(8px) scaleY(.65)}73%,100%{opacity:0;transform:rotate(var(--angle)) translateY(calc(var(--distance)*-1.2)) translateX(18px) scaleY(.2)}}@media(max-width:760px){.firework-sky .firework{--burst-size:calc(var(--burst-size)*.72)}.firework-sky .firework::before{height:28px}}
+
+/* ================================================================
+   WHOT Arena | Stable table and scrollable player hand
+   Keep game geometry independent of the number of cards in hand.
+   ================================================================ */
+.table-frame,
+.table-frame .main-column,
+.table-frame .page-content,
+.table-frame .game-page,
+.table-frame .game-layout,
+.table-frame .table-column {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.table-frame .game-layout {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.table-frame .table-column {
+  min-height: 0;
+  min-width: 0;
+  grid-template-rows: minmax(0, 1fr) auto;
+  overflow: hidden;
+}
+
+.table-frame .table-felt {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  min-height: 0;
+  box-sizing: border-box;
+}
+
+.table-frame .hand-panel {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+}
+
+.table-frame .hand-heading,
+.table-frame .hand-heading > div {
+  min-width: 0;
+}
+
+.table-frame .hand-cards {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  display: flex;
+  flex-wrap: nowrap;
+  justify-content: flex-start;
+  gap: 5px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-x: contain;
+  scrollbar-width: thin;
+  -webkit-overflow-scrolling: touch;
+  box-sizing: border-box;
+  padding: 15px 8px 12px;
+}
+
+.table-frame .hand-cards > *,
+.table-frame .hand-cards .whot-card {
+  flex: 0 0 auto;
+  flex-shrink: 0;
+}
+
+@media (max-width: 760px) {
+  .table-frame .hand-cards {
+    gap: 5px;
+    padding: 12px 4px 7px;
+  }
+}
