@@ -638,179 +638,215 @@ function LiveVoicePanel({ players, playerId, enabled }: { players: Player[]; pla
   const [connectionSlow, setConnectionSlow] = useState(false)
   const [voiceError, setVoiceError] = useState('')
   const [drawerOpen, setDrawerOpen] = useState(false)
-  const mutedRef = useRef(muted)
-  mutedRef.current = muted
-  const localStreamRef = useRef<MediaStream | null>(null)
-  const startPromiseRef = useRef<Promise<MediaStream | null> | null>(null)
+  const streamRef = useRef<MediaStream | null>(null)
+  const startingRef = useRef<Promise<MediaStream | null> | null>(null)
   const peersRef = useRef(new Map<string, RTCPeerConnection>())
   const audioRef = useRef(new Map<string, HTMLAudioElement>())
   const offeredRef = useRef(new Set<string>())
-  const handledSignalsRef = useRef(new Set<string>())
-  const pendingIceRef = useRef(new Map<string, RTCIceCandidateInit[]>())
+  const handledRef = useRef(new Set<string>())
+  const iceRef = useRef(new Map<string, RTCIceCandidateInit[]>())
+  const signalQueueRef = useRef(new Map<string, Promise<void>>())
+  const removalTimersRef = useRef(new Map<string, number>())
+  const mountedRef = useRef(true)
+  const sendSignalRef = useRef(sendRtcSignal)
+  sendSignalRef.current = sendRtcSignal
 
-  async function startMicrophone() {
-    if (localStreamRef.current) return localStreamRef.current
-    if (startPromiseRef.current) return startPromiseRef.current
-    if (!navigator.mediaDevices?.getUserMedia || typeof RTCPeerConnection === 'undefined') {
-      setStatus('unsupported')
-      return null
-    }
-    startPromiseRef.current = navigator.mediaDevices.getUserMedia({
-      audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
-      video: false,
-    }).then(stream => {
-      localStreamRef.current = stream
-      stream.getAudioTracks().forEach(track => { track.enabled = true })
-      for (const [remoteId, peer] of peersRef.current) {
-        const senderTracks = peer.getSenders().map(sender => sender.track).filter(Boolean)
-        stream.getAudioTracks().forEach(track => { if (!senderTracks.includes(track)) peer.addTrack(track, stream) })
-        void peer.createOffer().then(offer => peer.setLocalDescription(offer)).then(() => {
-          if (peer.localDescription) sendRtcSignal(remoteId, { type: 'offer', sdp: { type: peer.localDescription.type, sdp: peer.localDescription.sdp } })
-        }).catch(() => undefined)
-      }
-      setMuted(false)
-      setStatus('live')
-      // WebRTC-only voice: do not send a second copy of microphone audio via WebSocket.
-      return stream
-    }).catch(() => {
-      setStatus('blocked')
-      return null
-    })
-    return startPromiseRef.current
+  function disposePeer(id: string) {
+    const timer = removalTimersRef.current.get(id)
+    if (timer !== undefined) window.clearTimeout(timer)
+    removalTimersRef.current.delete(id)
+    const peer = peersRef.current.get(id)
+    if (peer) { peer.ontrack = null; peer.onicecandidate = null; peer.onconnectionstatechange = null; peer.close() }
+    peersRef.current.delete(id)
+    offeredRef.current.delete(id)
+    iceRef.current.delete(id)
+    signalQueueRef.current.delete(id)
+    const audio = audioRef.current.get(id)
+    if (audio) { audio.pause(); audio.srcObject = null; audio.remove() }
+    audioRef.current.delete(id)
+    if (mountedRef.current) setConnectedPeers(previous => previous.filter(value => value !== id))
   }
 
-  function createPeer(remoteId: string, stream: MediaStream | null): RTCPeerConnection | null {
-    const existing = peersRef.current.get(remoteId)
-    if (existing) return existing
+  function createPeer(id: string): RTCPeerConnection | null {
+    const old = peersRef.current.get(id)
+    if (old && old.signalingState !== 'closed') return old
+    if (old) disposePeer(id)
     let peer: RTCPeerConnection
-    try {
-      peer = new RTCPeerConnection({ iceServers: RTC_ICE_SERVERS })
-    } catch (reason) {
-      setVoiceError(reason instanceof Error ? reason.message : 'The browser rejected the voice connection settings.')
+    try { peer = new RTCPeerConnection({ iceServers: RTC_ICE_SERVERS }) }
+    catch (error) {
+      setVoiceError(error instanceof Error ? error.message : 'Unable to configure WebRTC.')
       setStatus('failed')
       return null
     }
-    if (stream) stream.getAudioTracks().forEach(track => peer.addTrack(track, stream))
-    else peer.addTransceiver('audio', { direction: 'recvonly' })
+    // Reserve a send/receive audio transceiver BEFORE the first offer.
+    // Later microphone activation uses replaceTrack, so no second SDP offer is needed.
+    const transceiver = peer.addTransceiver('audio', { direction: 'sendrecv' })
+    const track = streamRef.current?.getAudioTracks()[0]
+    if (track) void transceiver.sender.replaceTrack(track).catch(error => console.warn('Voice track:', error))
     peer.onicecandidate = event => {
-      if (event.candidate) {
-        const candidate = typeof event.candidate.toJSON === 'function' ? event.candidate.toJSON() : {
-          candidate: event.candidate.candidate,
-          sdpMid: event.candidate.sdpMid,
-          sdpMLineIndex: event.candidate.sdpMLineIndex,
-          usernameFragment: event.candidate.usernameFragment,
-        }
-        sendRtcSignal(remoteId, { type: 'ice', candidate })
-      }
+      if (event.candidate) sendSignalRef.current(id, { type: 'ice', candidate: event.candidate.toJSON() })
     }
     peer.ontrack = event => {
-      const audio = audioRef.current.get(remoteId) || new Audio()
+      const audio = audioRef.current.get(id) || new Audio()
       audio.autoplay = true
-      audio.srcObject = event.streams[0]
-      audioRef.current.set(remoteId, audio)
+      audio.srcObject = event.streams[0] || new MediaStream([event.track])
+      audioRef.current.set(id, audio)
       void audio.play().then(() => setPlaybackBlocked(false)).catch(() => setPlaybackBlocked(true))
     }
     peer.onconnectionstatechange = () => {
+      if (!mountedRef.current) return
+      console.info('WHOT voice peer', id, peer.connectionState, 'ICE:', peer.iceConnectionState, 'signaling:', peer.signalingState)
       if (peer.connectionState === 'connected') {
-        setConnectedPeers(previous => previous.includes(remoteId) ? previous : [...previous, remoteId])
+        setConnectedPeers(previous => previous.includes(id) ? previous : [...previous, id])
         setConnectionSlow(false)
-        playGameSound('join')
-      } else if (['failed', 'closed', 'disconnected'].includes(peer.connectionState)) {
-        setConnectedPeers(previous => previous.filter(id => id !== remoteId))
+      } else if (peer.connectionState === 'disconnected' || peer.connectionState === 'failed' || peer.connectionState === 'closed') {
+        setConnectedPeers(previous => previous.filter(value => value !== id))
+        if (peer.connectionState === 'failed') setVoiceError('Voice connection failed. Check TURN connectivity and browser console.')
       }
     }
-    peersRef.current.set(remoteId, peer)
+    peersRef.current.set(id, peer)
     return peer
   }
 
-  useEffect(() => {
-    if (enabled) send('rtc_ready')
-    return () => {
-      localStreamRef.current?.getTracks().forEach(track => track.stop())
-      peersRef.current.forEach(peer => peer.close())
-      audioRef.current.forEach(audio => { audio.pause(); audio.srcObject = null })
-      peersRef.current.clear()
-      audioRef.current.clear()
+  async function offerTo(id: string, peer: RTCPeerConnection) {
+    if (offeredRef.current.has(id) || peer.signalingState !== 'stable') return
+    offeredRef.current.add(id)
+    try {
+      await peer.setLocalDescription(await peer.createOffer())
+      if (peer.localDescription && peer.signalingState === 'have-local-offer') {
+        sendSignalRef.current(id, { type: 'offer', sdp: { type: peer.localDescription.type, sdp: peer.localDescription.sdp } })
+      }
+    } catch (error) {
+      offeredRef.current.delete(id)
+      console.warn('WHOT voice offer:', error)
     }
-  }, [enabled])
+  }
+
+  async function startMicrophone() {
+    if (streamRef.current) return streamRef.current
+    if (startingRef.current) return startingRef.current
+    if (!navigator.mediaDevices?.getUserMedia || typeof RTCPeerConnection === 'undefined') {
+      setStatus('unsupported'); return null
+    }
+    setStatus('starting')
+    const pending = navigator.mediaDevices.getUserMedia({
+      audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }, video: false,
+    }).then(async stream => {
+      if (!mountedRef.current) { stream.getTracks().forEach(track => track.stop()); return null }
+      streamRef.current = stream
+      const track = stream.getAudioTracks()[0]
+      track.enabled = true
+      await Promise.all([...peersRef.current.values()].map(peer => {
+        const sender = peer.getTransceivers().find(item => item.receiver.track.kind === 'audio')?.sender
+        return sender ? sender.replaceTrack(track) : Promise.resolve()
+      }))
+      setMuted(false)
+      setStatus('live')
+      setVoiceError('')
+      return stream
+    }).catch(error => {
+      console.warn('WHOT microphone:', error)
+      if (mountedRef.current) { setStatus('blocked'); setVoiceError('Microphone permission or audio device unavailable.') }
+      return null
+    }).finally(() => { startingRef.current = null })
+    startingRef.current = pending
+    return pending
+  }
 
   useEffect(() => {
-    const stream = localStreamRef.current
+    mountedRef.current = true
+    return () => {
+      mountedRef.current = false
+      removalTimersRef.current.forEach(timer => window.clearTimeout(timer))
+      removalTimersRef.current.clear()
+      for (const id of [...peersRef.current.keys()]) disposePeer(id)
+      streamRef.current?.getTracks().forEach(track => track.stop())
+      streamRef.current = null
+    }
+  }, [])
+
+  useEffect(() => { if (enabled && playerId) send('rtc_ready') }, [enabled, playerId])
+
+  useEffect(() => {
     if (!enabled || !playerId) return
-    const remoteIds = players.filter(player => player.id !== playerId && player.connected && player.voice_ready).map(player => player.id)
-    for (const [remoteId, peer] of peersRef.current) {
-      if (!remoteIds.includes(remoteId)) {
-        peer.close()
-        peersRef.current.delete(remoteId)
-        offeredRef.current.delete(remoteId)
-        setConnectedPeers(previous => previous.filter(id => id !== remoteId))
+    const ids = new Set(players.filter(p => p.id !== playerId && p.connected && p.voice_ready).map(p => p.id))
+    for (const id of peersRef.current.keys()) {
+      if (ids.has(id)) {
+        const timer = removalTimersRef.current.get(id)
+        if (timer !== undefined) window.clearTimeout(timer)
+        removalTimersRef.current.delete(id)
+      } else if (!removalTimersRef.current.has(id)) {
+        // Tolerate transient room updates instead of instantly closing a connection.
+        removalTimersRef.current.set(id, window.setTimeout(() => disposePeer(id), 10000))
       }
     }
-    for (const remoteId of remoteIds) {
-      const peer = createPeer(remoteId, stream)
-      if (!peer) continue
-      if (playerId < remoteId && !offeredRef.current.has(remoteId)) {
-        offeredRef.current.add(remoteId)
-        void peer.createOffer().then(offer => peer.setLocalDescription(offer)).then(() => {
-          if (peer.localDescription) sendRtcSignal(remoteId, { type: 'offer', sdp: { type: peer.localDescription.type, sdp: peer.localDescription.sdp } })
-        }).catch(() => offeredRef.current.delete(remoteId))
-      }
+    for (const id of ids) {
+      const peer = createPeer(id)
+      // Exactly one deterministic offerer per pair; the other player only answers.
+      if (peer && playerId < id) void offerTo(id, peer)
     }
-  }, [players, playerId, enabled, status])
+  }, [players, playerId, enabled])
 
   useEffect(() => {
     for (const message of rtcSignals) {
-      if (handledSignalsRef.current.has(message.id) || !players.some(player => player.id === message.from)) continue
-      handledSignalsRef.current.add(message.id)
-      void (async () => {
-        const peer = createPeer(message.from, localStreamRef.current)
+      if (handledRef.current.has(message.id) || !players.some(p => p.id === message.from)) continue
+      handledRef.current.add(message.id)
+      const id = message.from
+      // Serialize SDP and ICE operations per peer to avoid setRemoteDescription races.
+      const previous = signalQueueRef.current.get(id) || Promise.resolve()
+      const next = previous.catch(() => undefined).then(async () => {
+        if (!mountedRef.current) return
+        const peer = createPeer(id)
         if (!peer) return
-        if (message.signal.type === 'offer' && message.signal.sdp) {
-          await peer.setRemoteDescription(message.signal.sdp)
-          for (const candidate of pendingIceRef.current.get(message.from) || []) await peer.addIceCandidate(candidate)
-          pendingIceRef.current.delete(message.from)
-          const answer = await peer.createAnswer()
-          await peer.setLocalDescription(answer)
-          if (peer.localDescription) sendRtcSignal(message.from, { type: 'answer', sdp: { type: peer.localDescription.type, sdp: peer.localDescription.sdp } })
-        } else if (message.signal.type === 'answer' && message.signal.sdp) {
-          await peer.setRemoteDescription(message.signal.sdp)
-          for (const candidate of pendingIceRef.current.get(message.from) || []) await peer.addIceCandidate(candidate)
-          pendingIceRef.current.delete(message.from)
-        } else if (message.signal.type === 'ice' && message.signal.candidate) {
-          if (peer.remoteDescription) await peer.addIceCandidate(message.signal.candidate)
-          else pendingIceRef.current.set(message.from, [...(pendingIceRef.current.get(message.from) || []), message.signal.candidate])
+        const signal = message.signal
+        if (signal.type === 'offer' && signal.sdp) {
+          if (peer.signalingState !== 'stable') {
+            console.warn('WHOT voice: ignored colliding offer', id, peer.signalingState)
+            return
+          }
+          await peer.setRemoteDescription(signal.sdp)
+          await peer.setLocalDescription(await peer.createAnswer())
+          if (peer.localDescription) sendSignalRef.current(id, { type: 'answer', sdp: { type: peer.localDescription.type, sdp: peer.localDescription.sdp } })
+          for (const candidate of iceRef.current.get(id) || []) await peer.addIceCandidate(candidate)
+          iceRef.current.delete(id)
+        } else if (signal.type === 'answer' && signal.sdp) {
+          if (peer.signalingState !== 'have-local-offer') return
+          await peer.setRemoteDescription(signal.sdp)
+          for (const candidate of iceRef.current.get(id) || []) await peer.addIceCandidate(candidate)
+          iceRef.current.delete(id)
+        } else if (signal.type === 'ice' && signal.candidate) {
+          if (peer.remoteDescription) await peer.addIceCandidate(signal.candidate)
+          else iceRef.current.set(id, [...(iceRef.current.get(id) || []), signal.candidate])
         }
-      })().catch(() => setConnectedPeers(previous => previous.filter(id => id !== message.from)))
+      }).catch(error => {
+        console.warn('WHOT voice signaling', id, error)
+        if (mountedRef.current) setVoiceError('Voice signaling error. See browser console.')
+      })
+      signalQueueRef.current.set(id, next)
     }
+    if (handledRef.current.size > 1000) handledRef.current = new Set([...handledRef.current].slice(-500))
   }, [rtcSignals, players])
 
   useEffect(() => {
-    const waitingFor = players.some(player => player.id !== playerId && player.connected && player.voice_ready)
-    if (!waitingFor || connectedPeers.length) { setConnectionSlow(false); return }
+    const waiting = players.some(p => p.id !== playerId && p.connected && p.voice_ready)
+    if (!waiting || connectedPeers.length) { setConnectionSlow(false); return }
     const timer = window.setTimeout(() => setConnectionSlow(true), 12000)
     return () => window.clearTimeout(timer)
   }, [players, playerId, connectedPeers.length])
 
   function toggleMute() {
-    if (!localStreamRef.current) {
-      setStatus('starting')
-      startPromiseRef.current = null
-      void startMicrophone()
-      return
-    }
+    if (!streamRef.current) { void startMicrophone(); return }
     const next = !muted
-    localStreamRef.current?.getAudioTracks().forEach(track => { track.enabled = !next })
-    audioRef.current.forEach(audio => { void audio.play().catch(() => undefined) })
+    streamRef.current.getAudioTracks().forEach(track => { track.enabled = !next })
     setMuted(next)
   }
-
   function enablePlayback() {
-    void Promise.all([...audioRef.current.values()].map(audio => audio.play())).then(() => setPlaybackBlocked(false)).catch(() => setPlaybackBlocked(true))
+    void Promise.all([...audioRef.current.values()].map(audio => audio.play()))
+      .then(() => setPlaybackBlocked(false)).catch(() => setPlaybackBlocked(true))
   }
-
   const voiceCount = connectedPeers.length + 1
   const statusText = `${voiceCount} ${voiceCount === 1 ? 'player' : 'players'} connected`
-  return <aside className={`voice-panel live-voice-panel content-panel ${drawerOpen ? 'voice-drawer-open' : ''}`} aria-label="Live table voice"><button type="button" className="voice-drawer-toggle" onClick={() => setDrawerOpen(open => !open)} aria-expanded={drawerOpen} aria-label={drawerOpen ? 'Close live voice controls' : 'Open live voice controls'}>{muted ? <Mic size={20} /> : <MicOff size={20} />}<ChevronDown size={14} /></button><div className="voice-heading"><span className={`voice-icon ${status === 'live' ? 'voice-live' : ''}`}><Volume2 size={17} /></span><div><strong>Live table voice</strong><small>{statusText}</small></div><span className="status-dot online" /></div><div className="live-voice-room"><button type="button" className={`live-mic-orbit ${status === 'live' && !muted ? 'mic-active' : ''}`} onClick={toggleMute} disabled={!enabled || status === 'starting' || status === 'unsupported' || status === 'failed'} aria-label={!localStreamRef.current ? 'Start live microphone' : muted ? 'Unmute live microphone' : 'Mute live microphone'}><span>{muted ? <MicOff size={27} /> : <Mic size={27} />}</span></button><strong>{status === 'starting' ? 'Opening microphone…' : muted ? 'Tap the mic to speak live' : 'You are speaking live'}</strong><small>{voiceError || (connectionSlow ? 'Direct voice connection failed. This network may require a TURN server.' : 'Nothing is recorded. Everyone at the table hears you live.')}</small></div><div className="voice-compose">{status === 'blocked' ? <button type="button" className="button button-green full-button" onClick={() => { startPromiseRef.current = null; setStatus('starting'); void startMicrophone() }}><Mic size={16} /> Allow microphone</button> : playbackBlocked ? <button type="button" className="button button-green full-button" onClick={enablePlayback}><Volume2 size={16} /> Enable speaker</button> : <button type="button" className={`button ${muted ? 'button-green' : 'button-outline'} full-button`} disabled={!enabled || status === 'starting'} onClick={toggleMute}>{muted ? <><Mic size={16} /> Tap to speak</> : <><MicOff size={16} /> Stop speaking</>}</button>}<span className="voice-hint">Live only · no recording is saved</span></div></aside>
+  return <aside className={`voice-panel live-voice-panel content-panel ${drawerOpen ? 'voice-drawer-open' : ''}`} aria-label="Live table voice"><button type="button" className="voice-drawer-toggle" onClick={() => setDrawerOpen(open => !open)} aria-expanded={drawerOpen} aria-label={drawerOpen ? 'Close live voice controls' : 'Open live voice controls'}>{muted ? <Mic size={20} /> : <MicOff size={20} />}<ChevronDown size={14} /></button><div className="voice-heading"><span className={`voice-icon ${status === 'live' ? 'voice-live' : ''}`}><Volume2 size={17} /></span><div><strong>Live table voice</strong><small>{statusText}</small></div><span className="status-dot online" /></div><div className="live-voice-room"><button type="button" className={`live-mic-orbit ${status === 'live' && !muted ? 'mic-active' : ''}`} onClick={toggleMute} disabled={!enabled || status === 'starting' || status === 'unsupported' || status === 'failed'} aria-label={!streamRef.current ? 'Start live microphone' : muted ? 'Unmute live microphone' : 'Mute live microphone'}><span>{muted ? <MicOff size={27} /> : <Mic size={27} />}</span></button><strong>{status === 'starting' ? 'Opening microphone…' : muted ? 'Tap the mic to speak live' : 'You are speaking live'}</strong><small>{voiceError || (connectionSlow ? 'Voice connection is taking too long. Check network and TURN settings.' : 'Nothing is recorded. Everyone at the table hears you live.')}</small></div><div className="voice-compose">{status === 'blocked' ? <button type="button" className="button button-green full-button" onClick={() => { void startMicrophone() }}><Mic size={16} /> Allow microphone</button> : playbackBlocked ? <button type="button" className="button button-green full-button" onClick={enablePlayback}><Volume2 size={16} /> Enable speaker</button> : <button type="button" className={`button ${muted ? 'button-green' : 'button-outline'} full-button`} disabled={!enabled || status === 'starting'} onClick={toggleMute}>{muted ? <><Mic size={16} /> Tap to speak</> : <><MicOff size={16} /> Stop speaking</>}</button>}<span className="voice-hint">Live only · no recording is saved</span></div></aside>
 }
 
 function VoicePanel({ messages, chatMessages, playerId, enabled }: { messages: VoiceMessage[]; chatMessages: ChatMessage[]; playerId: string; enabled: boolean }) {
