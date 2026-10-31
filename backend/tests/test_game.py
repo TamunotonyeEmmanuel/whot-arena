@@ -132,6 +132,7 @@ def test_special_two_draws_and_skips_target():
     r.discard = [{"shape": "circle", "number": 7, "id": "top"}]
     card = {"shape": "circle", "number": 2, "id": "two"}
     r.players[0].hand = [card, {"shape": "star", "number": 3, "id": "keep"}]
+    r.players[1].hand = [{"shape": "square", "number": 7, "id": "safe"}]
     before = len(r.players[1].hand)
     r.play("a", "two")
     assert len(r.players[1].hand) == before + 2
@@ -142,10 +143,43 @@ def test_pick_three_draws_and_skips_target():
     r.discard = [{"shape": "circle", "number": 7, "id": "top"}]
     r.players[0].hand = [{"shape": "circle", "number": 5, "id": "three"},
                          {"shape": "star", "number": 3, "id": "keep"}]
+    r.players[1].hand = [{"shape": "square", "number": 7, "id": "safe"}]
     before = len(r.players[1].hand)
     r.play("a", "three")
     assert len(r.players[1].hand) == before + 3
     assert r.current().id == "a"
+
+def test_penalty_can_only_stack_with_the_same_card_then_draw_total_and_skip():
+    r = Room("TEST", "a", [Player("a", "Ada"), Player("b", "Ben"),
+                             Player("c", "Cleo")])
+    r.start("a")
+    r.discard = [{"shape": "circle", "number": 7, "id": "top"}]
+    r.players[0].hand = [{"shape": "circle", "number": 2, "id": "two"},
+                         {"shape": "star", "number": 3, "id": "a-keep"}]
+    r.players[1].hand = [{"shape": "square", "number": 5, "id": "three"},
+                         {"shape": "triangle", "number": 2, "id": "second-two"},
+                         {"shape": "star", "number": 4, "id": "b-keep"}]
+    r.players[2].hand = [{"shape": "triangle", "number": 7, "id": "no-block"}]
+    before = len(r.players[2].hand)
+
+    r.play("a", "two")
+    assert r.pending_draw == 2
+    assert r.pending_penalty == 2
+    assert r.current().id == "b"
+    assert not r.legal(r.players[1].hand[0])
+    assert r.legal(r.players[1].hand[1])
+    try:
+        r.play("b", "three")
+        assert False
+    except ValueError as error:
+        assert str(error) == "Invalid card"
+
+    r.play("b", "second-two")
+    assert r.pending_draw == 0
+    assert r.pending_penalty is None
+    assert len(r.players[2].hand) == before + 4
+    assert r.current().id == "a"
+    assert "picked 4 cards" in r.last_action
 
 def test_invalid_card_is_not_removed_from_hand():
     r = setup()
@@ -202,6 +236,7 @@ def test_house_rules_can_configure_deal_and_penalties():
     r.discard = [{"shape": "circle", "number": 7, "id": "top"}]
     r.players[0].hand = [{"shape": "circle", "number": 2, "id": "two"},
                          {"shape": "star", "number": 3, "id": "keep"}]
+    r.players[1].hand = [{"shape": "square", "number": 7, "id": "safe"}]
     before = len(r.players[1].hand)
     r.play("a", "two")
     assert len(r.players[1].hand) == before + 4

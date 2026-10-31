@@ -96,7 +96,7 @@ Tap a card to play it, or Draw Card & Pass. WHOT 20 prompts for a shape.
 WHOT 20 can be played anytime and requests a shape.
 1: play again. 2: next player draws two and loses turn.
 5: next player draws three and loses turn. 8: skip next player.
-14: all other players draw one, then its player plays again. Penalty stacking is disabled.
+14: all other players draw one, then its player plays again. Pick Two only stacks on Pick Two, and Pick Three only stacks on Pick Three; a player without the matching card draws the accumulated total and loses their turn.
 Players may draw one and pass even when holding a playable card; the draw ends their turn.
 The first player to empty their hand wins immediately, except that 1, 2, 5, 8,
 14, and 20 cannot finish a round; playing one last requires drawing a replacement.

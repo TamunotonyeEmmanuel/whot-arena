@@ -15,6 +15,8 @@ type RoomView = {
   code: string; status: 'lobby' | 'playing' | 'finished'; host: string; you: string
   turn: string | null; players: Player[]; hand: Card[]; top: Card | null
   requested_shape: string | null; winner: string | null; last_action: string
+  pending_draw: number
+  pending_penalty: number | null
   final_scores: Record<string, number>
   market_count: number
   state_version: number
@@ -518,7 +520,7 @@ function GameTable() {
   const opponents = view.players.filter(player => player.id !== session?.player_id)
   const winnerName = view.players.find(player => player.id === view.winner)?.name || 'Arena winner'
   const myTurn = view.turn === session?.player_id && view.status === 'playing'
-  const isLegal = (card: Card) => card.number === 20 || card.number === view.top?.number || card.shape === (view.requested_shape || view.top?.shape)
+  const isLegal = (card: Card) => view.pending_draw > 0 ? card.number === view.pending_penalty : card.number === 20 || card.number === view.top?.number || card.shape === (view.requested_shape || view.top?.shape)
   function play(card: Card) {
     if (!myTurn) return
     if (card.number === 20) { setSelectedWhot(card); return }
@@ -552,11 +554,12 @@ function GameTable() {
           ))}
         </div>
         <div className="center-piles">
-          <div className="pile-block"><span className="pile-label">DRAW PILE</span><div className={`pile-stack${view.market_count > 0 && view.market_count <= 5 ? ' pile-stack-low' : ''}`} onClick={() => myTurn && send('draw')} role="button" tabIndex={0} onKeyDown={event => event.key === 'Enter' && myTurn && send('draw')} aria-label={`Draw one card and pass. ${view.market_count} cards remain`}><CardFace back large /><span className="market-count">{view.market_count}</span><span className="pile-count">{myTurn ? 'TAP TO DRAW' : `${view.market_count} CARDS`}</span></div></div>
+          <div className="pile-block"><span className="pile-label">DRAW PILE</span><div className={`pile-stack${view.market_count > 0 && view.market_count <= 5 ? ' pile-stack-low' : ''}`} onClick={() => myTurn && send('draw')} role="button" tabIndex={0} onKeyDown={event => event.key === 'Enter' && myTurn && send('draw')} aria-label={view.pending_draw ? `Accept penalty and draw ${view.pending_draw} cards` : `Draw one card and pass. ${view.market_count} cards remain`}><CardFace back large /><span className="market-count">{view.market_count}</span><span className="pile-count">{myTurn ? view.pending_draw ? `PICK ${view.pending_draw}` : 'TAP TO DRAW' : `${view.market_count} CARDS`}</span></div></div>
           <div className="table-arrow">{view.status === 'playing' ? <div className={`table-turn-timer ${turnSeconds <= 5 ? 'table-turn-timer-urgent' : ''}`} aria-live="polite" aria-label={`${turnSeconds} seconds remaining`}><Clock3 size={16} /><strong>{turnSeconds}</strong><span>SEC</span></div> : <Sparkles size={19} />}</div>
           <div className="pile-block"><span className="pile-label">ON THE TABLE</span><div className="top-card-slot"><CardFace card={view.top} large selected /><div className="top-glow" /></div></div>
         </div>
         {view.requested_shape && <div className="requested-shape"><span>SHAPE REQUESTED</span><strong>{shapeGlyph[view.requested_shape]} {view.requested_shape}</strong></div>}
+        {view.pending_draw > 0 && <div className="requested-shape penalty-stack" role="status"><span>PENALTY STACK</span><strong>Pick {view.pending_draw} · Block with another {view.pending_penalty}</strong></div>}
         <div className="table-message" aria-live="polite">{toast || view.last_action}</div>
         <div className="you-at-table"><div className="avatar you-avatar">{(me?.name || 'Y').slice(0, 1).toUpperCase()}</div><div><strong>{me?.name || 'You'} <span>(you)</span></strong><small>{myTurn ? 'Your move' : view.status === 'finished' ? 'Round over' : 'Waiting for your turn'}</small></div>{myTurn && <span className="turn-clock"><Clock3 size={15} /> PLAY NOW</span>}</div>
       </section>
@@ -941,14 +944,14 @@ function SettingsPage() {
 
 const rules = [
   ['1', 'Hold On', 'Keep the turn and play again.'],
-  ['2', 'Pick Two', 'The next player draws two and loses their turn.'],
-  ['5', 'Pick Three', 'The next player draws three and loses their turn.'],
+  ['2', 'Pick Two', 'Adds two to the penalty. It can only be blocked with another Pick Two.'],
+  ['5', 'Pick Three', 'Adds three to the penalty. It can only be blocked with another Pick Three.'],
   ['8', 'Suspension', 'Skip the next player.'],
   ['14', 'General Market', 'Every opponent draws one card, then you play again.'],
   ['20', 'WHOT', 'Choose the next shape. WHOT can be played at any time.'],
 ]
 function HelpPage() {
-  return <><PageTitle eyebrow="HOW TO PLAY" title="Know the table." detail="These are WHOT Arena's chosen house rules, enforced by the game server." /><section className="rules-intro"><div><span className="small-label">THE OBJECT</span><h2>Be the first to play every card in your hand.</h2><p>Match the top card by shape or number, or draw one card and pass.</p></div><div className="rule-visual"><span className="rule-number">20</span><span>✦</span><small>WILD</small></div></section><div className="rules-grid">{rules.map(([number, title, description]) => <article className="rule-row" key={number}><span className={`rule-token tone-${shapeTone[number === '20' ? 'whot' : 'star']}`}>{number}</span><div><strong>{title}</strong><p>{description}</p></div><ChevronDown size={16} /></article>)}</div><div className="rules-note"><BookOpen size={17} /><div><strong>A note on variants</strong><p>Arena uses five cards each with no penalty stacking. Pick Two and Pick Three make the next player draw and lose their turn. You may draw and pass even with a playable card. Special cards 1, 2, 5, 8, 14, and 20 cannot finish a round; playing one last makes you draw a replacement.</p></div></div><div className="help-actions"><Link className="button button-green" to="/create"><Gamepad2 size={16} /> Start a game</Link><Link className="text-link" to="/settings">Game settings <ArrowRight size={15} /></Link></div></>
+  return <><PageTitle eyebrow="HOW TO PLAY" title="Know the table." detail="These are WHOT Arena's chosen house rules, enforced by the game server." /><section className="rules-intro"><div><span className="small-label">THE OBJECT</span><h2>Be the first to play every card in your hand.</h2><p>Match the top card by shape or number, or draw one card and pass.</p></div><div className="rule-visual"><span className="rule-number">20</span><span>✦</span><small>WILD</small></div></section><div className="rules-grid">{rules.map(([number, title, description]) => <article className="rule-row" key={number}><span className={`rule-token tone-${shapeTone[number === '20' ? 'whot' : 'star']}`}>{number}</span><div><strong>{title}</strong><p>{description}</p></div><ChevronDown size={16} /></article>)}</div><div className="rules-note"><BookOpen size={17} /><div><strong>Penalty blocking</strong><p>Pick Two only stacks on Pick Two, while Pick Three only stacks on Pick Three. A player without the matching penalty card automatically picks the accumulated total and loses their turn. Special cards 1, 2, 5, 8, 14, and 20 cannot finish a round; playing one last makes you draw a replacement.</p></div></div><div className="help-actions"><Link className="button button-green" to="/create"><Gamepad2 size={16} /> Start a game</Link><Link className="text-link" to="/settings">Game settings <ArrowRight size={15} /></Link></div></>
 }
 
 function LoadingScreen({ message, action = false }: { message: string; action?: boolean }) {

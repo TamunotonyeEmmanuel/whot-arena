@@ -26,7 +26,7 @@ class HouseRules:
     pick_two: int = 2
     pick_three: int = 3
     general_market: int = 1
-    penalty_stacking: bool = False
+    penalty_stacking: bool = True
 
 @dataclass
 class Player:
@@ -50,6 +50,8 @@ class Room:
     discard: list = field(default_factory=list)
     turn: int = 0
     requested_shape: Optional[str] = None
+    pending_draw: int = 0
+    pending_penalty: Optional[int] = None
     winner: Optional[str] = None
     last_action: str = "Waiting for players"
     turn_started: float = field(default_factory=time.time)
@@ -131,6 +133,8 @@ class Room:
         self.status = "playing"
         self.turn = 0
         self.requested_shape = None
+        self.pending_draw = 0
+        self.pending_penalty = None
         self.winner = None
         self.result_recorded = False
         self.final_scores = {}
@@ -211,6 +215,8 @@ class Room:
         return message
 
     def legal(self, card):
+        if self.pending_draw:
+            return card["number"] == self.pending_penalty
         top = self.discard[-1]
         return (card["number"] == 20 or
                 card["number"] == top["number"] or
@@ -220,6 +226,24 @@ class Room:
         self.turn = (self.turn + steps) % len(self.players)
         self.turn_started = time.time()
         self.updated_at = self.turn_started
+
+    def _take_pending_penalty(self, player, reason="could not block", preserve_action=False):
+        required = self.pending_draw
+        self.pending_draw = 0
+        self.pending_penalty = None
+        drawn = self._draw(player, required)
+        penalty_action = f"{player.name} {reason} and picked {required} cards"
+        self.last_action = f"{self.last_action}; {penalty_action}" if preserve_action else penalty_action
+        if drawn < required or not self.deck:
+            self.finish_exhausted_market()
+            return
+        self._advance()
+
+    def _resolve_unblockable_penalty(self):
+        if (self.status == "playing" and self.pending_draw
+                and not any(card["number"] == self.pending_penalty
+                            for card in self.current().hand)):
+            self._take_pending_penalty(self.current(), preserve_action=True)
 
     def play(self, pid, card_id, shape=None):
         if self.status != "playing" or self.current().id != pid:
@@ -253,10 +277,11 @@ class Room:
             self.updated_at = self.turn_started
         elif n in (2, 5):
             required = self.rules.pick_two if n == 2 else self.rules.pick_three
-            if self._draw(self.players[(self.turn + 1) % len(self.players)], required) < required or not self.deck:
-                self.finish_exhausted_market()
-                return
-            self._advance(2)
+            self.pending_penalty = n
+            self.pending_draw += required
+            self.last_action += f" — pick total is now {self.pending_draw}"
+            self._advance()
+            self._resolve_unblockable_penalty()
         elif n == 8:
             self._advance(2)
         elif n == 14:
@@ -275,6 +300,9 @@ class Room:
     def draw(self, pid):
         if self.status != "playing" or self.current().id != pid:
             raise ValueError("Not your turn")
+        if self.pending_draw:
+            self._take_pending_penalty(self.current(), "accepted the penalty")
+            return
         if self._draw(self.current()) == 0 or not self.deck:
             self.finish_exhausted_market()
             return
@@ -285,6 +313,9 @@ class Room:
         if self.status != "playing":
             return
         player = self.current()
+        if self.pending_draw:
+            self._take_pending_penalty(player, "ran out of time")
+            return
         if self._draw(player) == 0 or not self.deck:
             self.finish_exhausted_market()
             return
@@ -325,6 +356,8 @@ class Room:
                 TURN_SECONDS - (time.time() - self.turn_started) + 0.999)))
                 if self.status == "playing" else 0),
             "requested_shape": self.requested_shape,
+            "pending_draw": self.pending_draw,
+            "pending_penalty": self.pending_penalty,
             "winner": self.winner, "last_action": self.last_action,
             "final_scores": self.final_scores,
             "is_public": self.is_public,
