@@ -2,7 +2,7 @@ import React, { createContext, useContext, useEffect, useRef, useState } from 'r
 import { createPortal } from 'react-dom'
 import { createRoot } from 'react-dom/client'
 import { BrowserRouter, Link, NavLink, Navigate, Route, Routes, useLocation, useNavigate, useParams } from 'react-router-dom'
-import { ArrowLeft, ArrowRight, BatteryFull, BookOpen, Check, ChevronDown, CircleHelp, Clock3, Crown, DoorOpen, Gamepad2, History, Home, LogIn, LogOut, Menu, MessageCircle, Mic, MicOff, Pause, Play, Plus, Radio, Settings, Shield, Signal, Sparkles, Square, Trophy, UserRound, Users, Volume2, Wifi, X } from 'lucide-react'
+import { ArrowLeft, ArrowRight, BatteryFull, BookOpen, Check, ChevronDown, CircleHelp, Clock3, Crown, DoorOpen, Gamepad2, History, Home, LogIn, LogOut, Menu, MessageCircle, Mic, MicOff, Moon, Pause, Play, Plus, Radio, Settings, Shield, Signal, Sparkles, Sun, Trophy, UserRound, Users, Volume2, Wifi, X } from 'lucide-react'
 import './styles.css'
 import { gameSoundsEnabled, playGameSound, primeGameAudio, setGameSoundsEnabled } from './audio'
 
@@ -65,6 +65,18 @@ const RTC_ICE_SERVERS: RTCIceServer[] = [
 const Context = createContext<ArenaContextValue | null>(null)
 const readStored = <T,>(key: string): T | null => {
   try { return JSON.parse(localStorage.getItem(key) || 'null') as T | null } catch { return null }
+}
+type ColorTheme = 'light' | 'dark'
+const preferredTheme = (): ColorTheme => {
+  const saved = localStorage.getItem('whot.theme')
+  if (saved === 'light' || saved === 'dark') return saved
+  return window.matchMedia?.('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
+}
+function applyColorTheme(theme: ColorTheme) {
+  document.documentElement.dataset.theme = theme
+  document.documentElement.style.colorScheme = theme
+  localStorage.setItem('whot.theme', theme)
+  window.dispatchEvent(new CustomEvent('whot-theme', { detail: theme }))
 }
 
 function ArenaProvider({ children }: { children: React.ReactNode }) {
@@ -324,9 +336,16 @@ const navItems = [
 function AppFrame() {
   const { user, session, savedSession, view, connected, error, clearError, resumeSavedRoom, signOut } = useArena()
   const [menuOpen, setMenuOpen] = useState(false)
+  const [theme, setTheme] = useState<ColorTheme>(preferredTheme)
   const location = useLocation()
   const navigate = useNavigate()
   const isTable = location.pathname.startsWith('/game/')
+  useEffect(() => {
+    applyColorTheme(theme)
+    const syncTheme = (event: Event) => setTheme((event as CustomEvent<ColorTheme>).detail)
+    window.addEventListener('whot-theme', syncTheme)
+    return () => window.removeEventListener('whot-theme', syncTheme)
+  }, [])
   async function resumePreviousTable() {
     if (!savedSession) return
     try { const restored = await resumeSavedRoom(); if (restored) navigate(`/lobby/${restored.code}`) }
@@ -350,7 +369,7 @@ function AppFrame() {
     </aside>
     {menuOpen && <button className="mobile-scrim" aria-label="Close navigation" onClick={() => setMenuOpen(false)} />}
     <div className="main-column">
-      <header className="topbar"><button className="icon-button mobile-menu" onClick={() => setMenuOpen(!menuOpen)} aria-label="Open menu">{menuOpen ? <X size={20} /> : <Menu size={20} />}</button><div className="crumb">{location.pathname === '/' ? 'Welcome to the arena' : location.pathname.split('/')[1]?.replace('-', ' ')}</div><div className="top-actions"><span className="server-pill"><span className={`status-dot ${connected ? 'online' : ''}`} />{connected ? 'LIVE' : 'READY'}</span><Link className="top-avatar" to={user ? '/profile' : '/login'} aria-label="Open profile">{user ? user.username.slice(0, 1).toUpperCase() : <UserRound size={17} />}</Link></div></header>
+      <header className="topbar"><button className="icon-button mobile-menu" onClick={() => setMenuOpen(!menuOpen)} aria-label="Open menu">{menuOpen ? <X size={20} /> : <Menu size={20} />}</button><div className="crumb">{location.pathname === '/' ? 'Welcome to the arena' : location.pathname.split('/')[1]?.replace('-', ' ')}</div><div className="top-actions"><span className="server-pill"><span className={`status-dot ${connected ? 'online' : ''}`} />{connected ? 'LIVE' : 'READY'}</span><button type="button" className="icon-button theme-toggle" onClick={() => applyColorTheme(theme === 'dark' ? 'light' : 'dark')} aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`} title={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}>{theme === 'dark' ? <Sun size={17} /> : <Moon size={17} />}</button><Link className="top-avatar" to={user ? '/profile' : '/login'} aria-label="Open profile">{user ? user.username.slice(0, 1).toUpperCase() : <UserRound size={17} />}</Link></div></header>
       {!session && savedSession && <div className="saved-room-bar"><span><Radio size={15} /><strong>Unfinished table {savedSession.code}</strong></span><button type="button" className="button button-lime" onClick={() => void resumePreviousTable()}>Resume table <ArrowRight size={15} /></button></div>}
       {error && <div role="alert" className="toast-error"><span>{error}</span><button aria-label="Dismiss" onClick={clearError}><X size={16} /></button></div>}
       <main className="page-content"><Routes>
@@ -594,21 +613,21 @@ function GameTable() {
         <section className={`hand-panel ${view.pending_draw > 0 && myTurn ? 'penalty-hand' : ''}`}>
           <div className="hand-heading"><div><span className="small-label">YOUR HAND</span><strong className={view.hand.length === 1 ? 'last-card-label' : ''}>{view.hand.length === 1 ? 'LAST CARD' : `${view.hand.length} cards`}</strong></div>{me?.last_card_required ? <button type="button" className="last-card-button" onClick={() => send('declare_last')}><Sparkles size={15} /> LAST CARD!</button> : <span className="hand-hint">{myTurn ? view.pending_draw ? `Play another ${view.pending_penalty} or pick ${view.pending_draw}` : 'Choose a matching card or draw to pass' : 'Cards only you can see'}</span>}</div>
           <div className="hand-cards">{view.hand.map((card, index) => <CardFace key={card.id} card={card} playable={myTurn && isLegal(card)} selected={selectedWhot?.id === card.id} index={index} onClick={() => play(card)} />)}</div>
-          {selectedWhot && <div className="shape-picker"><div><span className="small-label">WHOT 20</span><strong>Choose the next shape</strong></div><div className="shape-controls">{shapes.map(item => <button key={item} className={`shape-choice ${shape === item ? 'shape-choice-active' : ''}`} onClick={() => setShape(item)} aria-label={item}>{shapeGlyph[item]}<span>{item}</span></button>)}<button className="button button-lime" onClick={confirmWhot}><Check size={15} /> Play WHOT</button></div></div>}
         </section>
       )}
       </div>
       {!opponents.every(player => player.is_bot) && <LiveVoicePanel players={view.players} playerId={session?.player_id || ''} enabled={view.status === 'playing'} />}
       <VoicePanel messages={view.voice_messages || []} chatMessages={view.chat_messages || []} playerId={session?.player_id || ''} enabled={view.status === 'playing'} />
       </div>
+      {selectedWhot && createPortal(<div className="shape-modal-backdrop" onMouseDown={() => setSelectedWhot(null)}><section className="shape-modal" role="dialog" aria-modal="true" aria-labelledby="shape-modal-title" onMouseDown={event => event.stopPropagation()}><button type="button" className="icon-button shape-modal-close" onClick={() => setSelectedWhot(null)} aria-label="Cancel shape selection"><X size={18} /></button><div className="shape-modal-card"><span>20</span><strong>WHOT</strong></div><span className="small-label">WHOT 20</span><h2 id="shape-modal-title">Choose the next shape</h2><p>Every player must match the shape you select.</p><div className="shape-modal-grid">{shapes.map(item => <button type="button" key={item} className={`shape-modal-choice shape-${item} ${shape === item ? 'shape-modal-choice-active' : ''}`} onClick={() => setShape(item)} aria-pressed={shape === item}><span>{shapeGlyph[item]}</span><strong>{item}</strong></button>)}</div><button type="button" className="button button-lime shape-modal-confirm" onClick={confirmWhot}><Check size={16} /> Play WHOT · {shapeGlyph[shape]} {shape}</button></section></div>, document.body)}
     </div>
   )
 }
 
 function LiveVoicePanel({ players, playerId, enabled }: { players: Player[]; playerId: string; enabled: boolean }) {
   const { rtcSignals, sendRtcSignal, send } = useArena()
-  const [muted, setMuted] = useState(false)
-  const [status, setStatus] = useState<'starting' | 'live' | 'blocked' | 'unsupported' | 'failed'>('starting')
+  const [muted, setMuted] = useState(true)
+  const [status, setStatus] = useState<'idle' | 'starting' | 'live' | 'blocked' | 'unsupported' | 'failed'>('idle')
   const [connectedPeers, setConnectedPeers] = useState<string[]>([])
   const [playbackBlocked, setPlaybackBlocked] = useState(false)
   const [connectionSlow, setConnectionSlow] = useState(false)
@@ -633,8 +652,16 @@ function LiveVoicePanel({ players, playerId, enabled }: { players: Player[]; pla
       video: false,
     }).then(stream => {
       localStreamRef.current = stream
+      stream.getAudioTracks().forEach(track => { track.enabled = true })
+      for (const [remoteId, peer] of peersRef.current) {
+        const senderTracks = peer.getSenders().map(sender => sender.track).filter(Boolean)
+        stream.getAudioTracks().forEach(track => { if (!senderTracks.includes(track)) peer.addTrack(track, stream) })
+        void peer.createOffer().then(offer => peer.setLocalDescription(offer)).then(() => {
+          if (peer.localDescription) sendRtcSignal(remoteId, { type: 'offer', sdp: { type: peer.localDescription.type, sdp: peer.localDescription.sdp } })
+        }).catch(() => undefined)
+      }
+      setMuted(false)
       setStatus('live')
-      send('rtc_ready')
       return stream
     }).catch(() => {
       setStatus('blocked')
@@ -643,7 +670,7 @@ function LiveVoicePanel({ players, playerId, enabled }: { players: Player[]; pla
     return startPromiseRef.current
   }
 
-  function createPeer(remoteId: string, stream: MediaStream): RTCPeerConnection | null {
+  function createPeer(remoteId: string, stream: MediaStream | null): RTCPeerConnection | null {
     const existing = peersRef.current.get(remoteId)
     if (existing) return existing
     let peer: RTCPeerConnection
@@ -654,7 +681,8 @@ function LiveVoicePanel({ players, playerId, enabled }: { players: Player[]; pla
       setStatus('failed')
       return null
     }
-    stream.getAudioTracks().forEach(track => peer.addTrack(track, stream))
+    if (stream) stream.getAudioTracks().forEach(track => peer.addTrack(track, stream))
+    else peer.addTransceiver('audio', { direction: 'recvonly' })
     peer.onicecandidate = event => {
       if (event.candidate) {
         const candidate = typeof event.candidate.toJSON === 'function' ? event.candidate.toJSON() : {
@@ -687,7 +715,7 @@ function LiveVoicePanel({ players, playerId, enabled }: { players: Player[]; pla
   }
 
   useEffect(() => {
-    if (enabled) void startMicrophone()
+    if (enabled) send('rtc_ready')
     return () => {
       localStreamRef.current?.getTracks().forEach(track => track.stop())
       peersRef.current.forEach(peer => peer.close())
@@ -699,7 +727,7 @@ function LiveVoicePanel({ players, playerId, enabled }: { players: Player[]; pla
 
   useEffect(() => {
     const stream = localStreamRef.current
-    if (!enabled || !stream || !playerId) return
+    if (!enabled || !playerId) return
     const remoteIds = players.filter(player => player.id !== playerId && player.connected && player.voice_ready).map(player => player.id)
     for (const [remoteId, peer] of peersRef.current) {
       if (!remoteIds.includes(remoteId)) {
@@ -726,9 +754,7 @@ function LiveVoicePanel({ players, playerId, enabled }: { players: Player[]; pla
       if (handledSignalsRef.current.has(message.id) || !players.some(player => player.id === message.from)) continue
       handledSignalsRef.current.add(message.id)
       void (async () => {
-        const stream = await startMicrophone()
-        if (!stream) return
-        const peer = createPeer(message.from, stream)
+        const peer = createPeer(message.from, localStreamRef.current)
         if (!peer) return
         if (message.signal.type === 'offer' && message.signal.sdp) {
           await peer.setRemoteDescription(message.signal.sdp)
@@ -757,6 +783,12 @@ function LiveVoicePanel({ players, playerId, enabled }: { players: Player[]; pla
   }, [players, playerId, connectedPeers.length])
 
   function toggleMute() {
+    if (!localStreamRef.current) {
+      setStatus('starting')
+      startPromiseRef.current = null
+      void startMicrophone()
+      return
+    }
     const next = !muted
     localStreamRef.current?.getAudioTracks().forEach(track => { track.enabled = !next })
     audioRef.current.forEach(audio => { void audio.play().catch(() => undefined) })
@@ -767,25 +799,19 @@ function LiveVoicePanel({ players, playerId, enabled }: { players: Player[]; pla
     void Promise.all([...audioRef.current.values()].map(audio => audio.play())).then(() => setPlaybackBlocked(false)).catch(() => setPlaybackBlocked(true))
   }
 
-  const voiceCount = status === 'live' ? connectedPeers.length + 1 : 0
-  const statusText = status === 'live' ? `${voiceCount} ${voiceCount === 1 ? 'player' : 'players'} in voice` : status === 'blocked' ? 'Microphone permission is required' : status === 'unsupported' ? 'Live voice is unavailable in this browser' : status === 'failed' ? 'Could not start live voice' : 'Opening microphone…'
-  return <aside className="voice-panel live-voice-panel content-panel" aria-label="Live table voice"><div className="voice-heading"><span className={`voice-icon ${status === 'live' ? 'voice-live' : ''}`}><Volume2 size={17} /></span><div><strong>Live table voice</strong><small>{statusText}</small></div><span className={`status-dot ${status === 'live' ? 'online' : ''}`} /></div><div className="live-voice-room"><div className={`live-mic-orbit ${status === 'live' && !muted ? 'mic-active' : ''}`}><span>{muted ? <MicOff size={27} /> : <Mic size={27} />}</span></div><strong>{muted ? 'Your microphone is muted' : status === 'live' ? 'Your microphone is live' : 'Waiting for microphone'}</strong><small>{voiceError || (connectionSlow ? 'Direct voice connection failed. This network may require a TURN server.' : 'Audio is shared only with players at this table.')}</small></div><div className="voice-compose">{status === 'blocked' ? <button type="button" className="button button-green full-button" onClick={() => { startPromiseRef.current = null; setStatus('starting'); void startMicrophone() }}><Mic size={16} /> Allow microphone</button> : playbackBlocked ? <button type="button" className="button button-green full-button" onClick={enablePlayback}><Volume2 size={16} /> Enable speaker</button> : <button type="button" className={`button ${muted ? 'button-green' : 'button-outline'} full-button`} disabled={status !== 'live'} onClick={toggleMute}>{muted ? <><Mic size={16} /> Unmute microphone</> : <><MicOff size={16} /> Mute microphone</>}</button>}<span className="voice-hint">The browser will ask permission the first time you join voice.</span></div></aside>
+  const voiceCount = connectedPeers.length + 1
+  const statusText = `${voiceCount} ${voiceCount === 1 ? 'player' : 'players'} connected`
+  return <aside className="voice-panel live-voice-panel content-panel" aria-label="Live table voice"><div className="voice-heading"><span className={`voice-icon ${status === 'live' ? 'voice-live' : ''}`}><Volume2 size={17} /></span><div><strong>Live table voice</strong><small>{statusText}</small></div><span className="status-dot online" /></div><div className="live-voice-room"><button type="button" className={`live-mic-orbit ${status === 'live' && !muted ? 'mic-active' : ''}`} onClick={toggleMute} disabled={!enabled || status === 'starting' || status === 'unsupported' || status === 'failed'} aria-label={!localStreamRef.current ? 'Start live microphone' : muted ? 'Unmute live microphone' : 'Mute live microphone'}><span>{muted ? <MicOff size={27} /> : <Mic size={27} />}</span></button><strong>{status === 'starting' ? 'Opening microphone…' : muted ? 'Tap the mic to speak live' : 'You are speaking live'}</strong><small>{voiceError || (connectionSlow ? 'Direct voice connection failed. This network may require a TURN server.' : 'Nothing is recorded. Everyone at the table hears you live.')}</small></div><div className="voice-compose">{status === 'blocked' ? <button type="button" className="button button-green full-button" onClick={() => { startPromiseRef.current = null; setStatus('starting'); void startMicrophone() }}><Mic size={16} /> Allow microphone</button> : playbackBlocked ? <button type="button" className="button button-green full-button" onClick={enablePlayback}><Volume2 size={16} /> Enable speaker</button> : <button type="button" className={`button ${muted ? 'button-green' : 'button-outline'} full-button`} disabled={!enabled || status === 'starting'} onClick={toggleMute}>{muted ? <><Mic size={16} /> Tap to speak</> : <><MicOff size={16} /> Stop speaking</>}</button>}<span className="voice-hint">Live only · no recording is saved</span></div></aside>
 }
 
 function VoicePanel({ messages, chatMessages, playerId, enabled }: { messages: VoiceMessage[]; chatMessages: ChatMessage[]; playerId: string; enabled: boolean }) {
   const { voiceUrls, requestVoice, send } = useArena()
-  const [recording, setRecording] = useState(false)
-  const [error, setError] = useState('')
   const [notification, setNotification] = useState('')
   const [open, setOpen] = useState(false)
   const [textMessage, setTextMessage] = useState('')
   const [unread, setUnread] = useState(0)
   const previousMessageCountRef = useRef(messages.length)
   const previousChatCountRef = useRef(chatMessages.length)
-  const recorderRef = useRef<MediaRecorder | null>(null)
-  const streamRef = useRef<MediaStream | null>(null)
-  const timerRef = useRef<number | null>(null)
-  const chunksRef = useRef<Blob[]>([])
 
   useEffect(() => {
     if (messages.length > previousMessageCountRef.current) {
@@ -810,67 +836,6 @@ function VoicePanel({ messages, chatMessages, playerId, enabled }: { messages: V
     }
     previousChatCountRef.current = chatMessages.length
   }, [chatMessages, open, playerId])
-
-  useEffect(() => () => {
-    if (timerRef.current) window.clearTimeout(timerRef.current)
-    if (recorderRef.current?.state === 'recording') recorderRef.current.stop()
-    streamRef.current?.getTracks().forEach(track => track.stop())
-  }, [])
-
-  async function recordVoice() {
-    setError('')
-    if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') {
-      setError('Voice recording is not supported in this browser.')
-      return
-    }
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
-      streamRef.current = stream
-      const candidates = ['audio/webm;codecs=opus', 'audio/ogg;codecs=opus', 'audio/mp4']
-      const mimeType = candidates.find(type => MediaRecorder.isTypeSupported(type))
-      const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined)
-      recorderRef.current = recorder
-      chunksRef.current = []
-      recorder.ondataavailable = event => { if (event.data.size) chunksRef.current.push(event.data) }
-      recorder.onstop = async () => {
-        if (timerRef.current) window.clearTimeout(timerRef.current)
-        stream.getTracks().forEach(track => track.stop())
-        streamRef.current = null
-        setRecording(false)
-        const blob = new Blob(chunksRef.current, { type: recorder.mimeType || mimeType || 'audio/webm' })
-        if (!blob.size) { setError('No audio was recorded. Check microphone permissions and try again.'); return }
-        if (blob.size > 512_000) { setError('That recording is over 512 KB. Try a shorter clip.'); return }
-        const contentType = blob.type.split(';')[0]
-        if (!['audio/webm', 'audio/ogg', 'audio/mp4', 'audio/wav'].includes(contentType)) {
-          setError('This browser produced an unsupported audio format.')
-          return
-        }
-        const bytes = new Uint8Array(await blob.arrayBuffer())
-        let binary = ''
-        for (let offset = 0; offset < bytes.length; offset += 16_384) {
-          binary += String.fromCharCode(...bytes.subarray(offset, offset + 16_384))
-        }
-        send('voice', { content_type: contentType, audio: btoa(binary) })
-      }
-      recorder.start()
-      setRecording(true)
-      timerRef.current = window.setTimeout(() => {
-        if (recorder.state === 'recording') recorder.stop()
-      }, 15_000)
-    } catch (reason) {
-      streamRef.current?.getTracks().forEach(track => track.stop())
-      streamRef.current = null
-      setRecording(false)
-      setError(reason instanceof Error && reason.name === 'NotAllowedError'
-        ? 'Allow microphone access in your browser to send a voice message.'
-        : 'Could not start microphone recording.')
-    }
-  }
-
-  function stopRecording() {
-    if (timerRef.current) window.clearTimeout(timerRef.current)
-    if (recorderRef.current?.state === 'recording') recorderRef.current.stop()
-  }
 
   function sendTextMessage(event: React.FormEvent) {
     event.preventDefault()
@@ -902,9 +867,8 @@ function VoicePanel({ messages, chatMessages, playerId, enabled }: { messages: V
         {feed.length ? feed.map(item => item.kind === 'text' ? <div className={`chat-bubble ${item.message.player_id === playerId ? 'chat-bubble-mine' : ''}`} key={`text-${item.message.id}`}><div className="voice-message-meta"><strong>{item.message.name}</strong><time>{new Date(item.message.sent_at * 1000).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</time></div><p>{item.message.text}</p></div> : <div className={`voice-message ${item.message.player_id === playerId ? 'chat-bubble-mine' : ''}`} key={`voice-${item.message.id}`}><div className="voice-message-meta"><strong>{item.message.name}</strong><time>{new Date(item.message.sent_at * 1000).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</time></div>{voiceUrls[item.message.id] ? <audio controls preload="none" src={voiceUrls[item.message.id]} aria-label={`Voice message from ${item.message.name}`} /> : <button className="voice-play" onClick={() => requestVoice(item.message.id)}><Volume2 size={14} /> Listen <span>{Math.max(1, Math.round(item.message.size / 16_000))} KB</span></button>}</div>) : <div className="voice-empty"><Mic size={19} /><span>No messages yet.</span><small>Say hello to the table.</small></div>}
       </div>
       <div className="voice-compose chat-compose">
-        <form onSubmit={sendTextMessage}><button type="button" className={`iphone-mic ${recording ? 'iphone-mic-recording' : ''}`} disabled={!enabled && !recording} onClick={recording ? stopRecording : () => void recordVoice()} aria-label={recording ? 'Stop recording' : 'Record voice message'}>{recording ? <Square size={13} fill="currentColor" /> : <Mic size={17} />}</button><input value={textMessage} maxLength={500} onChange={event => setTextMessage(event.target.value)} placeholder={recording ? 'Recording voice note…' : 'Message'} aria-label="Message the table" disabled={!enabled || recording} /><button type="submit" className="icon-button iphone-send" disabled={!enabled || !textMessage.trim() || recording} aria-label="Send message"><ArrowRight size={17} /></button></form>
-        <span className="voice-hint">{recording ? 'Tap the red button to send · 15 seconds maximum' : 'Tap the microphone to send a voice message'}</span>
-        {error && <span className="voice-error" role="alert">{error}</span>}
+        <form onSubmit={sendTextMessage}><input value={textMessage} maxLength={500} onChange={event => setTextMessage(event.target.value)} placeholder="Message" aria-label="Message the table" disabled={!enabled} /><button type="submit" className="icon-button iphone-send" disabled={!enabled || !textMessage.trim()} aria-label="Send message"><ArrowRight size={17} /></button></form>
+        <span className="voice-hint">Use Live table voice to speak · voice is not recorded</span>
       </div>
       <span className="iphone-homebar" aria-hidden="true" />
       </div>
@@ -971,10 +935,12 @@ function SettingsPage() {
   const { user } = useArena()
   const [nickname, setNickname] = useState(localStorage.getItem('whot.nickname') || user?.username || 'Guest')
   const [sound, setSound] = useState(gameSoundsEnabled)
+  const [theme, setTheme] = useState<ColorTheme>(preferredTheme)
   const [saved, setSaved] = useState(false)
   function save() { localStorage.setItem('whot.nickname', nickname.slice(0, 20)); setSaved(true); window.setTimeout(() => setSaved(false), 2200) }
   function toggleSound(enabled: boolean) { setSound(enabled); setGameSoundsEnabled(enabled); if (enabled) playGameSound('preview') }
-  return <><PageTitle eyebrow="PREFERENCES" title="Make it yours." detail="Local settings for this browser. Your account data stays on the server." /><div className="settings-layout"><section className="content-panel settings-panel"><span className="small-label">PLAYER IDENTITY</span><h2>Table name</h2><p>This name appears to other players when you join as a guest.</p><label className="field-label">Display name<input value={nickname} maxLength={20} onChange={event => setNickname(event.target.value)} /></label><button className="button button-green" onClick={save}><Check size={16} /> {saved ? 'Saved' : 'Save preference'}</button></section><section className="content-panel settings-panel"><span className="small-label">GAME EXPERIENCE</span><h2>Audio cues</h2><p>Hear subtle cues when players join, cards move, your turn begins, and a round ends.</p><label className="toggle-row"><span><strong>Enable game sounds</strong><small>Saved automatically on this device</small></span><input type="checkbox" checked={sound} onChange={event => toggleSound(event.target.checked)} /></label><button type="button" className="button button-outline" disabled={!sound} onClick={() => playGameSound('preview')}><Volume2 size={16} /> Test sound</button></section><div className="info-banner"><Shield size={16} /> Account email and password are managed by your player account, not stored in these local settings.</div></div></>
+  function changeTheme(next: ColorTheme) { setTheme(next); applyColorTheme(next) }
+  return <><PageTitle eyebrow="PREFERENCES" title="Make it yours." detail="Local settings for this browser. Your account data stays on the server." /><div className="settings-layout"><section className="content-panel settings-panel"><span className="small-label">PLAYER IDENTITY</span><h2>Table name</h2><p>This name appears to other players when you join as a guest.</p><label className="field-label">Display name<input value={nickname} maxLength={20} onChange={event => setNickname(event.target.value)} /></label><button className="button button-green" onClick={save}><Check size={16} /> {saved ? 'Saved' : 'Save preference'}</button></section><section className="content-panel settings-panel"><span className="small-label">APPEARANCE</span><h2>Color mode</h2><p>Choose the Arena appearance that is most comfortable for you.</p><div className="theme-options"><button type="button" className={`theme-option ${theme === 'light' ? 'theme-option-active' : ''}`} onClick={() => changeTheme('light')}><Sun size={18} /><span><strong>Light</strong><small>Bright and clean</small></span></button><button type="button" className={`theme-option ${theme === 'dark' ? 'theme-option-active' : ''}`} onClick={() => changeTheme('dark')}><Moon size={18} /><span><strong>Dark</strong><small>Easy on the eyes</small></span></button></div></section><section className="content-panel settings-panel"><span className="small-label">GAME EXPERIENCE</span><h2>Audio cues</h2><p>Hear subtle cues when players join, cards move, your turn begins, and a round ends.</p><label className="toggle-row"><span><strong>Enable game sounds</strong><small>Saved automatically on this device</small></span><input type="checkbox" checked={sound} onChange={event => toggleSound(event.target.checked)} /></label><button type="button" className="button button-outline" disabled={!sound} onClick={() => playGameSound('preview')}><Volume2 size={16} /> Test sound</button></section><div className="info-banner"><Shield size={16} /> Account email and password are managed by your player account, not stored in these local settings.</div></div></>
 }
 
 const rules = [
