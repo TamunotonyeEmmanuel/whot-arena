@@ -14,6 +14,7 @@ VOICE_MAX_BYTES = 512_000
 VOICE_ROOM_MAX_BYTES = 4_000_000
 VOICE_HISTORY_LIMIT = 20
 VOICE_COOLDOWN_SECONDS = 1.0
+LAST_CARD_REQUIRES_REPLACEMENT = {1, 2, 5, 8, 14, 20}
 # Explicit house rules: 1 extra turn, 2 +2, 5 +3, 8 skip, 14 market (+1 each opponent),
 # 20 wild request shape. Special actions do not stack. Penalty draws end the target turn.
 @dataclass(frozen=True)
@@ -190,7 +191,10 @@ class Room:
         self.discard.append(card)
         self.requested_shape = shape if card["number"] == 20 else None
         self.last_action = f"{p.name} played {card['number']}"
-        if not p.hand:
+        if not p.hand and card["number"] in LAST_CARD_REQUIRES_REPLACEMENT:
+            self._draw(p)
+            self.last_action += " and drew a replacement card"
+        elif not p.hand:
             self.winner = pid
             self.status = "finished"
             self.updated_at = time.time()

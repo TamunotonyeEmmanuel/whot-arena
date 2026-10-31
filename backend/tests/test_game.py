@@ -159,6 +159,18 @@ def test_last_card_wins_immediately():
     assert r.status == "finished"
     assert r.winner == "a"
 
+def test_special_cards_cannot_be_played_as_the_winning_card():
+    for number in (1, 2, 5, 8, 14, 20):
+        r = setup()
+        r.discard = [{"shape": "circle", "number": 7, "id": "top"}]
+        shape = "whot" if number == 20 else "circle"
+        r.players[0].hand = [{"shape": shape, "number": number, "id": "special"}]
+        r.play("a", "special", "star" if number == 20 else None)
+        assert r.status == "playing", f"{number} incorrectly ended the round"
+        assert r.winner is None
+        assert len(r.players[0].hand) == 1
+        assert "replacement card" in r.last_action
+
 def test_rematch_is_host_only_and_resets_the_match():
     r = setup()
     r.status = "finished"
