@@ -20,13 +20,14 @@ type Session = { player_id: string; code: string; reconnect_token: string }
 type User = { id: number; username: string; email: string; wins: number; matches_played: number }
 type MatchHistory = { room_code: string; result: 'win' | 'loss'; player_count: number; completed_at: string }
 type ArenaContextValue = {
-  view: RoomView | null; session: Session | null; user: User | null; error: string
+  view: RoomView | null; session: Session | null; savedSession: Session | null; user: User | null; error: string
   connected: boolean; busy: boolean; clearError: () => void
   voiceUrls: Record<string, string>; requestVoice: (messageId: string) => void
   rtcSignals: RtcSignal[]; sendRtcSignal: (target: string, signal: RtcSignal['signal']) => void
   connectRoom: (action: string, values?: Record<string, unknown>) => Promise<Session>
   send: (action: string, values?: Record<string, unknown>) => void
   leaveRoom: () => void
+  resumeSavedRoom: () => Promise<Session | null>
   authenticate: (registering: boolean, values: Record<string, string>) => Promise<void>
   signOut: () => void
 }
@@ -49,9 +50,10 @@ const readStored = <T,>(key: string): T | null => {
 function ArenaProvider({ children }: { children: React.ReactNode }) {
   const [view, setView] = useState<RoomView | null>(null)
   const [session, setSession] = useState<Session | null>(() => {
-    try { return JSON.parse(localStorage.getItem('whot.session') || sessionStorage.getItem('whot.session') || 'null') as Session | null }
+    try { return JSON.parse(sessionStorage.getItem('whot.session') || 'null') as Session | null }
     catch { return null }
   })
+  const [savedSession, setSavedSession] = useState<Session | null>(() => readStored<Session>('whot.session'))
   const [user, setUser] = useState<User | null>(() => readStored<User>('whot.user'))
   const [error, setError] = useState('')
   const [connected, setConnected] = useState(false)
@@ -69,8 +71,9 @@ function ArenaProvider({ children }: { children: React.ReactNode }) {
   function saveSession(next: Session) {
     sessionRef.current = next
     setSession(next)
+    setSavedSession(next)
     localStorage.setItem('whot.session', JSON.stringify(next))
-    sessionStorage.removeItem('whot.session')
+    sessionStorage.setItem('whot.session', JSON.stringify(next))
   }
 
   function openSocket(payload: Record<string, unknown>): Promise<Session> {
@@ -113,6 +116,7 @@ function ArenaProvider({ children }: { children: React.ReactNode }) {
             sessionStorage.removeItem('whot.session')
             sessionRef.current = null
             setSession(null)
+            setSavedSession(null)
             setView(null)
             socket.onclose = null
           }
@@ -208,6 +212,7 @@ function ArenaProvider({ children }: { children: React.ReactNode }) {
     sessionStorage.removeItem('whot.session')
     sessionRef.current = null
     setSession(null)
+    setSavedSession(null)
     setView(null)
     setConnected(false)
     const socket = socketRef.current
@@ -218,6 +223,25 @@ function ArenaProvider({ children }: { children: React.ReactNode }) {
       socket.onclose = null
       socket.close()
     }
+  }
+
+  async function resumeSavedRoom() {
+    if (!savedSession) return null
+    if (sessionRef.current?.player_id === savedSession.player_id) return savedSession
+    setBusy(true); setError('')
+    if (retryRef.current) window.clearTimeout(retryRef.current)
+    if (socketRef.current) { socketRef.current.onclose = null; socketRef.current.close() }
+    sessionRef.current = savedSession
+    setSession(savedSession)
+    sessionStorage.setItem('whot.session', JSON.stringify(savedSession))
+    try {
+      return await openSocket({ action: 'reconnect', code: savedSession.code, player_id: savedSession.player_id, reconnect_token: savedSession.reconnect_token })
+    } catch (reason) {
+      sessionRef.current = null
+      setSession(null)
+      sessionStorage.removeItem('whot.session')
+      throw reason
+    } finally { setBusy(false) }
   }
 
   function requestVoice(messageId: string) {
@@ -246,11 +270,11 @@ function ArenaProvider({ children }: { children: React.ReactNode }) {
   function signOut() {
     sessionStorage.removeItem('whot.token'); localStorage.removeItem('whot.user')
     localStorage.removeItem('whot.session'); sessionStorage.removeItem('whot.session'); sessionRef.current = null
-    setUser(null); setSession(null); setView(null)
+    setUser(null); setSession(null); setSavedSession(null); setView(null)
     if (socketRef.current) { socketRef.current.onclose = null; socketRef.current.close() }
   }
 
-  return <Context.Provider value={{ view, session, user, error, connected, busy, voiceUrls, requestVoice, rtcSignals, sendRtcSignal, clearError: () => setError(''), connectRoom, send, leaveRoom, authenticate, signOut }}>{children}</Context.Provider>
+  return <Context.Provider value={{ view, session, savedSession, user, error, connected, busy, voiceUrls, requestVoice, rtcSignals, sendRtcSignal, clearError: () => setError(''), connectRoom, send, leaveRoom, resumeSavedRoom, authenticate, signOut }}>{children}</Context.Provider>
 }
 
 function useArena() {
@@ -267,10 +291,16 @@ const navItems = [
 ]
 
 function AppFrame() {
-  const { user, session, view, connected, error, clearError, signOut } = useArena()
+  const { user, session, savedSession, view, connected, error, clearError, resumeSavedRoom, signOut } = useArena()
   const [menuOpen, setMenuOpen] = useState(false)
   const location = useLocation()
+  const navigate = useNavigate()
   const isTable = location.pathname.startsWith('/game/')
+  async function resumePreviousTable() {
+    if (!savedSession) return
+    try { const restored = await resumeSavedRoom(); if (restored) navigate(`/lobby/${restored.code}`) }
+    catch { /* The provider displays the reconnect error. */ }
+  }
   return <div className={`app-frame ${isTable ? 'table-frame' : ''}`}>
     <aside className={`sidebar ${menuOpen ? 'sidebar-open' : ''}`}>
       <Link to="/" className="brand"><span className="brand-mark">W</span><span>WHOT<span className="brand-light">ARENA</span></span></Link>
@@ -290,6 +320,7 @@ function AppFrame() {
     {menuOpen && <button className="mobile-scrim" aria-label="Close navigation" onClick={() => setMenuOpen(false)} />}
     <div className="main-column">
       <header className="topbar"><button className="icon-button mobile-menu" onClick={() => setMenuOpen(!menuOpen)} aria-label="Open menu">{menuOpen ? <X size={20} /> : <Menu size={20} />}</button><div className="crumb">{location.pathname === '/' ? 'Welcome to the arena' : location.pathname.split('/')[1]?.replace('-', ' ')}</div><div className="top-actions"><span className="server-pill"><span className={`status-dot ${connected ? 'online' : ''}`} />{connected ? 'LIVE' : 'READY'}</span><Link className="top-avatar" to={user ? '/profile' : '/login'} aria-label="Open profile">{user ? user.username.slice(0, 1).toUpperCase() : <UserRound size={17} />}</Link></div></header>
+      {!session && savedSession && <div className="saved-room-bar"><span><Radio size={15} /><strong>Unfinished table {savedSession.code}</strong></span><button type="button" className="button button-lime" onClick={() => void resumePreviousTable()}>Resume table <ArrowRight size={15} /></button></div>}
       {error && <div role="alert" className="toast-error"><span>{error}</span><button aria-label="Dismiss" onClick={clearError}><X size={16} /></button></div>}
       <main className="page-content"><Routes>
         <Route path="/" element={<Landing />} />
