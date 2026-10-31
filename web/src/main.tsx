@@ -7,7 +7,7 @@ import './styles.css'
 import { gameSoundsEnabled, playGameSound, primeGameAudio, setGameSoundsEnabled } from './audio'
 
 type Card = { id: string; shape: string; number: number }
-type Player = { id: string; name: string; count: number; connected: boolean; voice_ready?: boolean; voice_speaking?: boolean; reaction?: string | null; reaction_at?: number | null; is_bot?: boolean; last_card_required?: boolean; table_theme?: string; card_back?: string; avatar?: string }
+type Player = { id: string; name: string; count: number; connected: boolean; voice_ready?: boolean; voice_speaking?: boolean; reaction?: string | null; reaction_at?: number | null; coin_balance?: number; is_bot?: boolean; last_card_required?: boolean; table_theme?: string; card_back?: string; avatar?: string }
 type VoiceMessage = { id: string; player_id: string; name: string; content_type: string; size: number; sent_at: number }
 type ChatMessage = { id: string; player_id: string; name: string; text: string; sent_at: number }
 type RtcSignal = { id: string; from: string; signal: { type: 'offer' | 'answer' | 'ice'; sdp?: RTCSessionDescriptionInit; candidate?: RTCIceCandidateInit } }
@@ -31,10 +31,11 @@ type RoomView = {
   pause_seconds_remaining: number
   voice_messages: VoiceMessage[]
   chat_messages: ChatMessage[]
+  wager: number; wager_locked: boolean; wager_pot: number
   is_public: boolean; rules: { cards_per_player: number; pick_two: number; pick_three: number; general_market: number; penalty_stacking: boolean }
 }
 type Session = { player_id: string; code: string; reconnect_token: string }
-type User = { id: number; username: string; email: string; wins: number; matches_played: number; xp: number; level: number; win_streak: number; best_win_streak: number; achievements: string[]; unlocked_themes: string[]; unlocked_card_backs: string[]; unlocked_avatars: string[]; selected_theme: string; selected_card_back: string; selected_avatar: string }
+type User = { id: number; username: string; email: string; wins: number; arena_coins: number; matches_played: number; xp: number; level: number; win_streak: number; best_win_streak: number; achievements: string[]; unlocked_themes: string[]; unlocked_card_backs: string[]; unlocked_avatars: string[]; selected_theme: string; selected_card_back: string; selected_avatar: string }
 type MatchHistory = { room_code: string; result: 'win' | 'loss'; player_count: number; completed_at: string }
 type ArenaContextValue = {
   view: RoomView | null; session: Session | null; savedSession: Session | null; user: User | null; error: string
@@ -138,6 +139,15 @@ function ArenaProvider({ children }: { children: React.ReactNode }) {
           resolveWhenReady()
         } else if (message.type === 'state' && message.data) {
           setView(message.data)
+          const currentPlayer = message.data.players.find(player => player.id === sessionRef.current?.player_id)
+          if (typeof currentPlayer?.coin_balance === 'number') {
+            setUser(previous => {
+              if (!previous || previous.arena_coins === currentPlayer.coin_balance) return previous
+              const updated = { ...previous, arena_coins: currentPlayer.coin_balance! }
+              localStorage.setItem('whot.user', JSON.stringify(updated))
+              return updated
+            })
+          }
           receivedState = true
           resolveWhenReady()
         } else if (message.type === 'voice_audio' && message.id && message.content_type && message.audio) {
@@ -534,12 +544,13 @@ function CreateRoom() {
   const [name, setName] = useState(user?.username || localStorage.getItem('whot.nickname') || 'Guest')
   const [roomError, setRoomError] = useState('')
   const [loadingLabel, setLoadingLabel] = useState('')
+  const [wager, setWager] = useState(0)
   async function create(action: 'create' | 'quick_match' | 'computer') {
     setRoomError('')
     setLoadingLabel(action === 'create' ? 'OPENING YOUR TABLE' : action === 'computer' ? 'DEALING AGAINST THE COMPUTER' : 'FINDING YOUR MATCH')
     try {
       const [next] = await Promise.all([
-        connectRoom(action, { name: name.trim() || 'Guest' }),
+        connectRoom(action, { name: name.trim() || 'Guest', ...(action === 'create' ? { wager } : {}) }),
         new Promise(resolve => window.setTimeout(resolve, 1200)),
       ])
       navigate(action === 'computer' ? `/game/${next.code}` : `/lobby/${next.code}`)
@@ -550,7 +561,7 @@ function CreateRoom() {
   }
   return <><PageTitle eyebrow="FIND YOUR TABLE" title="Let's play." detail="Play the computer, set up a private room, or find a quick match." /><div className="setup-layout setup-layout-three">
     <section className="content-panel setup-panel computer-match-panel"><span className="setup-number">01</span><span className="small-label">SOLO MATCH</span><h2>Challenge the computer.</h2><p>Jump straight into a two-player round against Arena Bot. No room code or waiting required.</p><label className="field-label">Your table name<input value={name} maxLength={20} onChange={event => setName(event.target.value)} onBlur={() => localStorage.setItem('whot.nickname', name)} placeholder="Choose a nickname" /></label><button disabled={busy} onClick={() => void create('computer')} className="button button-green full-button"><Gamepad2 size={17} /> {busy ? 'Dealing cards…' : 'Play vs computer'}</button></section>
-    <section className="content-panel setup-panel"><span className="setup-number">02</span><span className="small-label">PRIVATE ROOM</span><h2>Bring your own crew.</h2><p>Create a room and share its six-character code. Friends can join from web or mobile.</p><button disabled={busy} onClick={() => void create('create')} className="button button-green full-button"><Plus size={17} /> {busy ? 'Opening table…' : 'Create private room'}</button></section>
+    <section className="content-panel setup-panel"><span className="setup-number">02</span><span className="small-label">PRIVATE ROOM</span><h2>Bring your own crew.</h2><p>Create a free table or optionally stake virtual Arena Coins. Wager tables require signed-in players.</p><label className="field-label">Arena Coins stake<select value={wager} onChange={event => setWager(Number(event.target.value))} disabled={!user}>{[0, 10, 25, 50, 100].map(value => <option value={value} key={value}>{value === 0 ? 'Free match' : `${value} coins each`}</option>)}</select></label>{user ? <div className="coin-balance">◉ {user.arena_coins} Arena Coins available</div> : <Link className="text-link" to="/login">Sign in to enable coin stakes <ArrowRight size={14} /></Link>}<button disabled={busy || wager > (user?.arena_coins || 0)} onClick={() => void create('create')} className="button button-green full-button"><Plus size={17} /> {busy ? 'Opening table…' : wager ? `Create · Stake ${wager}` : 'Create private room'}</button></section>
     <section className="content-panel setup-panel quick-match-panel"><span className="setup-number">03</span><span className="small-label">QUICK MATCH</span><h2>Meet at the table.</h2><p>Pair up with the next player who joins quick match.</p><div className="quick-match-meta"><span><Users size={15} /> 2–4 players</span><span><Clock3 size={15} /> Usually under a minute</span></div><button disabled={busy} onClick={() => void create('quick_match')} className="button button-lime full-button"><Sparkles size={17} /> {busy ? 'Finding players…' : 'Find a quick match'}</button></section>
   </div>{roomError && <div role="alert" className="form-error form-error-block">{roomError}</div>}<div className="house-rule-callout"><Shield size={17} /><span><strong>Fair play is server-side.</strong> The game server deals cards, checks moves, and decides the winner.</span><Link to="/help">Rules <ArrowRight size={14} /></Link></div>{loadingLabel && <LoadingScreen message={loadingLabel} action />}</>
 }
@@ -597,9 +608,9 @@ function Lobby() {
       window.setTimeout(() => setInviteShared(false), 2200)
     } catch { /* Sharing can be cancelled by the player. */ }
   }
-  return <><PageTitle eyebrow={view.is_public ? 'QUICK MATCH LOBBY' : 'PRIVATE ROOM'} title="The table is set." detail="Share your code and wait for everyone to join." action={<button type="button" className="button button-outline" onClick={() => { leaveRoom(); navigate('/dashboard') }}><ArrowLeft size={16} /> Leave table</button>} /><section className="lobby-room content-panel"><div className="lobby-code"><div><span className="small-label">ROOM CODE</span><strong>{view.code}</strong></div><div className="lobby-invite-actions"><button className="button button-outline" onClick={() => void navigator.clipboard?.writeText(view.code)}><Check size={15} /> Copy code</button><button className="button button-green" onClick={() => void shareInvite()}><Share2 size={15} /> {inviteShared ? 'Link shared' : 'Invite players'}</button></div></div><div className="lobby-divider" /><div className="lobby-player-heading"><span className="small-label">PLAYERS</span><span>{view.players.length} / 4 seats</span></div><div className="player-list">{Array.from({ length: 4 }, (_, index) => {
+  return <><PageTitle eyebrow={view.is_public ? 'QUICK MATCH LOBBY' : 'PRIVATE ROOM'} title="The table is set." detail="Share your code and wait for everyone to join." action={<button type="button" className="button button-outline" onClick={() => { leaveRoom(); navigate('/dashboard') }}><ArrowLeft size={16} /> Leave table</button>} /><section className="lobby-room content-panel"><div className="lobby-code"><div><span className="small-label">ROOM CODE</span><strong>{view.code}</strong></div><div className="lobby-invite-actions"><button className="button button-outline" onClick={() => void navigator.clipboard?.writeText(view.code)}><Check size={15} /> Copy code</button><button className="button button-green" onClick={() => void shareInvite()}><Share2 size={15} /> {inviteShared ? 'Link shared' : 'Invite players'}</button></div></div>{view.wager > 0 && <div className="wager-banner"><span>◉ ARENA COINS MATCH</span><strong>{view.wager} coins per player · {view.wager_pot} current pot</strong><small>Coins lock when the host starts. The best-of-three champion wins the pot.</small></div>}<div className="lobby-divider" /><div className="lobby-player-heading"><span className="small-label">PLAYERS</span><span>{view.players.length} / 4 seats</span></div><div className="player-list">{Array.from({ length: 4 }, (_, index) => {
     const player = view.players[index]
-    return player ? <div className="lobby-player" key={player.id}><div className={`avatar ${player.id === view.host ? 'host-avatar' : ''}`}>{player.name.slice(0, 1).toUpperCase()}</div><div className="player-copy"><strong>{player.name}{player.id === session?.player_id ? ' (You)' : ''}</strong><span>{player.id === view.host ? 'Host' : 'Ready to play'} · {player.connected ? 'Connected' : 'Reconnecting'}</span></div>{player.id === view.host && <Crown size={17} className="host-crown" />}{player.id === session?.player_id && <span className="you-tag">YOU</span>}</div> : <div className="lobby-player empty-seat" key={`empty-${index}`}><div className="avatar empty-avatar"><Plus size={16} /></div><div className="player-copy"><strong>Waiting for a player</strong><span>Share the room code to fill this seat</span></div></div>
+    return player ? <div className="lobby-player" key={player.id}><div className={`avatar ${player.id === view.host ? 'host-avatar' : ''}`}>{player.name.slice(0, 1).toUpperCase()}</div><div className="player-copy"><strong>{player.name}{player.id === session?.player_id ? ' (You)' : ''}</strong><span>{player.id === view.host ? 'Host' : 'Ready to play'} · {player.connected ? 'Connected' : 'Reconnecting'}{view.wager > 0 ? ` · ◉ ${player.coin_balance ?? 0}` : ''}</span></div>{player.id === view.host && <Crown size={17} className="host-crown" />}{player.id === session?.player_id && <span className="you-tag">YOU</span>}</div> : <div className="lobby-player empty-seat" key={`empty-${index}`}><div className="avatar empty-avatar"><Plus size={16} /></div><div className="player-copy"><strong>Waiting for a player</strong><span>Share the room code to fill this seat</span></div></div>
   })}</div><div className="lobby-footer"><div className="connection-state"><span className={`status-dot ${connected ? 'online' : ''}`} />{connected ? 'Room is live' : 'Connecting…'}</div>{isHost ? <button className="button button-lime" disabled={view.players.length < 2 || view.players.some(player => !player.connected)} onClick={() => send('start')}><Gamepad2 size={17} /> Start game <ArrowRight size={16} /></button> : <span className="waiting-label"><span className="pulse-dot" /> Waiting for host to start</span>}</div></section><div className="lobby-footnote"><Shield size={15} /> The server will privately deal five cards to each player when the host starts.</div></>
 }
 
@@ -659,6 +670,7 @@ function GameTable() {
   const championName = view.players.find(player => player.id === view.match_winner)?.name || winnerName
   const myTurn = view.turn === session?.player_id && view.status === 'playing' && !view.is_paused
   const isRoundOpening = view.last_action === 'Game started' || view.last_action.includes('started')
+  const wagerLocked = view.wager_locked
   const reactionVisible = (player?: Player) => Boolean(player?.reaction && player.reaction_at && Date.now() / 1000 - player.reaction_at < 4)
   const isLegal = (card: Card) => view.pending_draw > 0 ? card.number === view.pending_penalty : card.number === 20 || card.number === view.top?.number || card.shape === (view.requested_shape || view.top?.shape)
   function play(card: Card) {
@@ -667,6 +679,11 @@ function GameTable() {
     send('play', { card_id: card.id })
   }
   function confirmWhot() { if (selectedWhot) { send('play', { card_id: selectedWhot.id, shape }); setSelectedWhot(null) } }
+  function exitRoom() {
+    if (wagerLocked && !window.confirm('Leave this Arena Coins match? Your locked stake remains in the pot.')) return
+    leaveRoom()
+    navigate('/dashboard')
+  }
   return (
     <div className={`game-page theme-${me?.table_theme || 'classic'} card-back-${me?.card_back || 'classic'}`}>
       {view.status === 'finished' && <WinnerCelebration name={view.match_winner ? championName : winnerName} champion={Boolean(view.match_winner)} />}
@@ -677,9 +694,10 @@ function GameTable() {
             <span className="status-dot online" />
             {view.status === 'finished' ? 'ROUND COMPLETE' : view.is_paused ? 'GAME PAUSED' : myTurn ? 'YOUR TURN' : `TURN: ${view.players.find(player => player.id === view.turn)?.name || 'OPPONENT'}`}
           </span>
+          {view.wager > 0 && <span className="table-wager">◉ {view.wager_pot} COIN POT</span>}
         </div>
         <div className="match-scoreboard" aria-label={`Best of three match score, round ${view.round_number}`}><span>ROUND {view.round_number} · BEST OF 3</span><div>{view.players.map(player => <span className={player.id === view.match_winner ? 'score-champion' : ''} key={player.id}><strong>{player.name}</strong><b>{view.round_wins[player.id] || 0}</b><small>{view.match_points[player.id] || 0} pts</small></span>)}</div></div>
-        <div className="game-actions">{view.host === session?.player_id && !view.is_public && view.status === 'playing' && <button type="button" className="button button-outline game-pause" disabled={view.is_paused && view.pause_reason !== 'manual'} onClick={() => send('pause')}>{view.is_paused && view.pause_reason === 'manual' ? <><Play size={15} /> Resume</> : <><Pause size={15} /> Pause</>}</button>}<button className="icon-button game-exit" title="Leave table and return to dashboard" onClick={() => { leaveRoom(); navigate('/dashboard') }}><ArrowLeft size={18} /></button></div>
+        <div className="game-actions">{view.host === session?.player_id && !view.is_public && view.status === 'playing' && <button type="button" className="button button-outline game-pause" disabled={view.is_paused && view.pause_reason !== 'manual'} onClick={() => send('pause')}>{view.is_paused && view.pause_reason === 'manual' ? <><Play size={15} /> Resume</> : <><Pause size={15} /> Pause</>}</button>}<button type="button" className="button button-outline game-leave" title="Leave room and return to dashboard" onClick={exitRoom}><DoorOpen size={15} /> Leave room</button></div>
       </div>
       <div className={`game-layout ${opponents.every(player => player.is_bot) ? 'solo-layout' : ''}`}>
       <div className="table-column">
@@ -709,7 +727,7 @@ function GameTable() {
       {view.status === 'finished' ? (
         <section className="round-result">
           <div className="result-icon">{view.winner === session?.player_id ? <Crown size={26} /> : <Trophy size={26} />}</div>
-          <div><span className="small-label">{view.match_winner ? 'MATCH COMPLETE' : `ROUND ${view.round_number} COMPLETE`}</span><h2>{view.match_winner ? `${championName} won the match!` : view.winner === session?.player_id ? 'You won the round!' : `${winnerName} won the round.`}</h2><p>{view.match_winner ? 'The best-of-three match is complete. The host can start a fresh match.' : 'First to two round wins takes the match. Remaining cards determine the points awarded.'}</p>{Object.keys(view.final_scores || {}).length > 0 && <div className="final-scores">{view.players.map(player => <span key={player.id}><strong>{player.name}</strong> {view.final_scores[player.id]} left · {view.round_wins[player.id] || 0} wins · {view.match_points[player.id] || 0} pts</span>)}</div>}</div>
+          <div><span className="small-label">{view.match_winner ? 'MATCH COMPLETE' : `ROUND ${view.round_number} COMPLETE`}</span><h2>{view.match_winner ? `${championName} won the match!` : view.winner === session?.player_id ? 'You won the round!' : `${winnerName} won the round.`}</h2><p>{view.match_winner ? view.wager > 0 ? `The champion wins the ${view.wager_pot} Arena Coins pot.` : 'The best-of-three match is complete. The host can start a fresh match.' : 'First to two round wins takes the match. Remaining cards determine the points awarded.'}</p>{Object.keys(view.final_scores || {}).length > 0 && <div className="final-scores">{view.players.map(player => <span key={player.id}><strong>{player.name}</strong> {view.final_scores[player.id]} left · {view.round_wins[player.id] || 0} wins · {view.match_points[player.id] || 0} pts</span>)}</div>}</div>
           {view.host === session?.player_id && view.players.every(player => player.connected)
             ? <button className="button button-green" onClick={() => send('rematch')}>{view.match_winner ? 'New match' : 'Next round'} <ArrowRight size={16} /></button>
             : <Link to="/create" className="button button-green">New table <ArrowRight size={16} /></Link>}

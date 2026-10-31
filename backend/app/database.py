@@ -35,6 +35,7 @@ class User(Base):
     password_hash: Mapped[str] = mapped_column(String(255))
     matches_played: Mapped[int] = mapped_column(Integer, default=0)
     wins: Mapped[int] = mapped_column(Integer, default=0)
+    arena_coins: Mapped[int] = mapped_column(Integer, default=1000)
     xp: Mapped[int] = mapped_column(Integer, default=0)
     win_streak: Mapped[int] = mapped_column(Integer, default=0)
     best_win_streak: Mapped[int] = mapped_column(Integer, default=0)
@@ -95,6 +96,7 @@ def init_database():
     existing = {column["name"] for column in inspect(engine).get_columns("users")}
     additions = {
         "xp": "INTEGER NOT NULL DEFAULT 0",
+        "arena_coins": "INTEGER NOT NULL DEFAULT 1000",
         "win_streak": "INTEGER NOT NULL DEFAULT 0",
         "best_win_streak": "INTEGER NOT NULL DEFAULT 0",
         "achievements": "VARCHAR(500) NOT NULL DEFAULT ''",

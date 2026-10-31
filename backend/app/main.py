@@ -38,7 +38,25 @@ def make_player(pid, name, user_id=None):
                 player.table_theme = user.selected_theme
                 player.card_back = user.selected_card_back
                 player.avatar = user.selected_avatar
+                player.coin_balance = user.arena_coins
     return player
+
+def lock_room_wager(room):
+    if not room.wager or room.wager_locked:
+        return
+    humans = [player for player in room.players if not player.is_bot]
+    if any(not player.user_id for player in humans):
+        raise ValueError("All players must sign in for an Arena Coins match")
+    with database_session() as db:
+        users = {player.id: db.get(User, player.user_id) for player in humans}
+        if any(not user or user.arena_coins < room.wager for user in users.values()):
+            raise ValueError("A player does not have enough Arena Coins for this stake")
+        for player in humans:
+            user = users[player.id]
+            user.arena_coins -= room.wager
+            player.coin_balance = user.arena_coins
+    room.wager_locked = True
+    room.wager_paid = False
 
 def new_room_code():
     """Return a short room code that is unique in this server process."""
@@ -113,6 +131,14 @@ def record_match(room):
                     if user.level >= 5:
                         achievements.add("level_five")
                     user.achievements = ",".join(sorted(achievements))
+        if room.wager_locked and not room.wager_paid and winner and winner.user_id:
+            winner_user = db.get(User, winner.user_id)
+            if winner_user:
+                pot = room.wager * len([player for player in room.players if not player.is_bot])
+                winner_user.arena_coins += pot
+                winner.coin_balance = winner_user.arena_coins
+                room.wager_paid = True
+                room.wager_locked = False
         match = MatchResult(room_code=room.code,
                             winner_user_id=winner.user_id if winner else None,
                             player_count=len(room.players))
@@ -216,11 +242,18 @@ async def ws_endpoint(ws: WebSocket):
                         raise ValueError("This connection already has a session")
                     name = str(msg.get("name", "Guest")).strip()[:20] or "Guest"
                     user_id = message_user_id(msg)
+                    wager = int(msg.get("wager", 0) or 0) if action == "create" else 0
+                    if wager not in {0, 10, 25, 50, 100}:
+                        raise ValueError("Invalid Arena Coins stake")
+                    if wager and not user_id:
+                        raise ValueError("Sign in to create an Arena Coins table")
                     pid = secrets.token_urlsafe(18)
                     async with state_lock:
                         code = new_room_code()
                         player = make_player(pid, name, user_id)
-                        room = Room(code=code, host=pid, players=[player])
+                        if wager and player.coin_balance < wager:
+                            raise ValueError("You do not have enough Arena Coins for this stake")
+                        room = Room(code=code, host=pid, players=[player], wager=wager)
                         if action == "computer":
                             room.add_player(Player("bot-" + secrets.token_urlsafe(8),
                                                    "Arena Bot", is_bot=True))
@@ -266,6 +299,8 @@ async def ws_endpoint(ws: WebSocket):
                         code = requested
                         user_id = message_user_id(msg)
                         player = make_player(pid, str(msg.get("name", "Guest")).strip()[:20] or "Guest", user_id)
+                        if room.wager and (not user_id or player.coin_balance < room.wager):
+                            raise ValueError("Sign in with enough Arena Coins to join this table")
                         room.add_player(player)
                         connections[pid] = ws
                     await send(ws, {"type": "session", "player_id": pid, "code": code,
@@ -336,6 +371,10 @@ async def ws_endpoint(ws: WebSocket):
                         if connections.get(pid) is not ws:
                             raise ValueError("Session is active on another connection")
                         if action == "start":
+                            if (room.wager and pid == room.host and room.status == "lobby"
+                                    and 2 <= len(room.players) <= 4
+                                    and all(player.connected for player in room.players)):
+                                lock_room_wager(room)
                             room.start(pid)
                         elif action == "play":
                             room.play(pid, msg.get("card_id"), msg.get("shape"))
@@ -344,6 +383,8 @@ async def ws_endpoint(ws: WebSocket):
                             room.draw(pid)
                             record_match(room)
                         elif action == "rematch":
+                            if room.wager and room.match_winner and pid == room.host:
+                                lock_room_wager(room)
                             room.rematch(pid)
                         elif action == "declare_last":
                             room.declare_last_card(pid)

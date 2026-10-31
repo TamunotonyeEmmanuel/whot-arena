@@ -42,6 +42,7 @@ class Player:
     disconnected_at: Optional[float] = None
     reconnect_token: str = field(default_factory=lambda: secrets.token_urlsafe(32), repr=False)
     user_id: Optional[int] = None
+    coin_balance: int = 0
     is_bot: bool = False
     last_card_required: bool = False
     table_theme: str = "classic"
@@ -80,6 +81,9 @@ class Room:
     voice_messages: list = field(default_factory=list)
     voice_sent_at: dict = field(default_factory=dict)
     chat_messages: list = field(default_factory=list)
+    wager: int = 0
+    wager_locked: bool = False
+    wager_paid: bool = False
 
     def player(self, pid):
         return next((p for p in self.players if p.id == pid), None)
@@ -382,10 +386,12 @@ class Room:
         self.discard.append(card)
         self.requested_shape = shape if card["number"] == 20 else None
         self.last_action = f"{p.name} played {card['number']}"
+        replacement_drawn = False
         if not p.hand and card["number"] in LAST_CARD_REQUIRES_REPLACEMENT:
             if self._draw(p) == 0:
                 self.finish_exhausted_market()
                 return
+            replacement_drawn = True
             self.last_action += " and drew a replacement card"
             if not self.deck:
                 self.finish_exhausted_market()
@@ -416,9 +422,13 @@ class Room:
         else:
             self._advance()
         if len(p.hand) == 1:
-            p.last_card_required = not p.is_bot
-            self.last_action += (f" — {p.name} declared LAST CARD!" if p.is_bot
-                                 else f" — {p.name} must declare LAST CARD!")
+            if replacement_drawn:
+                p.last_card_required = False
+                self.last_action += " — replacement is the declared LAST CARD"
+            else:
+                p.last_card_required = not p.is_bot
+                self.last_action += (f" — {p.name} declared LAST CARD!" if p.is_bot
+                                     else f" — {p.name} must declare LAST CARD!")
 
     def draw(self, pid):
         if self.is_paused:
@@ -477,6 +487,7 @@ class Room:
                          "voice_speaking": p.voice_speaking,
                          "reaction": p.reaction, "reaction_at": p.reaction_at,
                          "is_bot": p.is_bot, "last_card_required": p.last_card_required,
+                         "coin_balance": p.coin_balance,
                          "table_theme": p.table_theme, "card_back": p.card_back,
                          "avatar": p.avatar}
                         for p in self.players],
@@ -503,6 +514,9 @@ class Room:
             "match_points": self.match_points, "last_action": self.last_action,
             "final_scores": self.final_scores,
             "is_public": self.is_public,
+            "wager": self.wager,
+            "wager_locked": self.wager_locked,
+            "wager_pot": self.wager * len([p for p in self.players if not p.is_bot]),
             "voice_messages": [{key: value for key, value in message.items()
                                 if key != "audio"} for message in self.voice_messages],
             "chat_messages": self.chat_messages,

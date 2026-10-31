@@ -26,6 +26,7 @@ class UserResponse(BaseModel):
     email: str
     matches_played: int
     wins: int
+    arena_coins: int
     xp: int
     level: int
     win_streak: int

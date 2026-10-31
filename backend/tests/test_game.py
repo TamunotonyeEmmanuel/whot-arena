@@ -403,6 +403,18 @@ def test_special_cards_cannot_be_played_as_the_winning_card():
         assert r.winner is None
         assert len(r.players[0].hand) == 1
         assert "replacement card" in r.last_action
+        assert r.players[0].last_card_required is False
+
+def test_special_last_card_replacement_does_not_trigger_forgotten_declaration_penalty():
+    r = setup()
+    r.discard = [{"shape": "circle", "number": 7, "id": "top"}]
+    r.players[0].hand = [{"shape": "circle", "number": 5, "id": "pick-three"}]
+    r.play("a", "pick-three")
+    assert len(r.players[0].hand) == 1
+    assert r.players[0].last_card_required is False
+    r.players[1].hand.append({"shape": "circle", "number": 5, "id": "block"})
+    r.play("b", "block")
+    assert len(r.players[0].hand) == 1
 
 def test_rematch_is_host_only_and_resets_the_match():
     r = setup()
