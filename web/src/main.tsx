@@ -33,6 +33,14 @@ type ArenaContextValue = {
 
 const API_URL = (import.meta.env.VITE_API_URL || 'http://localhost:8000').replace(/\/$/, '')
 const WS_URL = import.meta.env.VITE_WS_URL || `${API_URL.replace(/^http/, 'ws')}/ws`
+const RTC_ICE_SERVERS: RTCIceServer[] = [
+  { urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'] },
+  ...(import.meta.env.VITE_TURN_URL ? [{
+    urls: import.meta.env.VITE_TURN_URL,
+    username: import.meta.env.VITE_TURN_USERNAME || '',
+    credential: import.meta.env.VITE_TURN_CREDENTIAL || '',
+  }] : []),
+]
 const Context = createContext<ArenaContextValue | null>(null)
 const readStored = <T,>(key: string): T | null => {
   try { return JSON.parse(localStorage.getItem(key) || 'null') as T | null } catch { return null }
@@ -41,7 +49,7 @@ const readStored = <T,>(key: string): T | null => {
 function ArenaProvider({ children }: { children: React.ReactNode }) {
   const [view, setView] = useState<RoomView | null>(null)
   const [session, setSession] = useState<Session | null>(() => {
-    try { return JSON.parse(sessionStorage.getItem('whot.session') || 'null') as Session | null }
+    try { return JSON.parse(localStorage.getItem('whot.session') || sessionStorage.getItem('whot.session') || 'null') as Session | null }
     catch { return null }
   })
   const [user, setUser] = useState<User | null>(() => readStored<User>('whot.user'))
@@ -61,7 +69,8 @@ function ArenaProvider({ children }: { children: React.ReactNode }) {
   function saveSession(next: Session) {
     sessionRef.current = next
     setSession(next)
-    sessionStorage.setItem('whot.session', JSON.stringify(next))
+    localStorage.setItem('whot.session', JSON.stringify(next))
+    sessionStorage.removeItem('whot.session')
   }
 
   function openSocket(payload: Record<string, unknown>): Promise<Session> {
@@ -100,6 +109,7 @@ function ArenaProvider({ children }: { children: React.ReactNode }) {
         } else if (message.type === 'error') {
           setError(message.message || 'The server rejected that action.')
           if (payload.action === 'reconnect' && message.message === 'Session not found') {
+            localStorage.removeItem('whot.session')
             sessionStorage.removeItem('whot.session')
             sessionRef.current = null
             setSession(null)
@@ -194,6 +204,7 @@ function ArenaProvider({ children }: { children: React.ReactNode }) {
 
   function leaveRoom() {
     if (retryRef.current) window.clearTimeout(retryRef.current)
+    localStorage.removeItem('whot.session')
     sessionStorage.removeItem('whot.session')
     sessionRef.current = null
     setSession(null)
@@ -234,7 +245,7 @@ function ArenaProvider({ children }: { children: React.ReactNode }) {
 
   function signOut() {
     sessionStorage.removeItem('whot.token'); localStorage.removeItem('whot.user')
-    sessionStorage.removeItem('whot.session'); sessionRef.current = null
+    localStorage.removeItem('whot.session'); sessionStorage.removeItem('whot.session'); sessionRef.current = null
     setUser(null); setSession(null); setView(null)
     if (socketRef.current) { socketRef.current.onclose = null; socketRef.current.close() }
   }
@@ -256,7 +267,7 @@ const navItems = [
 ]
 
 function AppFrame() {
-  const { user, session, connected, error, clearError, signOut } = useArena()
+  const { user, session, view, connected, error, clearError, signOut } = useArena()
   const [menuOpen, setMenuOpen] = useState(false)
   const location = useLocation()
   const isTable = location.pathname.startsWith('/game/')
@@ -296,7 +307,7 @@ function AppFrame() {
         <Route path="/help" element={<HelpPage />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes></main>
-      {session && <div className="room-chip"><Radio size={14} /> Room {session.code}<span className={`status-dot ${connected ? 'online' : ''}`} /></div>}
+      {session && <Link to={view?.status === 'lobby' ? `/lobby/${session.code}` : `/game/${session.code}`} className="room-chip" title="Continue your open table"><Radio size={14} /> Continue room {session.code}<span className={`status-dot ${connected ? 'online' : ''}`} /></Link>}
     </div>
   </div>
 }
@@ -307,8 +318,10 @@ function PageTitle({ eyebrow, title, detail, action }: { eyebrow: string; title:
 }
 
 function Landing() {
-  const { user } = useArena()
+  const { user, session, view } = useArena()
+  const resumePath = session && view?.status !== 'lobby' ? `/game/${session.code}` : session ? `/lobby/${session.code}` : '/create'
   return <div className="landing-page">
+    {session && <div className="continue-table-banner"><span><Radio size={16} /><strong>Unfinished table {session.code}</strong></span><Link className="button button-lime" to={resumePath}>Continue table <ArrowRight size={16} /></Link></div>}
     <section className="landing-hero"><div className="hero-copy"><Eyebrow>NIGERIAN WHOT · REAL-TIME MULTIPLAYER</Eyebrow><h1>One table.<br /><span>Every move counts.</span></h1><p>Bring your people together for a quick round of WHOT. The cards stay hidden, the competition stays friendly, and every move is verified on the server.</p><div className="hero-actions"><Link className="button button-lime" to="/create"><Gamepad2 size={17} /> Play now <ArrowRight size={17} /></Link><Link className="button button-quiet" to="/help">How to play</Link></div><div className="hero-proof"><span><Shield size={15} /> Server-validated play</span><span><Users size={15} /> 2–4 players</span><span><Radio size={15} /> Live rooms</span></div></div><div className="hero-scene" aria-label="A WHOT card on a green game table"><div className="scene-ring ring-one" /><div className="scene-ring ring-two" /><div className="scene-card card-back"><span>WHOT</span><small>ARENA</small></div><div className="scene-card card-front"><span className="scene-number">20</span><span className="shape-symbol">✦</span><span className="shape-name">WILD CARD</span></div><div className="scene-note"><span className="note-dot" /> YOUR NEXT MOVE</div><div className="scene-score"><span>TABLE<br />OPEN</span><strong>04</strong></div></div></section>
     <section className="landing-lower"><div className="lower-heading"><div><span className="small-label">START HERE</span><h2>{user ? `Welcome back, ${user.username}.` : 'Your next round is one click away.'}</h2></div><span className="house-rule-tag"><Sparkles size={14} /> The Arena house rules</span></div><div className="quick-grid"><Link to="/create" className="quick-action"><span className="quick-icon lime"><Plus size={20} /></span><span><strong>Create a private room</strong><small>Invite friends with a room code</small></span><ArrowRight size={17} /></Link><Link to="/join" className="quick-action"><span className="quick-icon coral"><DoorOpen size={20} /></span><span><strong>Join a room</strong><small>Enter a code from your host</small></span><ArrowRight size={17} /></Link><Link to="/leaderboard" className="quick-action"><span className="quick-icon gold"><Trophy size={20} /></span><span><strong>See the standings</strong><small>Check the player leaderboard</small></span><ArrowRight size={17} /></Link></div></section>
   </div>
@@ -491,6 +504,8 @@ function LiveVoicePanel({ players, playerId, enabled }: { players: Player[]; pla
   const [muted, setMuted] = useState(false)
   const [status, setStatus] = useState<'starting' | 'live' | 'blocked' | 'unsupported'>('starting')
   const [connectedPeers, setConnectedPeers] = useState<string[]>([])
+  const [playbackBlocked, setPlaybackBlocked] = useState(false)
+  const [connectionSlow, setConnectionSlow] = useState(false)
   const localStreamRef = useRef<MediaStream | null>(null)
   const startPromiseRef = useRef<Promise<MediaStream | null> | null>(null)
   const peersRef = useRef(new Map<string, RTCPeerConnection>())
@@ -524,7 +539,7 @@ function LiveVoicePanel({ players, playerId, enabled }: { players: Player[]; pla
   function createPeer(remoteId: string, stream: MediaStream) {
     const existing = peersRef.current.get(remoteId)
     if (existing) return existing
-    const peer = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] })
+    const peer = new RTCPeerConnection({ iceServers: RTC_ICE_SERVERS, iceCandidatePoolSize: 4 })
     stream.getAudioTracks().forEach(track => peer.addTrack(track, stream))
     peer.onicecandidate = event => {
       if (event.candidate) sendRtcSignal(remoteId, { type: 'ice', candidate: event.candidate.toJSON() })
@@ -534,11 +549,12 @@ function LiveVoicePanel({ players, playerId, enabled }: { players: Player[]; pla
       audio.autoplay = true
       audio.srcObject = event.streams[0]
       audioRef.current.set(remoteId, audio)
-      void audio.play().catch(() => undefined)
+      void audio.play().then(() => setPlaybackBlocked(false)).catch(() => setPlaybackBlocked(true))
     }
     peer.onconnectionstatechange = () => {
       if (peer.connectionState === 'connected') {
         setConnectedPeers(previous => previous.includes(remoteId) ? previous : [...previous, remoteId])
+        setConnectionSlow(false)
         playGameSound('join')
       } else if (['failed', 'closed', 'disconnected'].includes(peer.connectionState)) {
         setConnectedPeers(previous => previous.filter(id => id !== remoteId))
@@ -609,6 +625,13 @@ function LiveVoicePanel({ players, playerId, enabled }: { players: Player[]; pla
     }
   }, [rtcSignals, players])
 
+  useEffect(() => {
+    const waitingFor = players.some(player => player.id !== playerId && player.connected && player.voice_ready)
+    if (!waitingFor || connectedPeers.length) { setConnectionSlow(false); return }
+    const timer = window.setTimeout(() => setConnectionSlow(true), 12000)
+    return () => window.clearTimeout(timer)
+  }, [players, playerId, connectedPeers.length])
+
   function toggleMute() {
     const next = !muted
     localStreamRef.current?.getAudioTracks().forEach(track => { track.enabled = !next })
@@ -616,8 +639,13 @@ function LiveVoicePanel({ players, playerId, enabled }: { players: Player[]; pla
     setMuted(next)
   }
 
-  const statusText = status === 'live' ? `${connectedPeers.length} ${connectedPeers.length === 1 ? 'player' : 'players'} connected` : status === 'blocked' ? 'Microphone permission is required' : status === 'unsupported' ? 'Live voice is unavailable in this browser' : 'Opening microphone…'
-  return <aside className="voice-panel live-voice-panel content-panel" aria-label="Live table voice"><div className="voice-heading"><span className={`voice-icon ${status === 'live' ? 'voice-live' : ''}`}><Volume2 size={17} /></span><div><strong>Live table voice</strong><small>{statusText}</small></div><span className={`status-dot ${status === 'live' ? 'online' : ''}`} /></div><div className="live-voice-room"><div className={`live-mic-orbit ${status === 'live' && !muted ? 'mic-active' : ''}`}><span>{muted ? <MicOff size={27} /> : <Mic size={27} />}</span></div><strong>{muted ? 'Your microphone is muted' : status === 'live' ? 'Your microphone is live' : 'Waiting for microphone'}</strong><small>Audio is shared only with players at this table.</small></div><div className="voice-compose">{status === 'blocked' ? <button type="button" className="button button-green full-button" onClick={() => { startPromiseRef.current = null; setStatus('starting'); void startMicrophone() }}><Mic size={16} /> Allow microphone</button> : <button type="button" className={`button ${muted ? 'button-green' : 'button-outline'} full-button`} disabled={status !== 'live'} onClick={toggleMute}>{muted ? <><Mic size={16} /> Unmute microphone</> : <><MicOff size={16} /> Mute microphone</>}</button>}<span className="voice-hint">The browser will ask permission the first time you join voice.</span></div></aside>
+  function enablePlayback() {
+    void Promise.all([...audioRef.current.values()].map(audio => audio.play())).then(() => setPlaybackBlocked(false)).catch(() => setPlaybackBlocked(true))
+  }
+
+  const voiceCount = status === 'live' ? connectedPeers.length + 1 : 0
+  const statusText = status === 'live' ? `${voiceCount} ${voiceCount === 1 ? 'player' : 'players'} in voice` : status === 'blocked' ? 'Microphone permission is required' : status === 'unsupported' ? 'Live voice is unavailable in this browser' : 'Opening microphone…'
+  return <aside className="voice-panel live-voice-panel content-panel" aria-label="Live table voice"><div className="voice-heading"><span className={`voice-icon ${status === 'live' ? 'voice-live' : ''}`}><Volume2 size={17} /></span><div><strong>Live table voice</strong><small>{statusText}</small></div><span className={`status-dot ${status === 'live' ? 'online' : ''}`} /></div><div className="live-voice-room"><div className={`live-mic-orbit ${status === 'live' && !muted ? 'mic-active' : ''}`}><span>{muted ? <MicOff size={27} /> : <Mic size={27} />}</span></div><strong>{muted ? 'Your microphone is muted' : status === 'live' ? 'Your microphone is live' : 'Waiting for microphone'}</strong><small>{connectionSlow ? 'Direct voice connection failed. This network may require a TURN server.' : 'Audio is shared only with players at this table.'}</small></div><div className="voice-compose">{status === 'blocked' ? <button type="button" className="button button-green full-button" onClick={() => { startPromiseRef.current = null; setStatus('starting'); void startMicrophone() }}><Mic size={16} /> Allow microphone</button> : playbackBlocked ? <button type="button" className="button button-green full-button" onClick={enablePlayback}><Volume2 size={16} /> Enable speaker</button> : <button type="button" className={`button ${muted ? 'button-green' : 'button-outline'} full-button`} disabled={status !== 'live'} onClick={toggleMute}>{muted ? <><Mic size={16} /> Unmute microphone</> : <><MicOff size={16} /> Mute microphone</>}</button>}<span className="voice-hint">The browser will ask permission the first time you join voice.</span></div></aside>
 }
 
 function VoicePanel({ messages, enabled }: { messages: VoiceMessage[]; enabled: boolean }) {

@@ -95,6 +95,20 @@ def test_match_authorization_privacy_and_reconnect(server_url):
             assert len(receive_type(restored, "state")["data"]["hand"]) == 5
 
 
+def test_refresh_reconnect_replaces_the_previous_socket(server_url):
+    with connect(server_url) as original:
+        session, _ = create(original)
+        with connect(server_url) as refreshed:
+            send(refreshed, {"action": "reconnect", "code": session["code"],
+                             "player_id": session["player_id"],
+                             "reconnect_token": session["reconnect_token"]})
+            resumed = receive_type(refreshed, "session")
+            assert resumed["player_id"] == session["player_id"]
+            state = receive_type(refreshed, "state")["data"]
+            assert state["code"] == session["code"]
+            assert state["players"][0]["connected"] is True
+
+
 def test_live_voice_signaling_is_relayed_only_to_target_player(server_url):
     with connect(server_url) as host:
         host_session, _ = create(host)

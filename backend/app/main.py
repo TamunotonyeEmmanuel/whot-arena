@@ -209,17 +209,22 @@ async def ws_endpoint(ws: WebSocket):
                     requested = str(msg.get("code", "")).upper()
                     candidate = str(msg.get("player_id", ""))
                     token = str(msg.get("reconnect_token", ""))
+                    previous_ws = None
                     async with state_lock:
                         room = rooms.get(requested)
                         p = room.player(candidate) if room else None
                         if not p or not token or not secrets.compare_digest(p.reconnect_token, token):
                             raise ValueError("Session not found")
-                        if p.connected and candidate in connections:
-                            raise ValueError("Session already connected")
+                        previous_ws = connections.get(candidate)
                         pid, code = candidate, requested
                         p.connected, p.disconnected_at = True, None
                         room.updated_at = time.time()
                         connections[pid] = ws
+                    if previous_ws and previous_ws is not ws:
+                        try:
+                            await previous_ws.close(code=4000, reason="Session resumed after refresh")
+                        except Exception:
+                            pass
                     await send(ws, {"type": "session", "player_id": pid, "code": code,
                                     "reconnect_token": p.reconnect_token})
                     await broadcast(room)

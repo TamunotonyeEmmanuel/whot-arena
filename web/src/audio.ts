@@ -64,6 +64,7 @@ const cues: Record<GameSound, Note[]> = {
 function scheduleSound(audio: AudioContext, sound: GameSound) {
   if (audio.state !== 'running') return
   const start = audio.currentTime + .02
+  const volumeBoost = sound === 'play' ? 4.5 : 2.25
   for (const note of cues[sound]) {
     const oscillator = audio.createOscillator()
     const gain = audio.createGain()
@@ -72,7 +73,7 @@ function scheduleSound(audio: AudioContext, sound: GameSound) {
     oscillator.type = note.wave || 'sine'
     oscillator.frequency.setValueAtTime(note.frequency, noteStart)
     gain.gain.setValueAtTime(.0001, noteStart)
-    gain.gain.exponentialRampToValueAtTime((note.volume || .04) * 2.25, noteStart + .012)
+    gain.gain.exponentialRampToValueAtTime((note.volume || .04) * volumeBoost, noteStart + .012)
     gain.gain.exponentialRampToValueAtTime(.0001, noteEnd)
     oscillator.connect(gain)
     gain.connect(audio.destination)

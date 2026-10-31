@@ -11,7 +11,15 @@ This repository is prepared for a Vercel static frontend and free Render API/dat
 	```dotenv
 	VITE_API_URL=https://whot-arena-api.onrender.com
 	VITE_WS_URL=wss://whot-arena-api.onrender.com/ws
+	VITE_TURN_URL=turns://your-turn-host:5349
+	VITE_TURN_USERNAME=<turn-username>
+	VITE_TURN_CREDENTIAL=<turn-credential>
 	```
+
+	The TURN values are required for reliable live voice across mobile carriers,
+	NATs, and restrictive Wi-Fi. They are embedded in the browser build, so use
+	short-lived TURN credentials from a TURN provider rather than an unrelated
+	account password.
 
 4. Deploy the Vercel project. If its production domain differs from the origin entered in Render, update Render's `CORS_ORIGINS` to the exact assigned domain and redeploy/restart the API.
 5. Verify the Vercel site can register/login, create/join a room in two browsers, connect/mute/unmute live voice, and reconnect. Use the `wss://` endpoint; microphone capture requires HTTPS. Expect the first request after idle to wait for the Render service to wake.
