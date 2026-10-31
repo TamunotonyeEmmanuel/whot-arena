@@ -17,6 +17,7 @@ type RoomView = {
   requested_shape: string | null; winner: string | null; last_action: string
   final_scores: Record<string, number>
   market_count: number
+  state_version: number
   turn_started_at: number
   turn_seconds_remaining: number
   voice_messages: VoiceMessage[]
@@ -482,9 +483,17 @@ function CardFace({ card, large = false, back = false, selected = false, playabl
 }
 
 function WinnerCelebration({ name }: { name: string }) {
-  const sparks = Array.from({ length: 18 }, (_, index) => index)
+  const sparks = Array.from({ length: 32 }, (_, index) => index)
+  const bursts = [
+    { x: '16%', y: '25%', delay: '0s', hue: 46, size: 1.15 },
+    { x: '82%', y: '20%', delay: '.55s', hue: 335, size: 1 },
+    { x: '68%', y: '67%', delay: '1.15s', hue: 195, size: .85 },
+    { x: '29%', y: '72%', delay: '1.7s', hue: 112, size: .92 },
+    { x: '50%', y: '14%', delay: '2.25s', hue: 275, size: 1.08 },
+    { x: '91%', y: '48%', delay: '2.8s', hue: 28, size: .78 },
+  ]
   return <div className="winner-celebration" role="status" aria-live="assertive" aria-label={`${name} wins the round`}>
-    {[0, 1, 2, 3].map(burst => <div className={`firework firework-${burst + 1}`} key={burst} aria-hidden="true">{sparks.map(spark => <span key={spark} style={{ '--spark': spark } as React.CSSProperties} />)}</div>)}
+    <div className="firework-sky" aria-hidden="true">{bursts.map((burst, index) => <div className="firework" key={index} style={{ left: burst.x, top: burst.y, '--delay': burst.delay, '--hue': burst.hue, '--firework-scale': burst.size } as React.CSSProperties}><i />{sparks.map(spark => <span key={spark} style={{ '--spark': spark, '--distance': `${72 + (spark % 5) * 11}px` } as React.CSSProperties} />)}</div>)}</div>
     <div className="winner-announcement"><Crown size={34} /><span>ROUND WINNER</span><strong>{name}</strong></div>
   </div>
 }
@@ -503,7 +512,7 @@ function GameTable() {
     setTurnSeconds(view.turn_seconds_remaining ?? 30)
     const timer = window.setInterval(() => setTurnSeconds(previous => Math.max(0, previous - 1)), 1000)
     return () => window.clearInterval(timer)
-  }, [view?.turn, view?.turn_started_at, view?.turn_seconds_remaining, view?.status])
+  }, [view?.turn, view?.turn_started_at, view?.state_version, view?.turn_seconds_remaining, view?.status, view?.last_action, view?.top?.id, view?.market_count])
   if (!view || view.code !== code.toUpperCase()) return <div className="center-state"><div className="loader-mark">W</div><h2>Restoring your game…</h2><p>Your hand stays private while the table reconnects.</p><button type="button" className="button button-outline" onClick={() => { leaveRoom(); navigate('/create') }}>Close open table</button></div>
   const me = view.players.find(player => player.id === session?.player_id)
   const opponents = view.players.filter(player => player.id !== session?.player_id)

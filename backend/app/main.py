@@ -19,6 +19,8 @@ LOBBY_RECONNECT_SECONDS = 10 * 60
 LOBBY_IDLE_SECONDS = 15 * 60
 FINISHED_IDLE_SECONDS = 5 * 60
 state_lock = asyncio.Lock()
+computer_tasks = {}
+COMPUTER_MOVE_DELAY_SECONDS = 1.35
 
 def message_user_id(msg):
     token = msg.get("access_token")
@@ -47,13 +49,30 @@ async def broadcast(room):
             except Exception:
                 pass
 
-def play_computer_turns(room):
-    """Resolve consecutive computer turns before returning control to a human."""
-    moves = 0
-    while room.status == "playing" and room.current().is_bot and moves < 20:
-        room.auto_move()
-        moves += 1
-    record_match(room)
+async def run_computer_turns(room):
+    """Play computer turns with a visible thinking pause before every move."""
+    try:
+        moves = 0
+        while moves < 20:
+            await asyncio.sleep(COMPUTER_MOVE_DELAY_SECONDS)
+            async with state_lock:
+                if (rooms.get(room.code) is not room or room.status != "playing"
+                        or not room.current().is_bot):
+                    return
+                room.auto_move()
+                record_match(room)
+                moves += 1
+                continues = room.status == "playing" and room.current().is_bot
+            await broadcast(room)
+            if not continues:
+                return
+    finally:
+        computer_tasks.pop(room.code, None)
+
+def queue_computer_turn(room):
+    if (room.status == "playing" and room.current().is_bot
+            and (room.code not in computer_tasks or computer_tasks[room.code].done())):
+        computer_tasks[room.code] = asyncio.create_task(run_computer_turns(room))
 
 def record_match(room):
     if room.status != "finished" or room.result_recorded:
@@ -92,7 +111,7 @@ async def monitor():
                          and now - current.disconnected_at >= RECONNECT_SECONDS)
                         or now - room.turn_started >= TURN_SECONDS):
                         room.timeout_turn()
-                        play_computer_turns(room)
+                        record_match(room)
                         changed.append(room)
                 if room.status == "lobby":
                     expired = [p for p in room.players if not p.connected and
@@ -115,6 +134,7 @@ async def monitor():
         for room in changed:
             if rooms.get(room.code) is room:
                 await broadcast(room)
+                queue_computer_turn(room)
 
 @asynccontextmanager
 async def lifespan(app):
@@ -124,6 +144,8 @@ async def lifespan(app):
         yield
     finally:
         task.cancel()
+        for computer_task in list(computer_tasks.values()):
+            computer_task.cancel()
 
 app = FastAPI(title="WHOT Arena API", lifespan=lifespan)
 allowed_origins = [origin.strip() for origin in os.getenv(
@@ -276,13 +298,12 @@ async def ws_endpoint(ws: WebSocket):
                             room.start(pid)
                         elif action == "play":
                             room.play(pid, msg.get("card_id"), msg.get("shape"))
-                            play_computer_turns(room)
+                            record_match(room)
                         elif action == "draw":
                             room.draw(pid)
-                            play_computer_turns(room)
+                            record_match(room)
                         elif action == "rematch":
                             room.rematch(pid)
-                            play_computer_turns(room)
                         elif action == "rtc_ready":
                             room.player(pid).voice_ready = True
                             room.updated_at = time.time()
@@ -337,6 +358,7 @@ async def ws_endpoint(ws: WebSocket):
                         await send(target_ws or ws, voice_response)
                     else:
                         await broadcast(room)
+                        queue_computer_turn(room)
             except ValueError as e:
                 await send(ws, {"type": "error", "message": str(e)})
     except WebSocketDisconnect:

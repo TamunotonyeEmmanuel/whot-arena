@@ -171,6 +171,8 @@ def test_computer_match_starts_immediately_and_bot_replies(server_url):
         assert next(p for p in state["players"] if p["id"] != session["player_id"])["is_bot"]
         send(player, {"action": "draw"})
         replied = receive_type(player, "state")["data"]
+        assert replied["turn"] != session["player_id"]
+        replied = receive_type(player, "state")["data"]
         assert replied["status"] in {"playing", "finished"}
         if replied["status"] == "playing":
             assert replied["turn"] == session["player_id"]
