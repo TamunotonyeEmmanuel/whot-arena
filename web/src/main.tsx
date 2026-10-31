@@ -577,7 +577,7 @@ function GameTable() {
         <div className="match-scoreboard" aria-label={`Best of three match score, round ${view.round_number}`}><span>ROUND {view.round_number} · BEST OF 3</span><div>{view.players.map(player => <span className={player.id === view.match_winner ? 'score-champion' : ''} key={player.id}><strong>{player.name}</strong><b>{view.round_wins[player.id] || 0}</b><small>{view.match_points[player.id] || 0} pts</small></span>)}</div></div>
         <div className="game-actions">{view.host === session?.player_id && !view.is_public && view.status === 'playing' && <button type="button" className="button button-outline game-pause" disabled={view.is_paused && view.pause_reason !== 'manual'} onClick={() => send('pause')}>{view.is_paused && view.pause_reason === 'manual' ? <><Play size={15} /> Resume</> : <><Pause size={15} /> Pause</>}</button>}<button className="icon-button game-exit" title="Leave table and return to dashboard" onClick={() => { leaveRoom(); navigate('/dashboard') }}><ArrowLeft size={18} /></button></div>
       </div>
-      <div className="game-layout">
+      <div className={`game-layout ${opponents.every(player => player.is_bot) ? 'solo-layout' : ''}`}>
       <div className="table-column">
       <section className={`table-felt ${view.pending_draw > 0 ? 'table-penalty-active' : ''} ${isRoundOpening ? 'table-dealing' : ''}`}>
         <div className="table-stitch" />
