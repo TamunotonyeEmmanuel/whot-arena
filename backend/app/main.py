@@ -326,6 +326,7 @@ async def ws_endpoint(ws: WebSocket):
                     return
                 else:
                     voice_response = None
+                    live_audio_targets = []
                     async with state_lock:
                         room = rooms.get(code or "")
                         if not room or not pid or not room.player(pid):
@@ -367,6 +368,26 @@ async def ws_endpoint(ws: WebSocket):
                                 "signal": signal,
                                 "target_ws": target_ws,
                             }
+                        elif action == "rtc_audio":
+                            encoded_audio = msg.get("audio")
+                            if not isinstance(encoded_audio, str) or len(encoded_audio) > 8192:
+                                raise ValueError("Invalid live voice packet")
+                            try:
+                                audio = base64.b64decode(encoded_audio, validate=True)
+                            except (binascii.Error, ValueError):
+                                raise ValueError("Invalid live voice packet")
+                            if not audio or len(audio) > 6144:
+                                raise ValueError("Invalid live voice packet")
+                            voice_response = {
+                                "type": "rtc_audio",
+                                "id": secrets.token_hex(8),
+                                "from": pid,
+                                "audio": encoded_audio,
+                            }
+                            live_audio_targets = [
+                                connections.get(player.id) for player in room.players
+                                if player.id != pid and player.connected and not player.is_bot
+                            ]
                         elif action == "voice":
                             encoded_audio = msg.get("audio")
                             if not isinstance(encoded_audio, str):
@@ -397,7 +418,12 @@ async def ws_endpoint(ws: WebSocket):
                             raise ValueError("Unknown action")
                     if voice_response:
                         target_ws = voice_response.pop("target_ws", None)
-                        await send(target_ws or ws, voice_response)
+                        if live_audio_targets:
+                            await asyncio.gather(*(
+                                send(target, voice_response) for target in live_audio_targets if target
+                            ), return_exceptions=True)
+                        else:
+                            await send(target_ws or ws, voice_response)
                     else:
                         await broadcast(room)
                         queue_computer_turn(room)

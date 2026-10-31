@@ -11,6 +11,7 @@ type Player = { id: string; name: string; count: number; connected: boolean; voi
 type VoiceMessage = { id: string; player_id: string; name: string; content_type: string; size: number; sent_at: number }
 type ChatMessage = { id: string; player_id: string; name: string; text: string; sent_at: number }
 type RtcSignal = { id: string; from: string; signal: { type: 'offer' | 'answer' | 'ice'; sdp?: RTCSessionDescriptionInit; candidate?: RTCIceCandidateInit } }
+type LiveAudioPacket = { id: string; from: string; audio: string }
 type RoomView = {
   code: string; status: 'lobby' | 'playing' | 'finished'; host: string; you: string
   turn: string | null; players: Player[]; hand: Card[]; top: Card | null
@@ -40,6 +41,7 @@ type ArenaContextValue = {
   connected: boolean; busy: boolean; clearError: () => void
   voiceUrls: Record<string, string>; requestVoice: (messageId: string) => void
   rtcSignals: RtcSignal[]; sendRtcSignal: (target: string, signal: RtcSignal['signal']) => void
+  liveAudioPackets: LiveAudioPacket[]
   connectRoom: (action: string, values?: Record<string, unknown>) => Promise<Session>
   send: (action: string, values?: Record<string, unknown>) => void
   leaveRoom: () => void
@@ -91,6 +93,7 @@ function ArenaProvider({ children }: { children: React.ReactNode }) {
   const [connected, setConnected] = useState(false)
   const [voiceUrls, setVoiceUrls] = useState<Record<string, string>>({})
   const [rtcSignals, setRtcSignals] = useState<RtcSignal[]>([])
+  const [liveAudioPackets, setLiveAudioPackets] = useState<LiveAudioPacket[]>([])
   const [busy, setBusy] = useState(false)
   const socketRef = useRef<WebSocket | null>(null)
   const sessionRef = useRef<Session | null>(session)
@@ -148,6 +151,8 @@ function ArenaProvider({ children }: { children: React.ReactNode }) {
           })
         } else if (message.type === 'rtc_relay' && message.id && message.from && message.signal) {
           setRtcSignals(previous => [...previous.slice(-99), { id: message.id!, from: message.from!, signal: message.signal! }])
+        } else if (message.type === 'rtc_audio' && message.id && message.from && message.audio) {
+          setLiveAudioPackets(previous => [...previous.slice(-39), { id: message.id!, from: message.from!, audio: message.audio! }])
         } else if (message.type === 'left') {
           socket.onclose = null
           socket.close()
@@ -317,7 +322,7 @@ function ArenaProvider({ children }: { children: React.ReactNode }) {
     if (socketRef.current) { socketRef.current.onclose = null; socketRef.current.close() }
   }
 
-  return <Context.Provider value={{ view, session, savedSession, user, error, connected, busy, voiceUrls, requestVoice, rtcSignals, sendRtcSignal, clearError: () => setError(''), connectRoom, send, leaveRoom, resumeSavedRoom, authenticate, signOut }}>{children}</Context.Provider>
+  return <Context.Provider value={{ view, session, savedSession, user, error, connected, busy, voiceUrls, requestVoice, rtcSignals, sendRtcSignal, liveAudioPackets, clearError: () => setError(''), connectRoom, send, leaveRoom, resumeSavedRoom, authenticate, signOut }}>{children}</Context.Provider>
 }
 
 function useArena() {
@@ -507,7 +512,7 @@ const avatarGlyph = (name: string, avatar?: string) => avatar === 'crown' ? '♛
 function CardFace({ card, large = false, back = false, selected = false, playable = false, onClick, index = 0 }: { card?: Card | null; large?: boolean; back?: boolean; selected?: boolean; playable?: boolean; onClick?: () => void; index?: number }) {
   if (back) return <div className={`whot-card card-back-face ${large ? 'card-large' : ''}`}><span className="back-mark mark-one"><strong>WHOT</strong><small>ARENA</small></span><span className="back-mark mark-two"><strong>WHOT</strong><small>ARENA</small></span><span className="back-mark mark-three"><strong>WHOT</strong><small>ARENA</small></span><span className="back-seal">W</span></div>
   if (!card) return <div className={`empty-card ${large ? 'card-large' : ''}`}><span>?</span></div>
-  return <button type="button" className={`whot-card ${large ? 'card-large' : ''} tone-${shapeTone[card.shape]} ${selected ? 'card-selected' : ''} ${playable ? 'card-playable' : ''}`} onClick={onClick} disabled={!playable} style={{ '--card-index': index } as React.CSSProperties} aria-label={`Play ${card.number} ${card.shape}`}><span className="card-corner top-corner"><span>{card.number}</span><small>{shapeGlyph[card.shape]}</small></span><span className="card-glyph">{shapeGlyph[card.shape]}</span><span className="card-number">{card.number}</span><span className="card-corner bottom-corner"><span>{card.number}</span><small>{shapeGlyph[card.shape]}</small></span></button>
+  return <button type="button" className={`whot-card ${large ? 'card-large' : ''} tone-${shapeTone[card.shape]} ${selected ? 'card-selected' : ''} ${playable ? 'card-playable' : ''}`} onClick={onClick} disabled={!playable} style={{ '--card-index': index } as React.CSSProperties} aria-label={`Play ${card.number} ${card.shape}`}><span className="card-corner top-corner"><span>{card.number}</span><small>{shapeGlyph[card.shape]}</small></span><span className="card-glyph">{shapeGlyph[card.shape]}</span><span className="card-corner bottom-corner"><span>{card.number}</span><small>{shapeGlyph[card.shape]}</small></span></button>
 }
 
 function WinnerCelebration({ name, champion = false }: { name: string; champion?: boolean }) {
@@ -625,13 +630,16 @@ function GameTable() {
 }
 
 function LiveVoicePanel({ players, playerId, enabled }: { players: Player[]; playerId: string; enabled: boolean }) {
-  const { rtcSignals, sendRtcSignal, send } = useArena()
+  const { rtcSignals, sendRtcSignal, liveAudioPackets, send } = useArena()
   const [muted, setMuted] = useState(true)
   const [status, setStatus] = useState<'idle' | 'starting' | 'live' | 'blocked' | 'unsupported' | 'failed'>('idle')
   const [connectedPeers, setConnectedPeers] = useState<string[]>([])
   const [playbackBlocked, setPlaybackBlocked] = useState(false)
   const [connectionSlow, setConnectionSlow] = useState(false)
   const [voiceError, setVoiceError] = useState('')
+  const [drawerOpen, setDrawerOpen] = useState(false)
+  const mutedRef = useRef(muted)
+  mutedRef.current = muted
   const localStreamRef = useRef<MediaStream | null>(null)
   const startPromiseRef = useRef<Promise<MediaStream | null> | null>(null)
   const peersRef = useRef(new Map<string, RTCPeerConnection>())
@@ -639,6 +647,38 @@ function LiveVoicePanel({ players, playerId, enabled }: { players: Player[]; pla
   const offeredRef = useRef(new Set<string>())
   const handledSignalsRef = useRef(new Set<string>())
   const pendingIceRef = useRef(new Map<string, RTCIceCandidateInit[]>())
+  const relayContextRef = useRef<AudioContext | null>(null)
+  const relayProcessorRef = useRef<ScriptProcessorNode | null>(null)
+  const relayPlaybackRef = useRef<AudioContext | null>(null)
+  const relayPlaybackTimeRef = useRef(0)
+
+  function startRelayCapture(stream: MediaStream) {
+    if (relayProcessorRef.current) return
+    const context = new AudioContext()
+    const source = context.createMediaStreamSource(stream)
+    const processor = context.createScriptProcessor(2048, 1, 1)
+    const silent = context.createGain()
+    silent.gain.value = 0
+    processor.onaudioprocess = event => {
+      if (mutedRef.current) return
+      const input = event.inputBuffer.getChannelData(0)
+      const ratio = context.sampleRate / 16000
+      const samples = new Int16Array(Math.floor(input.length / ratio))
+      for (let index = 0; index < samples.length; index += 1) {
+        const value = Math.max(-1, Math.min(1, input[Math.floor(index * ratio)]))
+        samples[index] = value < 0 ? value * 0x8000 : value * 0x7fff
+      }
+      const bytes = new Uint8Array(samples.buffer)
+      let binary = ''
+      for (let index = 0; index < bytes.length; index += 1) binary += String.fromCharCode(bytes[index])
+      send('rtc_audio', { audio: btoa(binary) })
+    }
+    source.connect(processor)
+    processor.connect(silent)
+    silent.connect(context.destination)
+    relayContextRef.current = context
+    relayProcessorRef.current = processor
+  }
 
   async function startMicrophone() {
     if (localStreamRef.current) return localStreamRef.current
@@ -662,6 +702,7 @@ function LiveVoicePanel({ players, playerId, enabled }: { players: Player[]; pla
       }
       setMuted(false)
       setStatus('live')
+      startRelayCapture(stream)
       return stream
     }).catch(() => {
       setStatus('blocked')
@@ -720,6 +761,12 @@ function LiveVoicePanel({ players, playerId, enabled }: { players: Player[]; pla
       localStreamRef.current?.getTracks().forEach(track => track.stop())
       peersRef.current.forEach(peer => peer.close())
       audioRef.current.forEach(audio => { audio.pause(); audio.srcObject = null })
+      relayProcessorRef.current?.disconnect()
+      relayProcessorRef.current = null
+      void relayContextRef.current?.close()
+      relayContextRef.current = null
+      void relayPlaybackRef.current?.close()
+      relayPlaybackRef.current = null
       peersRef.current.clear()
       audioRef.current.clear()
     }
@@ -776,6 +823,25 @@ function LiveVoicePanel({ players, playerId, enabled }: { players: Player[]; pla
   }, [rtcSignals, players])
 
   useEffect(() => {
+    const packet = liveAudioPackets[liveAudioPackets.length - 1]
+    if (!packet || packet.from === playerId || connectedPeers.includes(packet.from)) return
+    const context = relayPlaybackRef.current || new AudioContext()
+    relayPlaybackRef.current = context
+    if (context.state !== 'running') { setPlaybackBlocked(true); return }
+    const bytes = Uint8Array.from(atob(packet.audio), character => character.charCodeAt(0))
+    const samples = new Int16Array(bytes.buffer)
+    const buffer = context.createBuffer(1, samples.length, 16000)
+    const channel = buffer.getChannelData(0)
+    for (let index = 0; index < samples.length; index += 1) channel[index] = samples[index] / 0x8000
+    const source = context.createBufferSource()
+    source.buffer = buffer
+    source.connect(context.destination)
+    const startsAt = Math.max(context.currentTime + .02, relayPlaybackTimeRef.current)
+    source.start(startsAt)
+    relayPlaybackTimeRef.current = startsAt + buffer.duration
+  }, [liveAudioPackets, playerId, connectedPeers])
+
+  useEffect(() => {
     const waitingFor = players.some(player => player.id !== playerId && player.connected && player.voice_ready)
     if (!waitingFor || connectedPeers.length) { setConnectionSlow(false); return }
     const timer = window.setTimeout(() => setConnectionSlow(true), 12000)
@@ -796,12 +862,13 @@ function LiveVoicePanel({ players, playerId, enabled }: { players: Player[]; pla
   }
 
   function enablePlayback() {
-    void Promise.all([...audioRef.current.values()].map(audio => audio.play())).then(() => setPlaybackBlocked(false)).catch(() => setPlaybackBlocked(true))
+    const relayPlayback = relayPlaybackRef.current
+    void Promise.all([...audioRef.current.values()].map(audio => audio.play()).concat(relayPlayback ? [relayPlayback.resume()] : [])).then(() => setPlaybackBlocked(false)).catch(() => setPlaybackBlocked(true))
   }
 
   const voiceCount = connectedPeers.length + 1
   const statusText = `${voiceCount} ${voiceCount === 1 ? 'player' : 'players'} connected`
-  return <aside className="voice-panel live-voice-panel content-panel" aria-label="Live table voice"><div className="voice-heading"><span className={`voice-icon ${status === 'live' ? 'voice-live' : ''}`}><Volume2 size={17} /></span><div><strong>Live table voice</strong><small>{statusText}</small></div><span className="status-dot online" /></div><div className="live-voice-room"><button type="button" className={`live-mic-orbit ${status === 'live' && !muted ? 'mic-active' : ''}`} onClick={toggleMute} disabled={!enabled || status === 'starting' || status === 'unsupported' || status === 'failed'} aria-label={!localStreamRef.current ? 'Start live microphone' : muted ? 'Unmute live microphone' : 'Mute live microphone'}><span>{muted ? <MicOff size={27} /> : <Mic size={27} />}</span></button><strong>{status === 'starting' ? 'Opening microphone…' : muted ? 'Tap the mic to speak live' : 'You are speaking live'}</strong><small>{voiceError || (connectionSlow ? 'Direct voice connection failed. This network may require a TURN server.' : 'Nothing is recorded. Everyone at the table hears you live.')}</small></div><div className="voice-compose">{status === 'blocked' ? <button type="button" className="button button-green full-button" onClick={() => { startPromiseRef.current = null; setStatus('starting'); void startMicrophone() }}><Mic size={16} /> Allow microphone</button> : playbackBlocked ? <button type="button" className="button button-green full-button" onClick={enablePlayback}><Volume2 size={16} /> Enable speaker</button> : <button type="button" className={`button ${muted ? 'button-green' : 'button-outline'} full-button`} disabled={!enabled || status === 'starting'} onClick={toggleMute}>{muted ? <><Mic size={16} /> Tap to speak</> : <><MicOff size={16} /> Stop speaking</>}</button>}<span className="voice-hint">Live only · no recording is saved</span></div></aside>
+  return <aside className={`voice-panel live-voice-panel content-panel ${drawerOpen ? 'voice-drawer-open' : ''}`} aria-label="Live table voice"><button type="button" className="voice-drawer-toggle" onClick={() => setDrawerOpen(open => !open)} aria-expanded={drawerOpen} aria-label={drawerOpen ? 'Close live voice controls' : 'Open live voice controls'}>{muted ? <Mic size={20} /> : <MicOff size={20} />}<ChevronDown size={14} /></button><div className="voice-heading"><span className={`voice-icon ${status === 'live' ? 'voice-live' : ''}`}><Volume2 size={17} /></span><div><strong>Live table voice</strong><small>{statusText}</small></div><span className="status-dot online" /></div><div className="live-voice-room"><button type="button" className={`live-mic-orbit ${status === 'live' && !muted ? 'mic-active' : ''}`} onClick={toggleMute} disabled={!enabled || status === 'starting' || status === 'unsupported' || status === 'failed'} aria-label={!localStreamRef.current ? 'Start live microphone' : muted ? 'Unmute live microphone' : 'Mute live microphone'}><span>{muted ? <MicOff size={27} /> : <Mic size={27} />}</span></button><strong>{status === 'starting' ? 'Opening microphone…' : muted ? 'Tap the mic to speak live' : 'You are speaking live'}</strong><small>{voiceError || (connectionSlow ? 'Direct voice connection failed. This network may require a TURN server.' : 'Nothing is recorded. Everyone at the table hears you live.')}</small></div><div className="voice-compose">{status === 'blocked' ? <button type="button" className="button button-green full-button" onClick={() => { startPromiseRef.current = null; setStatus('starting'); void startMicrophone() }}><Mic size={16} /> Allow microphone</button> : playbackBlocked ? <button type="button" className="button button-green full-button" onClick={enablePlayback}><Volume2 size={16} /> Enable speaker</button> : <button type="button" className={`button ${muted ? 'button-green' : 'button-outline'} full-button`} disabled={!enabled || status === 'starting'} onClick={toggleMute}>{muted ? <><Mic size={16} /> Tap to speak</> : <><MicOff size={16} /> Stop speaking</>}</button>}<span className="voice-hint">Live only · no recording is saved</span></div></aside>
 }
 
 function VoicePanel({ messages, chatMessages, playerId, enabled }: { messages: VoiceMessage[]; chatMessages: ChatMessage[]; playerId: string; enabled: boolean }) {
