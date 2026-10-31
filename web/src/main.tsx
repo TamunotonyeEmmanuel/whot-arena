@@ -81,6 +81,14 @@ function ArenaProvider({ children }: { children: React.ReactNode }) {
       const socket = new WebSocket(WS_URL)
       socketRef.current = socket
       let settled = false
+      let nextSession: Session | null = null
+      let receivedState = false
+      const resolveWhenReady = () => {
+        if (!settled && nextSession && receivedState) {
+          settled = true
+          resolve(nextSession)
+        }
+      }
       socket.onopen = () => {
         setConnected(true)
         socket.send(JSON.stringify(payload))
@@ -91,9 +99,12 @@ function ArenaProvider({ children }: { children: React.ReactNode }) {
         if (message.type === 'session' && message.player_id && message.code && message.reconnect_token) {
           const next = { player_id: message.player_id, code: message.code, reconnect_token: message.reconnect_token }
           saveSession(next)
-          if (!settled) { settled = true; resolve(next) }
+          nextSession = next
+          resolveWhenReady()
         } else if (message.type === 'state' && message.data) {
           setView(message.data)
+          receivedState = true
+          resolveWhenReady()
         } else if (message.type === 'voice_audio' && message.id && message.content_type && message.audio) {
           const bytes = Uint8Array.from(atob(message.audio), character => character.charCodeAt(0))
           const url = URL.createObjectURL(new Blob([bytes], { type: message.content_type }))
