@@ -348,7 +348,7 @@ function ArenaBackgroundMusic() {
     const audio = new Audio('/audio/whot-background.mp3')
     audio.loop = true
     audio.preload = 'auto'
-    audio.volume = 0.05
+    audio.volume = 0.015
     audioRef.current = audio
     let active = true
     const tryPlay = () => {
@@ -373,7 +373,7 @@ function ArenaBackgroundMusic() {
   }, [])
 
   useEffect(() => {
-    if (audioRef.current) audioRef.current.volume = inGame ? 0.015 : 0.05
+    if (audioRef.current) audioRef.current.volume = inGame ? 0.004 : 0.015
   }, [inGame])
 
   return null
