@@ -355,6 +355,13 @@ async def ws_endpoint(ws: WebSocket):
                         elif action == "rtc_speaking":
                             room.player(pid).voice_speaking = bool(msg.get("speaking"))
                             room.updated_at = time.time()
+                        elif action == "reaction":
+                            reaction = str(msg.get("reaction", ""))
+                            if reaction not in {"😂", "🔥", "😭", "👏"}:
+                                raise ValueError("Unsupported reaction")
+                            room.player(pid).reaction = reaction
+                            room.player(pid).reaction_at = time.time()
+                            room.updated_at = time.time()
                         elif action == "rtc_signal":
                             target = str(msg.get("target", ""))
                             signal = msg.get("signal")

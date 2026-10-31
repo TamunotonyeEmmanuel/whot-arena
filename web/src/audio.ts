@@ -1,4 +1,4 @@
-export type GameSound = 'join' | 'start' | 'turn' | 'play' | 'draw' | 'win' | 'lose' | 'preview'
+export type GameSound = 'tap' | 'join' | 'start' | 'turn' | 'play' | 'draw' | 'win' | 'lose' | 'preview'
 
 const SOUND_KEY = 'whot.sound'
 let context: AudioContext | null = null
@@ -23,6 +23,10 @@ function getContext() {
 type Note = { frequency: number; offset: number; duration: number; volume?: number; wave?: OscillatorType }
 
 const cues: Record<GameSound, Note[]> = {
+  tap: [
+    { frequency: 520, offset: 0, duration: .035, volume: .012, wave: 'triangle' },
+    { frequency: 390, offset: .025, duration: .03, volume: .008 },
+  ],
   join: [
     { frequency: 440, offset: 0, duration: .07, volume: .035 },
     { frequency: 660, offset: .08, duration: .1, volume: .04 },
@@ -104,7 +108,7 @@ function scheduleSound(audio: AudioContext, sound: GameSound) {
   if (audio.state !== 'running') return
   const start = audio.currentTime + .02
   if (sound === 'win') scheduleVictoryGunshot(audio, start)
-  const volumeBoost = sound === 'play' ? 4.5 : 2.25
+  const volumeBoost = sound === 'tap' ? 1 : sound === 'play' ? 4.5 : 2.25
   for (const note of cues[sound]) {
     const oscillator = audio.createOscillator()
     const gain = audio.createGain()

@@ -2,12 +2,12 @@ import React, { createContext, useContext, useEffect, useRef, useState } from 'r
 import { createPortal } from 'react-dom'
 import { createRoot } from 'react-dom/client'
 import { BrowserRouter, Link, NavLink, Navigate, Route, Routes, useLocation, useNavigate, useParams } from 'react-router-dom'
-import { ArrowLeft, ArrowRight, BatteryFull, BookOpen, Check, ChevronDown, CircleHelp, Clock3, Crown, DoorOpen, Gamepad2, History, Home, LogIn, LogOut, Menu, MessageCircle, Mic, MicOff, Moon, Pause, Play, Plus, Radio, Settings, Shield, Signal, Sparkles, Sun, Trophy, UserRound, Users, Volume2, Wifi, X } from 'lucide-react'
+import { ArrowLeft, ArrowRight, BatteryFull, BookOpen, Check, ChevronDown, CircleHelp, Clock3, Crown, DoorOpen, Gamepad2, History, Home, LogIn, LogOut, Menu, MessageCircle, Mic, MicOff, Moon, Pause, Play, Plus, Radio, Settings, Share2, Shield, Signal, Sparkles, Sun, Trophy, UserRound, Users, Volume2, Wifi, X } from 'lucide-react'
 import './styles.css'
 import { gameSoundsEnabled, playGameSound, primeGameAudio, setGameSoundsEnabled } from './audio'
 
 type Card = { id: string; shape: string; number: number }
-type Player = { id: string; name: string; count: number; connected: boolean; voice_ready?: boolean; voice_speaking?: boolean; is_bot?: boolean; last_card_required?: boolean; table_theme?: string; card_back?: string; avatar?: string }
+type Player = { id: string; name: string; count: number; connected: boolean; voice_ready?: boolean; voice_speaking?: boolean; reaction?: string | null; reaction_at?: number | null; is_bot?: boolean; last_card_required?: boolean; table_theme?: string; card_back?: string; avatar?: string }
 type VoiceMessage = { id: string; player_id: string; name: string; content_type: string; size: number; sent_at: number }
 type ChatMessage = { id: string; player_id: string; name: string; text: string; sent_at: number }
 type RtcSignal = { id: string; from: string; signal: { type: 'offer' | 'answer' | 'ice'; sdp?: RTCSessionDescriptionInit; candidate?: RTCIceCandidateInit } }
@@ -419,6 +419,15 @@ function AppFrame() {
     window.addEventListener('whot-theme', syncTheme)
     return () => window.removeEventListener('whot-theme', syncTheme)
   }, [])
+  useEffect(() => {
+    const tap = (event: PointerEvent) => {
+      const control = (event.target as Element | null)?.closest('button,a,[role="button"]')
+      if (!control || (control instanceof HTMLButtonElement && control.disabled)) return
+      playGameSound('tap')
+    }
+    document.addEventListener('pointerdown', tap)
+    return () => document.removeEventListener('pointerdown', tap)
+  }, [])
   async function resumePreviousTable() {
     if (!savedSession) return
     try { const restored = await resumeSavedRoom(); if (restored) navigate(`/lobby/${restored.code}`) }
@@ -549,9 +558,19 @@ function CreateRoom() {
 function JoinRoom() {
   const { connectRoom, busy, user } = useArena()
   const navigate = useNavigate()
-  const [code, setCode] = useState('')
+  const location = useLocation()
+  const inviteCode = new URLSearchParams(location.search).get('code')?.replace(/[^a-z0-9]/gi, '').slice(0, 6).toUpperCase() || ''
+  const [code, setCode] = useState(inviteCode)
   const [name, setName] = useState(user?.username || localStorage.getItem('whot.nickname') || 'Guest')
   const [formError, setFormError] = useState('')
+  const inviteStartedRef = useRef(false)
+  useEffect(() => {
+    if (inviteCode.length !== 6 || inviteStartedRef.current) return
+    inviteStartedRef.current = true
+    void connectRoom('join', { code: inviteCode, name: name.trim() || 'Guest' })
+      .then(next => navigate(`/lobby/${next.code}`, { replace: true }))
+      .catch(error => setFormError(error instanceof Error ? error.message : 'Could not join invited room'))
+  }, [inviteCode])
   async function submit(event: React.FormEvent) {
     event.preventDefault(); setFormError('')
     try { const next = await connectRoom('join', { code: code.trim().toUpperCase(), name: name.trim() || 'Guest' }); navigate(`/lobby/${next.code}`) }
@@ -564,10 +583,21 @@ function Lobby() {
   const { code = '' } = useParams()
   const { view, session, connected, send, leaveRoom } = useArena()
   const navigate = useNavigate()
+  const [inviteShared, setInviteShared] = useState(false)
   useEffect(() => { if (view?.status === 'playing') navigate(`/game/${view.code}`, { replace: true }) }, [view?.status])
   if (!view || view.code !== code.toUpperCase()) return <div className="center-state"><div className="loader-mark">W</div><h2>Finding your table…</h2><p>Reconnecting to room {code.toUpperCase()}</p><button type="button" className="button button-outline" onClick={() => { leaveRoom(); navigate('/create') }}>Close open table</button></div>
   const isHost = view.host === session?.player_id
-  return <><PageTitle eyebrow={view.is_public ? 'QUICK MATCH LOBBY' : 'PRIVATE ROOM'} title="The table is set." detail="Share your code and wait for everyone to join." action={<button type="button" className="button button-outline" onClick={() => { leaveRoom(); navigate('/dashboard') }}><ArrowLeft size={16} /> Leave table</button>} /><section className="lobby-room content-panel"><div className="lobby-code"><div><span className="small-label">ROOM CODE</span><strong>{view.code}</strong></div><button className="button button-outline" onClick={() => void navigator.clipboard?.writeText(view.code)}><Check size={15} /> Copy code</button></div><div className="lobby-divider" /><div className="lobby-player-heading"><span className="small-label">PLAYERS</span><span>{view.players.length} / 4 seats</span></div><div className="player-list">{Array.from({ length: 4 }, (_, index) => {
+  const roomCode = view.code
+  async function shareInvite() {
+    const url = `${window.location.origin}/join?code=${roomCode}`
+    try {
+      if (navigator.share) await navigator.share({ title: 'Join my WHOT Arena table', text: `Join room ${roomCode}`, url })
+      else await navigator.clipboard.writeText(url)
+      setInviteShared(true)
+      window.setTimeout(() => setInviteShared(false), 2200)
+    } catch { /* Sharing can be cancelled by the player. */ }
+  }
+  return <><PageTitle eyebrow={view.is_public ? 'QUICK MATCH LOBBY' : 'PRIVATE ROOM'} title="The table is set." detail="Share your code and wait for everyone to join." action={<button type="button" className="button button-outline" onClick={() => { leaveRoom(); navigate('/dashboard') }}><ArrowLeft size={16} /> Leave table</button>} /><section className="lobby-room content-panel"><div className="lobby-code"><div><span className="small-label">ROOM CODE</span><strong>{view.code}</strong></div><div className="lobby-invite-actions"><button className="button button-outline" onClick={() => void navigator.clipboard?.writeText(view.code)}><Check size={15} /> Copy code</button><button className="button button-green" onClick={() => void shareInvite()}><Share2 size={15} /> {inviteShared ? 'Link shared' : 'Invite players'}</button></div></div><div className="lobby-divider" /><div className="lobby-player-heading"><span className="small-label">PLAYERS</span><span>{view.players.length} / 4 seats</span></div><div className="player-list">{Array.from({ length: 4 }, (_, index) => {
     const player = view.players[index]
     return player ? <div className="lobby-player" key={player.id}><div className={`avatar ${player.id === view.host ? 'host-avatar' : ''}`}>{player.name.slice(0, 1).toUpperCase()}</div><div className="player-copy"><strong>{player.name}{player.id === session?.player_id ? ' (You)' : ''}</strong><span>{player.id === view.host ? 'Host' : 'Ready to play'} · {player.connected ? 'Connected' : 'Reconnecting'}</span></div>{player.id === view.host && <Crown size={17} className="host-crown" />}{player.id === session?.player_id && <span className="you-tag">YOU</span>}</div> : <div className="lobby-player empty-seat" key={`empty-${index}`}><div className="avatar empty-avatar"><Plus size={16} /></div><div className="player-copy"><strong>Waiting for a player</strong><span>Share the room code to fill this seat</span></div></div>
   })}</div><div className="lobby-footer"><div className="connection-state"><span className={`status-dot ${connected ? 'online' : ''}`} />{connected ? 'Room is live' : 'Connecting…'}</div>{isHost ? <button className="button button-lime" disabled={view.players.length < 2 || view.players.some(player => !player.connected)} onClick={() => send('start')}><Gamepad2 size={17} /> Start game <ArrowRight size={16} /></button> : <span className="waiting-label"><span className="pulse-dot" /> Waiting for host to start</span>}</div></section><div className="lobby-footnote"><Shield size={15} /> The server will privately deal five cards to each player when the host starts.</div></>
@@ -629,6 +659,7 @@ function GameTable() {
   const championName = view.players.find(player => player.id === view.match_winner)?.name || winnerName
   const myTurn = view.turn === session?.player_id && view.status === 'playing' && !view.is_paused
   const isRoundOpening = view.last_action === 'Game started' || view.last_action.includes('started')
+  const reactionVisible = (player?: Player) => Boolean(player?.reaction && player.reaction_at && Date.now() / 1000 - player.reaction_at < 4)
   const isLegal = (card: Card) => view.pending_draw > 0 ? card.number === view.pending_penalty : card.number === 20 || card.number === view.top?.number || card.shape === (view.requested_shape || view.top?.shape)
   function play(card: Card) {
     if (!myTurn) return
@@ -658,7 +689,7 @@ function GameTable() {
         <div className="opponents-row">
           {opponents.map((player, index) => (
             <div className={`opponent ${!player.connected ? 'player-away' : ''} ${view.turn === player.id ? 'opponent-turn' : ''}`} key={player.id}>
-              <div className="opponent-avatar-wrap"><div className={`avatar opponent-avatar avatar-${index}`}>{avatarGlyph(player.name, player.avatar)}</div><span className={`status-dot ${player.connected ? 'online' : ''}`} /></div>
+              <div className={`opponent-avatar-wrap ${player.voice_speaking ? 'voice-speaking' : ''}`}>{reactionVisible(player) && <span className="player-reaction" aria-label={`${player.name} reacted ${player.reaction}`}>{player.reaction}</span>}<div className={`avatar opponent-avatar avatar-${index}`}>{avatarGlyph(player.name, player.avatar)}</div><span className={`status-dot ${player.connected ? 'online' : ''}`} /></div>
               <strong>{player.name}{player.is_bot ? ' · CPU' : ''}</strong><span className={player.count === 1 ? 'last-card-label' : ''}>{player.count === 1 ? 'LAST CARD' : `${player.count} cards`}</span>{view.turn === player.id && <span className="opponent-turn-label">{player.is_bot ? 'THINKING' : 'THEIR TURN'}</span>}
               <div className="opponent-card-fan">{Array.from({ length: Math.min(player.count, 3) }, (_, cardIndex) => <CardFace key={cardIndex} back />)}</div>
             </div>
@@ -672,7 +703,8 @@ function GameTable() {
         {view.requested_shape && <div className="requested-shape"><span>SHAPE REQUESTED</span><strong>{shapeGlyph[view.requested_shape]} {view.requested_shape}</strong></div>}
         {view.pending_draw > 0 && <div className="requested-shape penalty-stack" role="status"><span>PENALTY STACK</span><strong>Pick {view.pending_draw} · Block with another {view.pending_penalty}</strong></div>}
         <div className="table-message" aria-live="polite">{toast || view.last_action}</div>
-        <div className="you-at-table"><div className="avatar you-avatar">{avatarGlyph(me?.name || 'You', me?.avatar)}</div><div><strong>{me?.name || 'You'} <span>(you)</span></strong><small>{myTurn ? 'Your move' : view.status === 'finished' ? 'Round over' : 'Waiting for your turn'}</small></div>{myTurn && <span className="turn-clock"><Clock3 size={15} /> PLAY NOW</span>}</div>
+        <div className="reaction-picker" aria-label="Quick reactions">{['😂', '🔥', '😭', '👏'].map(reaction => <button type="button" key={reaction} onClick={() => send('reaction', { reaction })} aria-label={`React ${reaction}`}>{reaction}</button>)}</div>
+        <div className="you-at-table"><div className={`you-avatar-wrap ${me?.voice_speaking ? 'voice-speaking' : ''}`}>{reactionVisible(me) && <span className="player-reaction" aria-label={`You reacted ${me?.reaction}`}>{me?.reaction}</span>}<div className="avatar you-avatar">{avatarGlyph(me?.name || 'You', me?.avatar)}</div></div><div><strong>{me?.name || 'You'} <span>(you)</span></strong><small>{myTurn ? 'Your move' : view.status === 'finished' ? 'Round over' : 'Waiting for your turn'}</small></div>{myTurn && <span className="turn-clock"><Clock3 size={15} /> PLAY NOW</span>}</div>
       </section>
       {view.status === 'finished' ? (
         <section className="round-result">
