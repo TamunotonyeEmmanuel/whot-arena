@@ -265,6 +265,9 @@ async def ws_endpoint(ws: WebSocket):
                             room.draw(pid)
                         elif action == "rematch":
                             room.rematch(pid)
+                        elif action == "rtc_ready":
+                            room.player(pid).voice_ready = True
+                            room.updated_at = time.time()
                         elif action == "rtc_signal":
                             target = str(msg.get("target", ""))
                             signal = msg.get("signal")
@@ -326,6 +329,7 @@ async def ws_endpoint(ws: WebSocket):
                 if room and room.player(pid):
                     p = room.player(pid)
                     p.connected = False
+                    p.voice_ready = False
                     p.disconnected_at = time.time()
                     room.updated_at = time.time()
             if room and room.player(pid):

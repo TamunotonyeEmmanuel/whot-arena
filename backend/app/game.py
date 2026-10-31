@@ -30,6 +30,7 @@ class Player:
     name: str
     hand: list = field(default_factory=list)
     connected: bool = True
+    voice_ready: bool = False
     disconnected_at: Optional[float] = None
     reconnect_token: str = field(default_factory=lambda: secrets.token_urlsafe(32), repr=False)
     user_id: Optional[int] = None
@@ -241,7 +242,8 @@ class Room:
             "code": self.code, "status": self.status, "host": self.host,
             "you": pid, "turn": self.current().id if self.status == "playing" else None,
             "players": [{"id": p.id, "name": p.name, "count": len(p.hand),
-                         "connected": p.connected} for p in self.players],
+                         "connected": p.connected, "voice_ready": p.voice_ready}
+                        for p in self.players],
             "hand": self.player(pid).hand if self.player(pid) else [],
             "top": self.discard[-1] if self.discard else None,
             "requested_shape": self.requested_shape,

@@ -6,7 +6,7 @@ import './styles.css'
 import { gameSoundsEnabled, playGameSound, primeGameAudio, setGameSoundsEnabled } from './audio'
 
 type Card = { id: string; shape: string; number: number }
-type Player = { id: string; name: string; count: number; connected: boolean }
+type Player = { id: string; name: string; count: number; connected: boolean; voice_ready?: boolean }
 type VoiceMessage = { id: string; player_id: string; name: string; content_type: string; size: number; sent_at: number }
 type RtcSignal = { id: string; from: string; signal: { type: 'offer' | 'answer' | 'ice'; sdp?: RTCSessionDescriptionInit; candidate?: RTCIceCandidateInit } }
 type RoomView = {
@@ -487,7 +487,7 @@ function GameTable() {
 }
 
 function LiveVoicePanel({ players, playerId, enabled }: { players: Player[]; playerId: string; enabled: boolean }) {
-  const { rtcSignals, sendRtcSignal } = useArena()
+  const { rtcSignals, sendRtcSignal, send } = useArena()
   const [muted, setMuted] = useState(false)
   const [status, setStatus] = useState<'starting' | 'live' | 'blocked' | 'unsupported'>('starting')
   const [connectedPeers, setConnectedPeers] = useState<string[]>([])
@@ -512,6 +512,7 @@ function LiveVoicePanel({ players, playerId, enabled }: { players: Player[]; pla
     }).then(stream => {
       localStreamRef.current = stream
       setStatus('live')
+      send('rtc_ready')
       return stream
     }).catch(() => {
       setStatus('blocked')
@@ -561,7 +562,7 @@ function LiveVoicePanel({ players, playerId, enabled }: { players: Player[]; pla
   useEffect(() => {
     const stream = localStreamRef.current
     if (!enabled || !stream || !playerId) return
-    const remoteIds = players.filter(player => player.id !== playerId && player.connected).map(player => player.id)
+    const remoteIds = players.filter(player => player.id !== playerId && player.connected && player.voice_ready).map(player => player.id)
     for (const [remoteId, peer] of peersRef.current) {
       if (!remoteIds.includes(remoteId)) {
         peer.close()
