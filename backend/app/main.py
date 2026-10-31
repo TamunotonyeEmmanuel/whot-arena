@@ -15,6 +15,7 @@ from .database import MatchParticipant, MatchResult, User, database_session, ini
 rooms = {}
 connections = {}  # player id -> websocket
 RECONNECT_SECONDS = 30
+LOBBY_RECONNECT_SECONDS = 10 * 60
 TURN_SECONDS = 45
 LOBBY_IDLE_SECONDS = 15 * 60
 FINISHED_IDLE_SECONDS = 5 * 60
@@ -89,7 +90,7 @@ async def monitor():
                 if room.status == "lobby":
                     expired = [p for p in room.players if not p.connected and
                                p.disconnected_at is not None and
-                               now - p.disconnected_at >= RECONNECT_SECONDS]
+                               now - p.disconnected_at >= LOBBY_RECONNECT_SECONDS]
                     if expired:
                         room.players = [p for p in room.players if p not in expired]
                         if room.players and room.player(room.host) is None:
@@ -222,6 +223,31 @@ async def ws_endpoint(ws: WebSocket):
                     await send(ws, {"type": "session", "player_id": pid, "code": code,
                                     "reconnect_token": p.reconnect_token})
                     await broadcast(room)
+                elif action == "leave":
+                    async with state_lock:
+                        room = rooms.get(code or "")
+                        player = room.player(pid) if room and pid else None
+                        if not room or not player or connections.get(pid) is not ws:
+                            raise ValueError("No active room to leave")
+                        connections.pop(pid, None)
+                        if room.status == "lobby":
+                            room.players.remove(player)
+                            if not room.players:
+                                rooms.pop(room.code, None)
+                            else:
+                                if room.host == pid:
+                                    room.host = room.players[0].id
+                                room.updated_at = time.time()
+                        else:
+                            player.connected = False
+                            player.disconnected_at = time.time()
+                            room.updated_at = time.time()
+                    await send(ws, {"type": "left"})
+                    if rooms.get(room.code) is room:
+                        await broadcast(room)
+                    pid, code = None, None
+                    await ws.close()
+                    return
                 else:
                     voice_response = None
                     async with state_lock:

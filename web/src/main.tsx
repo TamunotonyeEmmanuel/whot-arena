@@ -24,6 +24,7 @@ type ArenaContextValue = {
   voiceUrls: Record<string, string>; requestVoice: (messageId: string) => void
   connectRoom: (action: string, values?: Record<string, unknown>) => Promise<Session>
   send: (action: string, values?: Record<string, unknown>) => void
+  leaveRoom: () => void
   authenticate: (registering: boolean, values: Record<string, string>) => Promise<void>
   signOut: () => void
 }
@@ -87,8 +88,19 @@ function ArenaProvider({ children }: { children: React.ReactNode }) {
             if (oldUrl) { URL.revokeObjectURL(oldUrl); voiceUrlsRef.current.delete(oldUrl) }
             return { ...previous, [message.id!]: url }
           })
+        } else if (message.type === 'left') {
+          socket.onclose = null
+          socket.close()
+          if (socketRef.current === socket) socketRef.current = null
         } else if (message.type === 'error') {
           setError(message.message || 'The server rejected that action.')
+          if (payload.action === 'reconnect' && message.message === 'Session not found') {
+            sessionStorage.removeItem('whot.session')
+            sessionRef.current = null
+            setSession(null)
+            setView(null)
+            socket.onclose = null
+          }
           if (!settled) { settled = true; reject(new Error(message.message || 'Unable to join room')) }
         }
       }
@@ -175,6 +187,23 @@ function ArenaProvider({ children }: { children: React.ReactNode }) {
     else setError('Reconnecting to the room. Try that action again in a moment.')
   }
 
+  function leaveRoom() {
+    if (retryRef.current) window.clearTimeout(retryRef.current)
+    sessionStorage.removeItem('whot.session')
+    sessionRef.current = null
+    setSession(null)
+    setView(null)
+    setConnected(false)
+    const socket = socketRef.current
+    if (socket?.readyState === WebSocket.OPEN) {
+      socket.onclose = null
+      socket.send(JSON.stringify({ action: 'leave' }))
+    } else if (socket) {
+      socket.onclose = null
+      socket.close()
+    }
+  }
+
   function requestVoice(messageId: string) {
     send('voice_get', { message_id: messageId })
   }
@@ -201,7 +230,7 @@ function ArenaProvider({ children }: { children: React.ReactNode }) {
     if (socketRef.current) { socketRef.current.onclose = null; socketRef.current.close() }
   }
 
-  return <Context.Provider value={{ view, session, user, error, connected, busy, voiceUrls, requestVoice, clearError: () => setError(''), connectRoom, send, authenticate, signOut }}>{children}</Context.Provider>
+  return <Context.Provider value={{ view, session, user, error, connected, busy, voiceUrls, requestVoice, clearError: () => setError(''), connectRoom, send, leaveRoom, authenticate, signOut }}>{children}</Context.Provider>
 }
 
 function useArena() {
@@ -277,7 +306,8 @@ function Landing() {
 }
 
 function Dashboard() {
-  const { user, session } = useArena()
+  const { user, session, view, connected, leaveRoom } = useArena()
+  const navigate = useNavigate()
   const [profile, setProfile] = useState(user)
   useEffect(() => {
     const token = sessionStorage.getItem('whot.token')
@@ -286,8 +316,10 @@ function Dashboard() {
       .then(async response => { if (response.ok) setProfile(await response.json() as User) })
       .catch(() => undefined)
   }, [user?.id])
+  const resumePath = session && view?.status !== 'lobby' ? `/game/${session.code}` : session ? `/lobby/${session.code}` : '/create'
   return <><PageTitle eyebrow="PLAYER DASHBOARD" title={`Good to see you${user ? `, ${user.username}` : ''}.`} detail="Pick up a game or see how you stack up." action={<Link className="button button-lime" to="/create"><Plus size={17} /> New game</Link>} />
     <div className="stats-row"><Stat icon={<Trophy />} label="Wins" value={profile?.wins ?? '—'} tone="gold" /><Stat icon={<Gamepad2 />} label="Games played" value={profile?.matches_played ?? '—'} tone="green" /><Stat icon={<Radio />} label="Room status" value={session ? 'In room' : 'Ready'} tone="coral" /></div>
+    {session && <section className="open-table-banner content-panel"><div className="open-table-icon"><Radio size={19} /></div><div><span className="small-label">OPEN TABLE · {session.code}</span><h2>{connected && view ? 'Your table is ready to resume.' : 'Reconnecting to your table…'}</h2><p>{connected && view ? 'Continue from where you left off.' : 'Wait for the connection, or close this saved table session.'}</p></div><div className="open-table-actions"><Link className="button button-green" to={resumePath}><Gamepad2 size={16} /> Resume table</Link><button type="button" className="button button-outline" onClick={() => { leaveRoom(); navigate('/create') }}>Close open table</button></div></section>}
     <div className="dashboard-grid"><section className="content-panel feature-panel"><div className="panel-topline"><span className="small-label">YOUR NEXT GAME</span><span className="status-tag"><span className="status-dot online" /> OPEN</span></div><h2>Make the first move.</h2><p>Create a private table, invite up to three friends, and let the cards decide.</p><div className="panel-actions"><Link className="button button-green" to="/create"><Plus size={17} /> Create a room</Link><Link className="text-link" to="/join">Join with a code <ArrowRight size={15} /></Link></div><div className="panel-mark">W</div></section><section className="content-panel rank-panel"><div className="panel-topline"><span className="small-label">THE ARENA</span><Trophy size={18} /></div><h3>Play. Win. Climb.</h3><p>Rankings update after completed matches with registered players.</p><Link className="text-link" to="/leaderboard">View leaderboard <ArrowRight size={15} /></Link><div className="rank-decoration"><span /><span /><span /><span /><span /></div></section></div>
     <div className="section-heading"><div><span className="small-label">KEEP EXPLORING</span><h2>Make yourself at home</h2></div></div><div className="quick-grid"><Link to="/help" className="quick-action"><span className="quick-icon green"><BookOpen size={19} /></span><span><strong>Rules at a glance</strong><small>Learn the Arena's house rules</small></span><ArrowRight size={17} /></Link><Link to="/profile" className="quick-action"><span className="quick-icon coral"><UserRound size={19} /></span><span><strong>Your player profile</strong><small>Account and match statistics</small></span><ArrowRight size={17} /></Link><Link to="/settings" className="quick-action"><span className="quick-icon gold"><Settings size={19} /></span><span><strong>Game settings</strong><small>Set your name and preferences</small></span><ArrowRight size={17} /></Link></div>
   </>
@@ -350,12 +382,12 @@ function JoinRoom() {
 
 function Lobby() {
   const { code = '' } = useParams()
-  const { view, session, connected, send } = useArena()
+  const { view, session, connected, send, leaveRoom } = useArena()
   const navigate = useNavigate()
   useEffect(() => { if (view?.status === 'playing') navigate(`/game/${view.code}`, { replace: true }) }, [view?.status])
-  if (!view || view.code !== code.toUpperCase()) return <div className="center-state"><div className="loader-mark">W</div><h2>Finding your table…</h2><p>Reconnecting to room {code.toUpperCase()}</p></div>
+  if (!view || view.code !== code.toUpperCase()) return <div className="center-state"><div className="loader-mark">W</div><h2>Finding your table…</h2><p>Reconnecting to room {code.toUpperCase()}</p><button type="button" className="button button-outline" onClick={() => { leaveRoom(); navigate('/create') }}>Close open table</button></div>
   const isHost = view.host === session?.player_id
-  return <><PageTitle eyebrow={view.is_public ? 'QUICK MATCH LOBBY' : 'PRIVATE ROOM'} title="The table is set." detail="Share your code and wait for everyone to join." action={<Link to="/dashboard" className="button button-outline"><ArrowLeft size={16} /> Leave view</Link>} /><section className="lobby-room content-panel"><div className="lobby-code"><div><span className="small-label">ROOM CODE</span><strong>{view.code}</strong></div><button className="button button-outline" onClick={() => void navigator.clipboard?.writeText(view.code)}><Check size={15} /> Copy code</button></div><div className="lobby-divider" /><div className="lobby-player-heading"><span className="small-label">PLAYERS</span><span>{view.players.length} / 4 seats</span></div><div className="player-list">{Array.from({ length: 4 }, (_, index) => {
+  return <><PageTitle eyebrow={view.is_public ? 'QUICK MATCH LOBBY' : 'PRIVATE ROOM'} title="The table is set." detail="Share your code and wait for everyone to join." action={<button type="button" className="button button-outline" onClick={() => { leaveRoom(); navigate('/dashboard') }}><ArrowLeft size={16} /> Leave table</button>} /><section className="lobby-room content-panel"><div className="lobby-code"><div><span className="small-label">ROOM CODE</span><strong>{view.code}</strong></div><button className="button button-outline" onClick={() => void navigator.clipboard?.writeText(view.code)}><Check size={15} /> Copy code</button></div><div className="lobby-divider" /><div className="lobby-player-heading"><span className="small-label">PLAYERS</span><span>{view.players.length} / 4 seats</span></div><div className="player-list">{Array.from({ length: 4 }, (_, index) => {
     const player = view.players[index]
     return player ? <div className="lobby-player" key={player.id}><div className={`avatar ${player.id === view.host ? 'host-avatar' : ''}`}>{player.name.slice(0, 1).toUpperCase()}</div><div className="player-copy"><strong>{player.name}{player.id === session?.player_id ? ' (You)' : ''}</strong><span>{player.id === view.host ? 'Host' : 'Ready to play'} · {player.connected ? 'Connected' : 'Reconnecting'}</span></div>{player.id === view.host && <Crown size={17} className="host-crown" />}{player.id === session?.player_id && <span className="you-tag">YOU</span>}</div> : <div className="lobby-player empty-seat" key={`empty-${index}`}><div className="avatar empty-avatar"><Plus size={16} /></div><div className="player-copy"><strong>Waiting for a player</strong><span>Share the room code to fill this seat</span></div></div>
   })}</div><div className="lobby-footer"><div className="connection-state"><span className={`status-dot ${connected ? 'online' : ''}`} />{connected ? 'Room is live' : 'Connecting…'}</div>{isHost ? <button className="button button-lime" disabled={view.players.length < 2 || view.players.some(player => !player.connected)} onClick={() => send('start')}><Gamepad2 size={17} /> Start game <ArrowRight size={16} /></button> : <span className="waiting-label"><span className="pulse-dot" /> Waiting for host to start</span>}</div></section><div className="lobby-footnote"><Shield size={15} /> The server will privately deal five cards to each player when the host starts.</div></>
@@ -372,13 +404,13 @@ function CardFace({ card, large = false, back = false, selected = false, playabl
 
 function GameTable() {
   const { code = '' } = useParams()
-  const { view, session, send } = useArena()
+  const { view, session, send, leaveRoom } = useArena()
   const [selectedWhot, setSelectedWhot] = useState<Card | null>(null)
   const [shape, setShape] = useState('circle')
   const [toast, setToast] = useState('')
   const navigate = useNavigate()
   useEffect(() => { if (view?.status === 'finished') setToast(view.winner === session?.player_id ? 'You emptied your hand. What a finish!' : `${view.players.find(player => player.id === view.winner)?.name || 'A player'} takes the round.`) }, [view?.status, view?.winner])
-  if (!view || view.code !== code.toUpperCase()) return <div className="center-state"><div className="loader-mark">W</div><h2>Restoring your game…</h2><p>Your hand stays private while the table reconnects.</p></div>
+  if (!view || view.code !== code.toUpperCase()) return <div className="center-state"><div className="loader-mark">W</div><h2>Restoring your game…</h2><p>Your hand stays private while the table reconnects.</p><button type="button" className="button button-outline" onClick={() => { leaveRoom(); navigate('/create') }}>Close open table</button></div>
   const me = view.players.find(player => player.id === session?.player_id)
   const opponents = view.players.filter(player => player.id !== session?.player_id)
   const myTurn = view.turn === session?.player_id && view.status === 'playing'
@@ -399,7 +431,7 @@ function GameTable() {
             {view.status === 'finished' ? 'ROUND COMPLETE' : myTurn ? 'YOUR TURN' : `TURN: ${view.players.find(player => player.id === view.turn)?.name || 'OPPONENT'}`}
           </span>
         </div>
-        <button className="icon-button game-exit" title="Return to dashboard" onClick={() => navigate('/dashboard')}><ArrowLeft size={18} /></button>
+        <button className="icon-button game-exit" title="Leave table and return to dashboard" onClick={() => { leaveRoom(); navigate('/dashboard') }}><ArrowLeft size={18} /></button>
       </div>
       <div className="game-layout">
       <div className="table-column">
@@ -601,7 +633,7 @@ function HelpPage() {
 }
 
 function LoadingScreen({ message, action = false }: { message: string; action?: boolean }) {
-  return <div className={`launch-screen ${action ? 'action-loading' : ''}`} role="status" aria-label={message}><div className="launch-glow" /><div className="launch-card" aria-hidden="true"><span>W</span></div><div className="launch-wordmark"><strong>WHOT</strong><span>ARENA</span></div><div className="launch-progress" aria-hidden="true"><span /></div><small>{message}</small></div>
+  return <div className={`launch-screen ${action ? 'action-loading' : ''}`} role="status" aria-label={message}><div className="launch-glow" /><div className="launch-card" aria-hidden="true"><span>W</span></div>{action ? <div className="action-signal" aria-hidden="true"><span /><span /><span /></div> : <><div className="launch-wordmark"><strong>WHOT</strong><span>ARENA</span></div><div className="launch-progress" aria-hidden="true"><span /></div><small>{message}</small></>}</div>
 }
 
 function LaunchScreen({ onDone }: { onDone: () => void }) {
