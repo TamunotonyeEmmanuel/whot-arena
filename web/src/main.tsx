@@ -482,12 +482,12 @@ function GameTable() {
   const [selectedWhot, setSelectedWhot] = useState<Card | null>(null)
   const [shape, setShape] = useState('circle')
   const [toast, setToast] = useState('')
-  const [turnSeconds, setTurnSeconds] = useState(20)
+  const [turnSeconds, setTurnSeconds] = useState(30)
   const navigate = useNavigate()
   useEffect(() => { if (view?.status === 'finished') setToast(view.winner === session?.player_id ? 'You emptied your hand. What a finish!' : `${view.players.find(player => player.id === view.winner)?.name || 'A player'} takes the round.`) }, [view?.status, view?.winner])
   useEffect(() => {
     if (view?.status !== 'playing') { setTurnSeconds(0); return }
-    setTurnSeconds(view.turn_seconds_remaining ?? 20)
+    setTurnSeconds(view.turn_seconds_remaining ?? 30)
     const timer = window.setInterval(() => setTurnSeconds(previous => Math.max(0, previous - 1)), 1000)
     return () => window.clearInterval(timer)
   }, [view?.turn, view?.turn_seconds_remaining, view?.status])
@@ -846,7 +846,7 @@ function VoicePanel({ messages, chatMessages, playerId, enabled }: { messages: V
 
   return createPortal(<div className="table-chat-shell">
     <button type="button" className={`chat-fab ${open ? 'chat-fab-open' : ''}`} onClick={toggleChat} aria-label={open ? 'Close table chat' : 'Open table chat'}>{open ? <X size={21} /> : <><MessageCircle size={21} />{unread > 0 && <span>{Math.min(unread, 9)}</span>}</>}</button>
-    {open && <aside className="voice-panel table-chat-phone content-panel" aria-label="Table chat">
+    {open && <aside className="table-chat-phone" aria-label="Table chat">
       <div className="iphone-screen">
       <div className="iphone-statusbar" aria-hidden="true"><strong>{phoneTime}</strong><span className="iphone-island" /><span className="iphone-signals"><Signal size={12} fill="currentColor" /><Wifi size={13} /><BatteryFull size={16} /></span></div>
       <div className="iphone-chat-header"><button type="button" className="icon-button iphone-back" onClick={toggleChat} aria-label="Close chat"><ArrowLeft size={19} /></button><span className="iphone-contact"><Users size={17} /></span><div><strong>WHOT Table</strong><small><span /> {notification || 'Players online'}</small></div><button type="button" className="icon-button" onClick={toggleChat} aria-label="Close chat"><X size={17} /></button></div>

@@ -16,7 +16,7 @@ VOICE_HISTORY_LIMIT = 20
 VOICE_COOLDOWN_SECONDS = 1.0
 CHAT_HISTORY_LIMIT = 100
 CHAT_MAX_CHARS = 500
-TURN_SECONDS = 20
+TURN_SECONDS = 30
 LAST_CARD_REQUIRES_REPLACEMENT = {1, 2, 5, 8, 14, 20}
 # Explicit house rules: 1 extra turn, 2 +2, 5 +3, 8 skip, 14 market (+1 each opponent),
 # 20 wild request shape. Special actions do not stack. Penalty draws end the target turn.
