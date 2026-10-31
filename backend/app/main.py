@@ -251,6 +251,8 @@ async def ws_endpoint(ws: WebSocket):
                         raise ValueError("This connection already has a session")
                     name = str(msg.get("name", "Guest")).strip()[:20] or "Guest"
                     user_id = message_user_id(msg)
+                    if not user_id:
+                        raise ValueError("Log in before playing a game")
                     wager = int(msg.get("wager", 0) or 0) if action == "create" else 0
                     if wager < 0 or wager > MAXIMUM_WAGER or (wager and wager < MINIMUM_WAGER):
                         raise ValueError(f"Stake must be free or between ₦{MINIMUM_WAGER:,} and ₦{MAXIMUM_WAGER:,}")
@@ -277,6 +279,8 @@ async def ws_endpoint(ws: WebSocket):
                         raise ValueError("This connection already has a session")
                     name = str(msg.get("name", "Guest")).strip()[:20] or "Guest"
                     user_id = message_user_id(msg)
+                    if not user_id:
+                        raise ValueError("Log in before playing a game")
                     async with state_lock:
                         room = next((candidate for candidate in rooms.values()
                                      if candidate.is_public and candidate.status == "lobby"
@@ -307,6 +311,8 @@ async def ws_endpoint(ws: WebSocket):
                         pid = secrets.token_urlsafe(18)
                         code = requested
                         user_id = message_user_id(msg)
+                        if not user_id:
+                            raise ValueError("Log in before playing a game")
                         player = make_player(pid, str(msg.get("name", "Guest")).strip()[:20] or "Guest", user_id)
                         if room.wager and (not user_id or player.coin_balance < room.wager):
                             raise ValueError("Sign in with enough Virtual Naira to join this table")
