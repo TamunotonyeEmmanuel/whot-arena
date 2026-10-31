@@ -171,3 +171,41 @@ html[data-theme="dark"] .table-chat-phone .voice-message-meta strong{color:#f2ff
     padding: 12px 4px 7px;
   }
 }
+/* WHOT Arena — Single large shape per card */
+
+/* Hide smaller decorative shapes in card corners */
+.whot-card .top-corner,
+.whot-card .bottom-corner {
+  display: none;
+}
+
+/* Keep the main shape centered and prominent */
+.whot-card .card-glyph {
+  font-size: 36px;
+  line-height: 1;
+  margin: 0;
+}
+
+/* Preserve the card number */
+.whot-card .card-number {
+  font-size: 13px;
+  font-weight: 700;
+  margin-top: 6px;
+}
+
+/* Larger cards on the playing table */
+.whot-card.card-large .card-glyph {
+  font-size: 52px;
+}
+
+/* Smaller cards in the player's hand */
+.hand-cards .whot-card .card-glyph {
+  font-size: 30px;
+}
+
+/* Mobile screens */
+@media (max-width: 760px) {
+  .hand-cards .whot-card .card-glyph {
+    font-size: 27px;
+  }
+}
