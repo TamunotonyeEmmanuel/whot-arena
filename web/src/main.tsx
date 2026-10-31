@@ -348,12 +348,12 @@ function ArenaBackgroundMusic() {
     const audio = new Audio('/audio/whot-background.mp3')
     audio.loop = true
     audio.preload = 'auto'
-    audio.volume = 0.1
+    audio.volume = 0.05
     audioRef.current = audio
     let active = true
     const tryPlay = () => {
       if (!active || !audio.paused) return
-      void audio.play().catch(() => {
+      void Promise.resolve(audio.play()).catch(() => {
         // Browsers may require a user gesture before playing audio.
       })
     }
@@ -373,7 +373,7 @@ function ArenaBackgroundMusic() {
   }, [])
 
   useEffect(() => {
-    if (audioRef.current) audioRef.current.volume = inGame ? 0.035 : 0.1
+    if (audioRef.current) audioRef.current.volume = inGame ? 0.015 : 0.05
   }, [inGame])
 
   return null
