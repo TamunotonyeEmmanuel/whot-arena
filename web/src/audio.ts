@@ -61,9 +61,49 @@ const cues: Record<GameSound, Note[]> = {
   ],
 }
 
+function scheduleVictoryGunshot(audio: AudioContext, start: number) {
+  const duration = .42
+  const buffer = audio.createBuffer(1, Math.ceil(audio.sampleRate * duration), audio.sampleRate)
+  const samples = buffer.getChannelData(0)
+  for (let index = 0; index < samples.length; index += 1) {
+    const elapsed = index / audio.sampleRate
+    const crack = Math.exp(-elapsed * 28)
+    const tail = Math.exp(-elapsed * 7) * .32
+    samples[index] = (Math.random() * 2 - 1) * (crack + tail)
+  }
+  const noise = audio.createBufferSource()
+  const filter = audio.createBiquadFilter()
+  const gain = audio.createGain()
+  noise.buffer = buffer
+  filter.type = 'lowpass'
+  filter.frequency.setValueAtTime(4200, start)
+  filter.frequency.exponentialRampToValueAtTime(520, start + duration)
+  gain.gain.setValueAtTime(.0001, start)
+  gain.gain.exponentialRampToValueAtTime(.42, start + .006)
+  gain.gain.exponentialRampToValueAtTime(.0001, start + duration)
+  noise.connect(filter)
+  filter.connect(gain)
+  gain.connect(audio.destination)
+  noise.start(start)
+  noise.stop(start + duration)
+
+  const thump = audio.createOscillator()
+  const thumpGain = audio.createGain()
+  thump.type = 'sine'
+  thump.frequency.setValueAtTime(150, start)
+  thump.frequency.exponentialRampToValueAtTime(42, start + .18)
+  thumpGain.gain.setValueAtTime(.3, start)
+  thumpGain.gain.exponentialRampToValueAtTime(.0001, start + .2)
+  thump.connect(thumpGain)
+  thumpGain.connect(audio.destination)
+  thump.start(start)
+  thump.stop(start + .21)
+}
+
 function scheduleSound(audio: AudioContext, sound: GameSound) {
   if (audio.state !== 'running') return
   const start = audio.currentTime + .02
+  if (sound === 'win') scheduleVictoryGunshot(audio, start)
   const volumeBoost = sound === 'play' ? 4.5 : 2.25
   for (const note of cues[sound]) {
     const oscillator = audio.createOscillator()

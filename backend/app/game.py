@@ -17,6 +17,7 @@ VOICE_COOLDOWN_SECONDS = 1.0
 CHAT_HISTORY_LIMIT = 100
 CHAT_MAX_CHARS = 500
 TURN_SECONDS = 30
+RECONNECT_PAUSE_SECONDS = 30
 LAST_CARD_REQUIRES_REPLACEMENT = {1, 2, 5, 8, 14, 20}
 # Explicit house rules: 1 extra turn, 2 +2, 5 +3, 8 skip, 14 market (+1 each opponent),
 # 20 wild request shape. Special actions do not stack. Penalty draws end the target turn.
@@ -39,6 +40,10 @@ class Player:
     reconnect_token: str = field(default_factory=lambda: secrets.token_urlsafe(32), repr=False)
     user_id: Optional[int] = None
     is_bot: bool = False
+    last_card_required: bool = False
+    table_theme: str = "classic"
+    card_back: str = "classic"
+    avatar: str = "initial"
 
 @dataclass
 class Room:
@@ -53,10 +58,18 @@ class Room:
     pending_draw: int = 0
     pending_penalty: Optional[int] = None
     winner: Optional[str] = None
+    match_winner: Optional[str] = None
+    round_number: int = 1
+    round_wins: dict = field(default_factory=dict)
+    match_points: dict = field(default_factory=dict)
     last_action: str = "Waiting for players"
     turn_started: float = field(default_factory=time.time)
     created_at: float = field(default_factory=time.time)
     updated_at: float = field(default_factory=time.time)
+    pause_started: Optional[float] = None
+    paused_turn_seconds: int = TURN_SECONDS
+    pause_reason: Optional[str] = None
+    paused_by: Optional[str] = None
     result_recorded: bool = False
     final_scores: dict = field(default_factory=dict)
     is_public: bool = False
@@ -72,6 +85,63 @@ class Room:
         if not self.players:
             raise ValueError("Room has no players")
         return self.players[self.turn]
+
+    @property
+    def is_paused(self):
+        return self.pause_started is not None
+
+    def pause_for_disconnect(self, player):
+        if (self.is_public or self.status != "playing" or player.is_bot
+                or self.pause_started is not None):
+            return
+        now = time.time()
+        self.paused_turn_seconds = max(0, min(TURN_SECONDS, int(
+            TURN_SECONDS - (now - self.turn_started) + 0.999)))
+        self.pause_started = now
+        self.pause_reason = "disconnect"
+        self.paused_by = player.name
+        self.updated_at = now
+        self.last_action = f"Game paused while {player.name} reconnects"
+
+    def resume_after_disconnect(self, force=False):
+        if not self.is_paused or self.pause_reason != "disconnect":
+            return False
+        humans_connected = all(player.connected for player in self.players if not player.is_bot)
+        if not force and not humans_connected:
+            return False
+        now = time.time()
+        self.turn_started = now - (TURN_SECONDS - self.paused_turn_seconds)
+        self.pause_started = None
+        self.pause_reason = None
+        self.paused_by = None
+        self.updated_at = now
+        self.last_action = "Game resumed"
+        return True
+
+    def toggle_manual_pause(self, pid):
+        if self.is_public:
+            raise ValueError("Public quick matches cannot be paused manually")
+        if self.status != "playing" or pid != self.host:
+            raise ValueError("Only the host can pause this match")
+        if self.is_paused:
+            if self.pause_reason != "manual":
+                raise ValueError("Wait for the disconnected player to reconnect")
+            now = time.time()
+            self.turn_started = now - (TURN_SECONDS - self.paused_turn_seconds)
+            self.pause_started = None
+            self.pause_reason = None
+            self.paused_by = None
+            self.updated_at = now
+            self.last_action = "Game resumed by the host"
+            return
+        now = time.time()
+        self.paused_turn_seconds = max(0, min(TURN_SECONDS, int(
+            TURN_SECONDS - (now - self.turn_started) + 0.999)))
+        self.pause_started = now
+        self.pause_reason = "manual"
+        self.paused_by = self.player(pid).name
+        self.updated_at = now
+        self.last_action = f"{self.paused_by} paused the game"
 
     def add_player(self, player):
         if self.status != "lobby":
@@ -92,6 +162,8 @@ class Room:
                 break
             p.hand.append(self.deck.pop())
             drawn += 1
+        if len(p.hand) != 1:
+            p.last_card_required = False
         return drawn
 
     @staticmethod
@@ -100,24 +172,42 @@ class Room:
                    for card in player.hand)
 
     def finish_exhausted_market(self):
-        self.final_scores = {player.id: self.hand_score(player) for player in self.players}
+        scores = {player.id: self.hand_score(player) for player in self.players}
         winner = min(self.players,
-                     key=lambda player: (self.final_scores[player.id], len(player.hand),
+                     key=lambda player: (scores[player.id], len(player.hand),
                                          self.players.index(player)))
-        self.winner = winner.id
-        self.status = "finished"
-        self.updated_at = time.time()
-        totals = ", ".join(f"{player.name}: {self.final_scores[player.id]}"
+        self.finish_round(winner.id, scores)
+        totals = ", ".join(f"{player.name}: {scores[player.id]}"
                            for player in self.players)
         self.last_action = f"Market exhausted — {winner.name} wins on points. {totals}"
 
-    def start(self, pid):
+    def finish_round(self, winner_id, scores=None):
+        self.final_scores = scores or {player.id: self.hand_score(player)
+                                       for player in self.players}
+        self.winner = winner_id
+        self.round_wins.setdefault(winner_id, 0)
+        self.round_wins[winner_id] += 1
+        awarded = sum(score for player_id, score in self.final_scores.items()
+                      if player_id != winner_id)
+        self.match_points.setdefault(winner_id, 0)
+        self.match_points[winner_id] += awarded
+        if self.round_wins[winner_id] >= 2:
+            self.match_winner = winner_id
+        self.status = "finished"
+        self.updated_at = time.time()
+
+    def start(self, pid, continue_match=False):
         if pid != self.host or self.status != "lobby":
             raise ValueError("Only the host can start a lobby")
         if not 2 <= len(self.players) <= 4:
             raise ValueError("A match needs 2 to 4 players")
         if any(not player.connected for player in self.players):
             raise ValueError("All players must be connected before starting")
+        if not continue_match:
+            self.round_number = 1
+            self.round_wins = {player.id: 0 for player in self.players}
+            self.match_points = {player.id: 0 for player in self.players}
+            self.match_winner = None
         self.deck = [{"shape": shape, "number": n, "id": secrets.token_hex(5)}
                      for shape, numbers in SHAPES.items() for n in numbers]
         self.deck += [{"shape": "whot", "number": 20, "id": secrets.token_hex(5)}
@@ -125,6 +215,7 @@ class Room:
         random.shuffle(self.deck)
         for p in self.players:
             p.hand = []
+            p.last_card_required = False
             self._draw(p, self.rules.cards_per_player)
         # Begin with a non-action card to avoid ambiguity on opening.
         idx = next(i for i, c in enumerate(self.deck)
@@ -139,6 +230,10 @@ class Room:
         self.result_recorded = False
         self.final_scores = {}
         self.turn_started = time.time()
+        self.pause_started = None
+        self.pause_reason = None
+        self.paused_by = None
+        self.paused_turn_seconds = TURN_SECONDS
         self.last_action = "Game started"
         self.updated_at = self.turn_started
 
@@ -152,9 +247,16 @@ class Room:
         self.voice_messages.clear()
         self.voice_sent_at.clear()
         self.chat_messages.clear()
+        if self.match_winner:
+            self.round_number = 1
+            self.round_wins = {player.id: 0 for player in self.players}
+            self.match_points = {player.id: 0 for player in self.players}
+            self.match_winner = None
+        else:
+            self.round_number += 1
         self.status = "lobby"
-        self.start(pid)
-        self.last_action = "Rematch started"
+        self.start(pid, continue_match=True)
+        self.last_action = "New match started" if self.round_number == 1 else f"Round {self.round_number} started"
 
     def add_voice_message(self, pid, content_type, audio):
         player = self.player(pid)
@@ -239,9 +341,34 @@ class Room:
             return
         self._advance()
 
+    def _penalize_missed_last_card(self):
+        missed = [player for player in self.players if player.last_card_required]
+        for player in missed:
+            player.last_card_required = False
+            drawn = self._draw(player, 2)
+            self.last_action = f"{player.name} forgot LAST CARD and picked 2 cards"
+            if drawn < 2 or not self.deck:
+                self.finish_exhausted_market()
+                return False
+        return True
+
+    def declare_last_card(self, pid):
+        if self.is_paused:
+            raise ValueError("Game is paused while a player reconnects")
+        player = self.player(pid)
+        if self.status != "playing" or not player or not player.last_card_required or len(player.hand) != 1:
+            raise ValueError("You can only declare when you reach one card")
+        player.last_card_required = False
+        self.last_action = f"{player.name} declared LAST CARD!"
+        self.updated_at = time.time()
+
     def play(self, pid, card_id, shape=None):
+        if self.is_paused:
+            raise ValueError("Game is paused while a player reconnects")
         if self.status != "playing" or self.current().id != pid:
             raise ValueError("Not your turn")
+        if not self._penalize_missed_last_card():
+            return
         p = self.current()
         card = next((c for c in p.hand if c["id"] == card_id), None)
         if card is None or not self.legal(card):
@@ -261,9 +388,7 @@ class Room:
                 self.finish_exhausted_market()
                 return
         elif not p.hand:
-            self.winner = pid
-            self.status = "finished"
-            self.updated_at = time.time()
+            self.finish_round(pid)
             return
         n = card["number"]
         if n == 1:
@@ -288,11 +413,17 @@ class Room:
         else:
             self._advance()
         if len(p.hand) == 1:
-            self.last_action += f" — {p.name} has LAST CARD!"
+            p.last_card_required = not p.is_bot
+            self.last_action += (f" — {p.name} declared LAST CARD!" if p.is_bot
+                                 else f" — {p.name} must declare LAST CARD!")
 
     def draw(self, pid):
+        if self.is_paused:
+            raise ValueError("Game is paused while a player reconnects")
         if self.status != "playing" or self.current().id != pid:
             raise ValueError("Not your turn")
+        if not self._penalize_missed_last_card():
+            return
         if self.pending_draw:
             self._take_pending_penalty(self.current(), "accepted the penalty")
             return
@@ -304,6 +435,8 @@ class Room:
 
     def timeout_turn(self):
         if self.status != "playing":
+            return
+        if not self._penalize_missed_last_card():
             return
         player = self.current()
         if self.pending_draw:
@@ -338,7 +471,9 @@ class Room:
             "you": pid, "turn": self.current().id if self.status == "playing" else None,
             "players": [{"id": p.id, "name": p.name, "count": len(p.hand),
                          "connected": p.connected, "voice_ready": p.voice_ready,
-                         "is_bot": p.is_bot}
+                         "is_bot": p.is_bot, "last_card_required": p.last_card_required,
+                         "table_theme": p.table_theme, "card_back": p.card_back,
+                         "avatar": p.avatar}
                         for p in self.players],
             "hand": self.player(pid).hand if self.player(pid) else [],
             "top": self.discard[-1] if self.discard else None,
@@ -347,11 +482,20 @@ class Room:
             "turn_started_at": self.turn_started,
             "turn_seconds_remaining": (max(0, min(TURN_SECONDS, int(
                 TURN_SECONDS - (time.time() - self.turn_started) + 0.999)))
-                if self.status == "playing" else 0),
+                if self.status == "playing" and not self.is_paused
+                else self.paused_turn_seconds if self.status == "playing" else 0),
+            "is_paused": self.is_paused,
+            "pause_reason": self.pause_reason,
+            "paused_by": self.paused_by,
+            "pause_seconds_remaining": (max(0, RECONNECT_PAUSE_SECONDS - int(
+                time.time() - self.pause_started))
+                if self.pause_started and self.pause_reason == "disconnect" else 0),
             "requested_shape": self.requested_shape,
             "pending_draw": self.pending_draw,
             "pending_penalty": self.pending_penalty,
-            "winner": self.winner, "last_action": self.last_action,
+            "winner": self.winner, "match_winner": self.match_winner,
+            "round_number": self.round_number, "round_wins": self.round_wins,
+            "match_points": self.match_points, "last_action": self.last_action,
             "final_scores": self.final_scores,
             "is_public": self.is_public,
             "voice_messages": [{key: value for key, value in message.items()

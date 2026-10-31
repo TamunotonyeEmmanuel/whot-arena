@@ -29,6 +29,17 @@ def message_user_id(msg):
         raise ValueError("Invalid access token")
     return user_id
 
+def make_player(pid, name, user_id=None):
+    player = Player(pid, name, user_id=user_id)
+    if user_id:
+        with database_session() as db:
+            user = db.get(User, user_id)
+            if user:
+                player.table_theme = user.selected_theme
+                player.card_back = user.selected_card_back
+                player.avatar = user.selected_avatar
+    return player
+
 def new_room_code():
     """Return a short room code that is unique in this server process."""
     for _ in range(100):
@@ -57,7 +68,7 @@ async def run_computer_turns(room):
             await asyncio.sleep(COMPUTER_MOVE_DELAY_SECONDS)
             async with state_lock:
                 if (rooms.get(room.code) is not room or room.status != "playing"
-                        or not room.current().is_bot):
+                        or room.is_paused or not room.current().is_bot):
                     return
                 room.auto_move()
                 record_match(room)
@@ -70,22 +81,38 @@ async def run_computer_turns(room):
         computer_tasks.pop(room.code, None)
 
 def queue_computer_turn(room):
-    if (room.status == "playing" and room.current().is_bot
+    if (room.status == "playing" and not room.is_paused and room.current().is_bot
             and (room.code not in computer_tasks or computer_tasks[room.code].done())):
         computer_tasks[room.code] = asyncio.create_task(run_computer_turns(room))
 
 def record_match(room):
-    if room.status != "finished" or room.result_recorded:
+    if room.status != "finished" or not room.match_winner or room.result_recorded:
         return
     with database_session() as db:
-        winner = room.player(room.winner)
+        winner = room.player(room.match_winner)
         for player in room.players:
             if player.user_id:
                 user = db.get(User, player.user_id)
                 if user:
                     user.matches_played += 1
+                    user.xp += 100 + room.match_points.get(player.id, 0)
                     if winner is player:
                         user.wins += 1
+                        user.xp += 150
+                        user.win_streak += 1
+                        user.best_win_streak = max(user.best_win_streak, user.win_streak)
+                    else:
+                        user.win_streak = 0
+                    achievements = set(user.achievement_list)
+                    if user.wins >= 1:
+                        achievements.add("first_win")
+                    if user.win_streak >= 3:
+                        achievements.add("hot_streak")
+                    if user.matches_played >= 10:
+                        achievements.add("arena_regular")
+                    if user.level >= 5:
+                        achievements.add("level_five")
+                    user.achievements = ",".join(sorted(achievements))
         match = MatchResult(room_code=room.code,
                             winner_user_id=winner.user_id if winner else None,
                             player_count=len(room.players))
@@ -106,6 +133,14 @@ async def monitor():
         async with state_lock:
             for code, room in list(rooms.items()):
                 if room.status == "playing":
+                    if room.is_paused:
+                        if room.pause_reason == "disconnect" and (
+                                room.resume_after_disconnect() or (
+                                    now - room.pause_started >= RECONNECT_SECONDS
+                                    and room.resume_after_disconnect(force=True))):
+                            changed.append(room)
+                        else:
+                            continue
                     current = room.current()
                     if ((not current.connected and current.disconnected_at is not None
                          and now - current.disconnected_at >= RECONNECT_SECONDS)
@@ -184,7 +219,7 @@ async def ws_endpoint(ws: WebSocket):
                     pid = secrets.token_urlsafe(18)
                     async with state_lock:
                         code = new_room_code()
-                        player = Player(pid, name, user_id=user_id)
+                        player = make_player(pid, name, user_id)
                         room = Room(code=code, host=pid, players=[player])
                         if action == "computer":
                             room.add_player(Player("bot-" + secrets.token_urlsafe(8),
@@ -206,7 +241,7 @@ async def ws_endpoint(ws: WebSocket):
                                      and len(candidate.players) == 1
                                      and candidate.players[0].connected), None)
                         pid = secrets.token_urlsafe(18)
-                        player = Player(pid, name, user_id=user_id)
+                        player = make_player(pid, name, user_id)
                         if room:
                             code = room.code
                             room.add_player(player)
@@ -229,8 +264,8 @@ async def ws_endpoint(ws: WebSocket):
                             raise ValueError("Room not found")
                         pid = secrets.token_urlsafe(18)
                         code = requested
-                        player = Player(pid, str(msg.get("name", "Guest")).strip()[:20] or "Guest")
-                        player.user_id = message_user_id(msg)
+                        user_id = message_user_id(msg)
+                        player = make_player(pid, str(msg.get("name", "Guest")).strip()[:20] or "Guest", user_id)
                         room.add_player(player)
                         connections[pid] = ws
                     await send(ws, {"type": "session", "player_id": pid, "code": code,
@@ -251,6 +286,7 @@ async def ws_endpoint(ws: WebSocket):
                         previous_ws = connections.get(candidate)
                         pid, code = candidate, requested
                         p.connected, p.disconnected_at = True, None
+                        room.resume_after_disconnect()
                         room.updated_at = time.time()
                         connections[pid] = ws
                     if previous_ws and previous_ws is not ws:
@@ -261,6 +297,7 @@ async def ws_endpoint(ws: WebSocket):
                     await send(ws, {"type": "session", "player_id": pid, "code": code,
                                     "reconnect_token": p.reconnect_token})
                     await broadcast(room)
+                    queue_computer_turn(room)
                 elif action == "leave":
                     async with state_lock:
                         room = rooms.get(code or "")
@@ -279,6 +316,7 @@ async def ws_endpoint(ws: WebSocket):
                         else:
                             player.connected = False
                             player.disconnected_at = time.time()
+                            room.pause_for_disconnect(player)
                             room.updated_at = time.time()
                     await send(ws, {"type": "left"})
                     if rooms.get(room.code) is room:
@@ -304,6 +342,10 @@ async def ws_endpoint(ws: WebSocket):
                             record_match(room)
                         elif action == "rematch":
                             room.rematch(pid)
+                        elif action == "declare_last":
+                            room.declare_last_card(pid)
+                        elif action == "pause":
+                            room.toggle_manual_pause(pid)
                         elif action == "rtc_ready":
                             room.player(pid).voice_ready = True
                             room.updated_at = time.time()
@@ -373,6 +415,7 @@ async def ws_endpoint(ws: WebSocket):
                     p.connected = False
                     p.voice_ready = False
                     p.disconnected_at = time.time()
+                    room.pause_for_disconnect(p)
                     room.updated_at = time.time()
             if room and room.player(pid):
                 await broadcast(room)

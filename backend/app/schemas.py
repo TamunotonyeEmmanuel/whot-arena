@@ -26,6 +26,23 @@ class UserResponse(BaseModel):
     email: str
     matches_played: int
     wins: int
+    xp: int
+    level: int
+    win_streak: int
+    best_win_streak: int
+    achievements: list[str] = Field(validation_alias="achievement_list")
+    unlocked_themes: list[str]
+    unlocked_card_backs: list[str]
+    unlocked_avatars: list[str]
+    selected_theme: str
+    selected_card_back: str
+    selected_avatar: str
+
+
+class CosmeticsRequest(BaseModel):
+    theme: str
+    card_back: str
+    avatar: str
 
 
 class PublicPlayerResponse(BaseModel):

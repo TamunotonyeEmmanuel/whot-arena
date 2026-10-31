@@ -2,12 +2,12 @@ import React, { createContext, useContext, useEffect, useRef, useState } from 'r
 import { createPortal } from 'react-dom'
 import { createRoot } from 'react-dom/client'
 import { BrowserRouter, Link, NavLink, Navigate, Route, Routes, useLocation, useNavigate, useParams } from 'react-router-dom'
-import { ArrowLeft, ArrowRight, BatteryFull, BookOpen, Check, ChevronDown, CircleHelp, Clock3, Crown, DoorOpen, Gamepad2, History, Home, LogIn, LogOut, Menu, MessageCircle, Mic, MicOff, Plus, Radio, Settings, Shield, Signal, Sparkles, Square, Trophy, UserRound, Users, Volume2, Wifi, X } from 'lucide-react'
+import { ArrowLeft, ArrowRight, BatteryFull, BookOpen, Check, ChevronDown, CircleHelp, Clock3, Crown, DoorOpen, Gamepad2, History, Home, LogIn, LogOut, Menu, MessageCircle, Mic, MicOff, Pause, Play, Plus, Radio, Settings, Shield, Signal, Sparkles, Square, Trophy, UserRound, Users, Volume2, Wifi, X } from 'lucide-react'
 import './styles.css'
 import { gameSoundsEnabled, playGameSound, primeGameAudio, setGameSoundsEnabled } from './audio'
 
 type Card = { id: string; shape: string; number: number }
-type Player = { id: string; name: string; count: number; connected: boolean; voice_ready?: boolean; is_bot?: boolean }
+type Player = { id: string; name: string; count: number; connected: boolean; voice_ready?: boolean; is_bot?: boolean; last_card_required?: boolean; table_theme?: string; card_back?: string; avatar?: string }
 type VoiceMessage = { id: string; player_id: string; name: string; content_type: string; size: number; sent_at: number }
 type ChatMessage = { id: string; player_id: string; name: string; text: string; sent_at: number }
 type RtcSignal = { id: string; from: string; signal: { type: 'offer' | 'answer' | 'ice'; sdp?: RTCSessionDescriptionInit; candidate?: RTCIceCandidateInit } }
@@ -15,6 +15,8 @@ type RoomView = {
   code: string; status: 'lobby' | 'playing' | 'finished'; host: string; you: string
   turn: string | null; players: Player[]; hand: Card[]; top: Card | null
   requested_shape: string | null; winner: string | null; last_action: string
+  match_winner: string | null; round_number: number
+  round_wins: Record<string, number>; match_points: Record<string, number>
   pending_draw: number
   pending_penalty: number | null
   final_scores: Record<string, number>
@@ -22,12 +24,16 @@ type RoomView = {
   state_version: number
   turn_started_at: number
   turn_seconds_remaining: number
+  is_paused: boolean
+  pause_reason: 'disconnect' | 'manual' | null
+  paused_by: string | null
+  pause_seconds_remaining: number
   voice_messages: VoiceMessage[]
   chat_messages: ChatMessage[]
   is_public: boolean; rules: { cards_per_player: number; pick_two: number; pick_three: number; general_market: number; penalty_stacking: boolean }
 }
 type Session = { player_id: string; code: string; reconnect_token: string }
-type User = { id: number; username: string; email: string; wins: number; matches_played: number }
+type User = { id: number; username: string; email: string; wins: number; matches_played: number; xp: number; level: number; win_streak: number; best_win_streak: number; achievements: string[]; unlocked_themes: string[]; unlocked_card_backs: string[]; unlocked_avatars: string[]; selected_theme: string; selected_card_back: string; selected_avatar: string }
 type MatchHistory = { room_code: string; result: 'win' | 'loss'; player_count: number; completed_at: string }
 type ArenaContextValue = {
   view: RoomView | null; session: Session | null; savedSession: Session | null; user: User | null; error: string
@@ -478,13 +484,14 @@ function Lobby() {
 const shapes = ['circle', 'triangle', 'cross', 'square', 'star']
 const shapeGlyph: Record<string, string> = { circle: '●', triangle: '▲', cross: '✚', square: '■', star: '★', whot: 'W' }
 const shapeTone: Record<string, string> = { circle: 'blue', triangle: 'red', cross: 'green', square: 'gold', star: 'coral', whot: 'dark' }
+const avatarGlyph = (name: string, avatar?: string) => avatar === 'crown' ? '♛' : avatar === 'star' ? '★' : name.slice(0, 1).toUpperCase()
 function CardFace({ card, large = false, back = false, selected = false, playable = false, onClick, index = 0 }: { card?: Card | null; large?: boolean; back?: boolean; selected?: boolean; playable?: boolean; onClick?: () => void; index?: number }) {
   if (back) return <div className={`whot-card card-back-face ${large ? 'card-large' : ''}`}><span className="back-mark mark-one"><strong>WHOT</strong><small>ARENA</small></span><span className="back-mark mark-two"><strong>WHOT</strong><small>ARENA</small></span><span className="back-mark mark-three"><strong>WHOT</strong><small>ARENA</small></span><span className="back-seal">W</span></div>
   if (!card) return <div className={`empty-card ${large ? 'card-large' : ''}`}><span>?</span></div>
   return <button type="button" className={`whot-card ${large ? 'card-large' : ''} tone-${shapeTone[card.shape]} ${selected ? 'card-selected' : ''} ${playable ? 'card-playable' : ''}`} onClick={onClick} disabled={!playable} style={{ '--card-index': index } as React.CSSProperties} aria-label={`Play ${card.number} ${card.shape}`}><span className="card-corner top-corner"><span>{card.number}</span><small>{shapeGlyph[card.shape]}</small></span><span className="card-glyph">{shapeGlyph[card.shape]}</span><span className="card-number">{card.number}</span><span className="card-corner bottom-corner"><span>{card.number}</span><small>{shapeGlyph[card.shape]}</small></span></button>
 }
 
-function WinnerCelebration({ name }: { name: string }) {
+function WinnerCelebration({ name, champion = false }: { name: string; champion?: boolean }) {
   const sparks = Array.from({ length: 32 }, (_, index) => index)
   const bursts = [
     { x: '16%', y: '25%', delay: '0s', hue: 46, size: 1.15 },
@@ -496,7 +503,7 @@ function WinnerCelebration({ name }: { name: string }) {
   ]
   return <div className="winner-celebration" role="status" aria-live="assertive" aria-label={`${name} wins the round`}>
     <div className="firework-sky" aria-hidden="true">{bursts.map((burst, index) => <div className="firework" key={index} style={{ left: burst.x, top: burst.y, '--delay': burst.delay, '--hue': burst.hue, '--firework-scale': burst.size } as React.CSSProperties}><i />{sparks.map(spark => <span key={spark} style={{ '--spark': spark, '--distance': `${72 + (spark % 5) * 11}px` } as React.CSSProperties} />)}</div>)}</div>
-    <div className="winner-announcement"><Crown size={34} /><span>ROUND WINNER</span><strong>{name}</strong></div>
+    <div className={`winner-announcement ${champion ? 'match-champion' : ''}`}><Crown size={34} /><span>{champion ? 'BEST OF THREE CHAMPION' : 'ROUND WINNER'}</span><strong>{name}</strong>{champion && <small>Match victory · two rounds won</small>}</div>
   </div>
 }
 
@@ -507,19 +514,29 @@ function GameTable() {
   const [shape, setShape] = useState('circle')
   const [toast, setToast] = useState('')
   const [turnSeconds, setTurnSeconds] = useState(30)
+  const [pauseSeconds, setPauseSeconds] = useState(0)
   const navigate = useNavigate()
   useEffect(() => { if (view?.status === 'finished') setToast(view.winner === session?.player_id ? 'You emptied your hand. What a finish!' : `${view.players.find(player => player.id === view.winner)?.name || 'A player'} takes the round.`) }, [view?.status, view?.winner])
   useEffect(() => {
     if (view?.status !== 'playing') { setTurnSeconds(0); return }
+    if (view.is_paused) { setTurnSeconds(view.turn_seconds_remaining); return }
     setTurnSeconds(view.turn_seconds_remaining ?? 30)
     const timer = window.setInterval(() => setTurnSeconds(previous => Math.max(0, previous - 1)), 1000)
     return () => window.clearInterval(timer)
-  }, [view?.turn, view?.turn_started_at, view?.state_version, view?.turn_seconds_remaining, view?.status, view?.last_action, view?.top?.id, view?.market_count])
+  }, [view?.turn, view?.turn_started_at, view?.state_version, view?.turn_seconds_remaining, view?.status, view?.is_paused, view?.last_action, view?.top?.id, view?.market_count])
+  useEffect(() => {
+    if (!view?.is_paused) { setPauseSeconds(0); return }
+    setPauseSeconds(view.pause_seconds_remaining)
+    const timer = window.setInterval(() => setPauseSeconds(previous => Math.max(0, previous - 1)), 1000)
+    return () => window.clearInterval(timer)
+  }, [view?.is_paused, view?.pause_seconds_remaining, view?.state_version])
   if (!view || view.code !== code.toUpperCase()) return <div className="center-state"><div className="loader-mark">W</div><h2>Restoring your game…</h2><p>Your hand stays private while the table reconnects.</p><button type="button" className="button button-outline" onClick={() => { leaveRoom(); navigate('/create') }}>Close open table</button></div>
   const me = view.players.find(player => player.id === session?.player_id)
   const opponents = view.players.filter(player => player.id !== session?.player_id)
   const winnerName = view.players.find(player => player.id === view.winner)?.name || 'Arena winner'
-  const myTurn = view.turn === session?.player_id && view.status === 'playing'
+  const championName = view.players.find(player => player.id === view.match_winner)?.name || winnerName
+  const myTurn = view.turn === session?.player_id && view.status === 'playing' && !view.is_paused
+  const isRoundOpening = view.last_action === 'Game started' || view.last_action.includes('started')
   const isLegal = (card: Card) => view.pending_draw > 0 ? card.number === view.pending_penalty : card.number === 20 || card.number === view.top?.number || card.shape === (view.requested_shape || view.top?.shape)
   function play(card: Card) {
     if (!myTurn) return
@@ -528,26 +545,28 @@ function GameTable() {
   }
   function confirmWhot() { if (selectedWhot) { send('play', { card_id: selectedWhot.id, shape }); setSelectedWhot(null) } }
   return (
-    <div className="game-page">
-      {view.status === 'finished' && <WinnerCelebration name={winnerName} />}
+    <div className={`game-page theme-${me?.table_theme || 'classic'} card-back-${me?.card_back || 'classic'}`}>
+      {view.status === 'finished' && <WinnerCelebration name={view.match_winner ? championName : winnerName} champion={Boolean(view.match_winner)} />}
       <div className="game-topline">
         <div>
           <Eyebrow>ROOM {view.code}</Eyebrow>
           <span className={`game-status ${myTurn ? 'turn-live' : ''}`}>
             <span className="status-dot online" />
-            {view.status === 'finished' ? 'ROUND COMPLETE' : myTurn ? 'YOUR TURN' : `TURN: ${view.players.find(player => player.id === view.turn)?.name || 'OPPONENT'}`}
+            {view.status === 'finished' ? 'ROUND COMPLETE' : view.is_paused ? 'GAME PAUSED' : myTurn ? 'YOUR TURN' : `TURN: ${view.players.find(player => player.id === view.turn)?.name || 'OPPONENT'}`}
           </span>
         </div>
-        <button className="icon-button game-exit" title="Leave table and return to dashboard" onClick={() => { leaveRoom(); navigate('/dashboard') }}><ArrowLeft size={18} /></button>
+        <div className="match-scoreboard" aria-label={`Best of three match score, round ${view.round_number}`}><span>ROUND {view.round_number} · BEST OF 3</span><div>{view.players.map(player => <span className={player.id === view.match_winner ? 'score-champion' : ''} key={player.id}><strong>{player.name}</strong><b>{view.round_wins[player.id] || 0}</b><small>{view.match_points[player.id] || 0} pts</small></span>)}</div></div>
+        <div className="game-actions">{view.host === session?.player_id && !view.is_public && view.status === 'playing' && <button type="button" className="button button-outline game-pause" disabled={view.is_paused && view.pause_reason !== 'manual'} onClick={() => send('pause')}>{view.is_paused && view.pause_reason === 'manual' ? <><Play size={15} /> Resume</> : <><Pause size={15} /> Pause</>}</button>}<button className="icon-button game-exit" title="Leave table and return to dashboard" onClick={() => { leaveRoom(); navigate('/dashboard') }}><ArrowLeft size={18} /></button></div>
       </div>
       <div className="game-layout">
       <div className="table-column">
-      <section className="table-felt">
+      <section className={`table-felt ${view.pending_draw > 0 ? 'table-penalty-active' : ''} ${isRoundOpening ? 'table-dealing' : ''}`}>
         <div className="table-stitch" />
+        {view.is_paused && <div className="reconnect-pause" role="status" aria-live="polite">{view.pause_reason === 'disconnect' ? <Wifi size={25} /> : <Pause size={25} />}<span>PRIVATE MATCH PAUSED</span><strong>{view.pause_reason === 'disconnect' ? `Waiting for ${view.paused_by || 'a player'} to reconnect` : `${view.paused_by || 'The host'} paused the game`}</strong><small>{view.pause_reason === 'disconnect' ? `${pauseSeconds} seconds remaining · turn timer frozen at ${turnSeconds}` : `Turn timer frozen at ${turnSeconds} · the host can resume`}</small></div>}
         <div className="opponents-row">
           {opponents.map((player, index) => (
             <div className={`opponent ${!player.connected ? 'player-away' : ''} ${view.turn === player.id ? 'opponent-turn' : ''}`} key={player.id}>
-              <div className="opponent-avatar-wrap"><div className={`avatar opponent-avatar avatar-${index}`}>{player.name.slice(0, 1).toUpperCase()}</div><span className={`status-dot ${player.connected ? 'online' : ''}`} /></div>
+              <div className="opponent-avatar-wrap"><div className={`avatar opponent-avatar avatar-${index}`}>{avatarGlyph(player.name, player.avatar)}</div><span className={`status-dot ${player.connected ? 'online' : ''}`} /></div>
               <strong>{player.name}{player.is_bot ? ' · CPU' : ''}</strong><span className={player.count === 1 ? 'last-card-label' : ''}>{player.count === 1 ? 'LAST CARD' : `${player.count} cards`}</span>{view.turn === player.id && <span className="opponent-turn-label">{player.is_bot ? 'THINKING' : 'THEIR TURN'}</span>}
               <div className="opponent-card-fan">{Array.from({ length: Math.min(player.count, 3) }, (_, cardIndex) => <CardFace key={cardIndex} back />)}</div>
             </div>
@@ -555,25 +574,25 @@ function GameTable() {
         </div>
         <div className="center-piles">
           <div className="pile-block"><span className="pile-label">DRAW PILE</span><div className={`pile-stack${view.market_count > 0 && view.market_count <= 5 ? ' pile-stack-low' : ''}`} onClick={() => myTurn && send('draw')} role="button" tabIndex={0} onKeyDown={event => event.key === 'Enter' && myTurn && send('draw')} aria-label={view.pending_draw ? `Accept penalty and draw ${view.pending_draw} cards` : `Draw one card and pass. ${view.market_count} cards remain`}><CardFace back large /><span className="market-count">{view.market_count}</span><span className="pile-count">{myTurn ? view.pending_draw ? `PICK ${view.pending_draw}` : 'TAP TO DRAW' : `${view.market_count} CARDS`}</span></div></div>
-          <div className="table-arrow">{view.status === 'playing' ? <div className={`table-turn-timer ${turnSeconds <= 5 ? 'table-turn-timer-urgent' : ''}`} aria-live="polite" aria-label={`${turnSeconds} seconds remaining`}><Clock3 size={16} /><strong>{turnSeconds}</strong><span>SEC</span></div> : <Sparkles size={19} />}</div>
-          <div className="pile-block"><span className="pile-label">ON THE TABLE</span><div className="top-card-slot"><CardFace card={view.top} large selected /><div className="top-glow" /></div></div>
+          <div className="table-arrow">{view.status === 'playing' ? <div className={`table-turn-timer ${!view.is_paused && turnSeconds <= 5 ? 'table-turn-timer-urgent' : ''}`} aria-live="polite" aria-label={view.is_paused ? view.pause_reason === 'disconnect' ? `${pauseSeconds} seconds to reconnect` : 'Game paused by host' : `${turnSeconds} seconds remaining`}><Clock3 size={16} /><strong>{view.is_paused ? view.pause_reason === 'disconnect' ? pauseSeconds : '‖' : turnSeconds}</strong><span>{view.is_paused ? 'PAUSE' : 'SEC'}</span></div> : <Sparkles size={19} />}</div>
+          <div className="pile-block"><span className="pile-label">ON THE TABLE</span><div className="top-card-slot"><CardFace key={view.top?.id || 'empty-top'} card={view.top} large selected /><div className="top-glow" /></div></div>
         </div>
         {view.requested_shape && <div className="requested-shape"><span>SHAPE REQUESTED</span><strong>{shapeGlyph[view.requested_shape]} {view.requested_shape}</strong></div>}
         {view.pending_draw > 0 && <div className="requested-shape penalty-stack" role="status"><span>PENALTY STACK</span><strong>Pick {view.pending_draw} · Block with another {view.pending_penalty}</strong></div>}
         <div className="table-message" aria-live="polite">{toast || view.last_action}</div>
-        <div className="you-at-table"><div className="avatar you-avatar">{(me?.name || 'Y').slice(0, 1).toUpperCase()}</div><div><strong>{me?.name || 'You'} <span>(you)</span></strong><small>{myTurn ? 'Your move' : view.status === 'finished' ? 'Round over' : 'Waiting for your turn'}</small></div>{myTurn && <span className="turn-clock"><Clock3 size={15} /> PLAY NOW</span>}</div>
+        <div className="you-at-table"><div className="avatar you-avatar">{avatarGlyph(me?.name || 'You', me?.avatar)}</div><div><strong>{me?.name || 'You'} <span>(you)</span></strong><small>{myTurn ? 'Your move' : view.status === 'finished' ? 'Round over' : 'Waiting for your turn'}</small></div>{myTurn && <span className="turn-clock"><Clock3 size={15} /> PLAY NOW</span>}</div>
       </section>
       {view.status === 'finished' ? (
         <section className="round-result">
           <div className="result-icon">{view.winner === session?.player_id ? <Crown size={26} /> : <Trophy size={26} />}</div>
-          <div><span className="small-label">ROUND COMPLETE</span><h2>{view.winner === session?.player_id ? 'You won the round!' : `${view.players.find(player => player.id === view.winner)?.name || 'A player'} won.`}</h2><p>The server records the result for registered players. The host can start a rematch when everyone is connected.</p>{Object.keys(view.final_scores || {}).length > 0 && <div className="final-scores">{view.players.map(player => <span key={player.id}><strong>{player.name}</strong> {view.final_scores[player.id]} pts</span>)}</div>}</div>
+          <div><span className="small-label">{view.match_winner ? 'MATCH COMPLETE' : `ROUND ${view.round_number} COMPLETE`}</span><h2>{view.match_winner ? `${championName} won the match!` : view.winner === session?.player_id ? 'You won the round!' : `${winnerName} won the round.`}</h2><p>{view.match_winner ? 'The best-of-three match is complete. The host can start a fresh match.' : 'First to two round wins takes the match. Remaining cards determine the points awarded.'}</p>{Object.keys(view.final_scores || {}).length > 0 && <div className="final-scores">{view.players.map(player => <span key={player.id}><strong>{player.name}</strong> {view.final_scores[player.id]} left · {view.round_wins[player.id] || 0} wins · {view.match_points[player.id] || 0} pts</span>)}</div>}</div>
           {view.host === session?.player_id && view.players.every(player => player.connected)
-            ? <button className="button button-green" onClick={() => send('rematch')}>Rematch <ArrowRight size={16} /></button>
+            ? <button className="button button-green" onClick={() => send('rematch')}>{view.match_winner ? 'New match' : 'Next round'} <ArrowRight size={16} /></button>
             : <Link to="/create" className="button button-green">New table <ArrowRight size={16} /></Link>}
         </section>
       ) : (
-        <section className="hand-panel">
-          <div className="hand-heading"><div><span className="small-label">YOUR HAND</span><strong className={view.hand.length === 1 ? 'last-card-label' : ''}>{view.hand.length === 1 ? 'LAST CARD' : `${view.hand.length} cards`}</strong></div><span className="hand-hint">{myTurn ? 'Choose a matching card or draw to pass' : 'Cards only you can see'}</span></div>
+        <section className={`hand-panel ${view.pending_draw > 0 && myTurn ? 'penalty-hand' : ''}`}>
+          <div className="hand-heading"><div><span className="small-label">YOUR HAND</span><strong className={view.hand.length === 1 ? 'last-card-label' : ''}>{view.hand.length === 1 ? 'LAST CARD' : `${view.hand.length} cards`}</strong></div>{me?.last_card_required ? <button type="button" className="last-card-button" onClick={() => send('declare_last')}><Sparkles size={15} /> LAST CARD!</button> : <span className="hand-hint">{myTurn ? view.pending_draw ? `Play another ${view.pending_penalty} or pick ${view.pending_draw}` : 'Choose a matching card or draw to pass' : 'Cards only you can see'}</span>}</div>
           <div className="hand-cards">{view.hand.map((card, index) => <CardFace key={card.id} card={card} playable={myTurn && isLegal(card)} selected={selectedWhot?.id === card.id} index={index} onClick={() => play(card)} />)}</div>
           {selectedWhot && <div className="shape-picker"><div><span className="small-label">WHOT 20</span><strong>Choose the next shape</strong></div><div className="shape-controls">{shapes.map(item => <button key={item} className={`shape-choice ${shape === item ? 'shape-choice-active' : ''}`} onClick={() => setShape(item)} aria-label={item}>{shapeGlyph[item]}<span>{item}</span></button>)}<button className="button button-lime" onClick={confirmWhot}><Check size={15} /> Play WHOT</button></div></div>}
         </section>
@@ -905,7 +924,23 @@ function Profile() {
       const result = await response.json() as User; setProfile(result); localStorage.setItem('whot.user', JSON.stringify(result))
     }).catch(error => setStatus(error instanceof Error ? error.message : 'Profile unavailable'))
   }, [])
-  return <><PageTitle eyebrow="PLAYER PROFILE" title={profile?.username || 'Your player card'} detail="Your account stats follow you from match to match." /><section className="profile-panel content-panel"><div className="profile-avatar">{profile?.username?.slice(0, 1).toUpperCase() || <UserRound size={34} />}</div><div className="profile-main"><span className="small-label">ARENA PLAYER</span><h2>{profile?.username || 'Guest player'}</h2><p>{profile?.email || 'Sign in to save your player profile and match statistics.'}</p><div className="profile-stats"><div><strong>{profile?.wins ?? '—'}</strong><span>Wins</span></div><div><strong>{profile?.matches_played ?? '—'}</strong><span>Matches played</span></div><div><strong>{profile && profile.matches_played ? `${Math.round(profile.wins / profile.matches_played * 100)}%` : '—'}</strong><span>Win rate</span></div></div></div>{!profile && <Link className="button button-green" to="/login">Sign in <ArrowRight size={15} /></Link>}</section>{status && <div className="info-banner"><Shield size={16} />{status}</div>}</>
+  async function saveCosmetics(field: 'theme' | 'card_back' | 'avatar', value: string) {
+    if (!profile) return
+    setStatus('Saving your Arena style…')
+    const payload = { theme: profile.selected_theme, card_back: profile.selected_card_back, avatar: profile.selected_avatar, [field]: value }
+    try {
+      const response = await fetch(`${API_URL}/api/profile/cosmetics`, { method: 'PUT', headers: { Authorization: `Bearer ${sessionStorage.getItem('whot.token')}`, 'content-type': 'application/json' }, body: JSON.stringify(payload) })
+      if (!response.ok) throw new Error((await response.json()).detail || 'Could not save cosmetics')
+      const result = await response.json() as User
+      setProfile(result); localStorage.setItem('whot.user', JSON.stringify(result)); setStatus('Arena style saved.')
+    } catch (reason) { setStatus(reason instanceof Error ? reason.message : 'Could not save cosmetics') }
+  }
+  const xpInLevel = (profile?.xp || 0) % 500
+  const achievementNames: Record<string, string> = { first_win: 'First Victory', hot_streak: 'Hot Streak', arena_regular: 'Arena Regular', level_five: 'Level Five' }
+  return <><PageTitle eyebrow="PLAYER PROGRESSION" title={profile?.username || 'Your player card'} detail="Play matches, earn XP, build streaks, and unlock your Arena style." />
+    <section className="profile-panel content-panel"><div className={`profile-avatar avatar-cosmetic-${profile?.selected_avatar || 'initial'}`}>{profile ? avatarGlyph(profile.username, profile.selected_avatar) : <UserRound size={34} />}</div><div className="profile-main"><span className="small-label">LEVEL {profile?.level || 1} ARENA PLAYER</span><h2>{profile?.username || 'Guest player'}</h2><p>{profile?.email || 'Sign in to save progression and unlock cosmetics.'}</p><div className="xp-track"><span style={{ width: `${xpInLevel / 5}%` }} /><small>{xpInLevel} / 500 XP to next level</small></div><div className="profile-stats"><div><strong>{profile?.wins ?? '—'}</strong><span>Wins</span></div><div><strong>{profile?.win_streak ?? '—'}</strong><span>Current streak</span></div><div><strong>{profile?.best_win_streak ?? '—'}</strong><span>Best streak</span></div><div><strong>{profile?.xp ?? '—'}</strong><span>Total XP</span></div></div></div>{!profile && <Link className="button button-green" to="/login">Sign in <ArrowRight size={15} /></Link>}</section>
+    {profile && <div className="progression-grid"><section className="content-panel achievement-panel"><span className="small-label">ACHIEVEMENTS</span><h2>Your trophy shelf</h2><div className="achievement-list">{Object.entries(achievementNames).map(([id, label]) => <span className={profile.achievements.includes(id) ? 'achievement-earned' : ''} key={id}><Trophy size={16} /><strong>{label}</strong><small>{profile.achievements.includes(id) ? 'Earned' : 'Locked'}</small></span>)}</div></section><section className="content-panel cosmetic-panel"><span className="small-label">UNLOCKABLE STYLE</span><h2>Equip your rewards</h2><label>Table theme<select value={profile.selected_theme} onChange={event => void saveCosmetics('theme', event.target.value)}>{profile.unlocked_themes.map(item => <option key={item}>{item}</option>)}</select></label><label>Card back<select value={profile.selected_card_back} onChange={event => void saveCosmetics('card_back', event.target.value)}>{profile.unlocked_card_backs.map(item => <option key={item}>{item}</option>)}</select></label><label>Avatar<select value={profile.selected_avatar} onChange={event => void saveCosmetics('avatar', event.target.value)}>{profile.unlocked_avatars.map(item => <option key={item}>{item}</option>)}</select></label><p>New rewards unlock at levels 2, 3, 4, and 5.</p></section></div>}
+    {status && <div className="info-banner"><Shield size={16} />{status}</div>}</>
 }
 
 function HistoryPage() {
@@ -951,7 +986,7 @@ const rules = [
   ['20', 'WHOT', 'Choose the next shape. WHOT can be played at any time.'],
 ]
 function HelpPage() {
-  return <><PageTitle eyebrow="HOW TO PLAY" title="Know the table." detail="These are WHOT Arena's chosen house rules, enforced by the game server." /><section className="rules-intro"><div><span className="small-label">THE OBJECT</span><h2>Be the first to play every card in your hand.</h2><p>Match the top card by shape or number, or draw one card and pass.</p></div><div className="rule-visual"><span className="rule-number">20</span><span>✦</span><small>WILD</small></div></section><div className="rules-grid">{rules.map(([number, title, description]) => <article className="rule-row" key={number}><span className={`rule-token tone-${shapeTone[number === '20' ? 'whot' : 'star']}`}>{number}</span><div><strong>{title}</strong><p>{description}</p></div><ChevronDown size={16} /></article>)}</div><div className="rules-note"><BookOpen size={17} /><div><strong>Penalty blocking</strong><p>Pick Two only stacks on Pick Two, while Pick Three only stacks on Pick Three. A player without the matching penalty card automatically picks the accumulated total and loses their turn. Special cards 1, 2, 5, 8, 14, and 20 cannot finish a round; playing one last makes you draw a replacement.</p></div></div><div className="help-actions"><Link className="button button-green" to="/create"><Gamepad2 size={16} /> Start a game</Link><Link className="text-link" to="/settings">Game settings <ArrowRight size={15} /></Link></div></>
+  return <><PageTitle eyebrow="HOW TO PLAY" title="Know the table." detail="These are WHOT Arena's chosen house rules, enforced by the game server." /><section className="rules-intro"><div><span className="small-label">THE OBJECT</span><h2>Be the first to play every card in your hand.</h2><p>Match the top card by shape or number, or draw one card and pass.</p></div><div className="rule-visual"><span className="rule-number">20</span><span>✦</span><small>WILD</small></div></section><div className="rules-grid">{rules.map(([number, title, description]) => <article className="rule-row" key={number}><span className={`rule-token tone-${shapeTone[number === '20' ? 'whot' : 'star']}`}>{number}</span><div><strong>{title}</strong><p>{description}</p></div><ChevronDown size={16} /></article>)}</div><div className="rules-note"><BookOpen size={17} /><div><strong>Penalty blocking and Last Card</strong><p>Pick Two only stacks on Pick Two, while Pick Three only stacks on Pick Three. A player without the matching penalty card picks the accumulated total and loses their turn. When you reach one card, press LAST CARD before the next game action or pick two cards. The CPU must declare too. Special cards 1, 2, 5, 8, 14, and 20 cannot finish a round.</p></div></div><div className="help-actions"><Link className="button button-green" to="/create"><Gamepad2 size={16} /> Start a game</Link><Link className="text-link" to="/settings">Game settings <ArrowRight size={15} /></Link></div></>
 }
 
 function LoadingScreen({ message, action = false }: { message: string; action?: boolean }) {

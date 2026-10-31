@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 
 from .auth import create_access_token, current_user, get_db, hash_password, verify_password
 from .database import MatchParticipant, MatchResult, User
-from .schemas import (AuthResponse, LoginRequest, MatchHistoryResponse,
+from .schemas import (AuthResponse, CosmeticsRequest, LoginRequest, MatchHistoryResponse,
                       PublicPlayerResponse, RegisterRequest, UserResponse)
 
 
@@ -41,6 +41,20 @@ def login(payload: LoginRequest, db: Session = Depends(get_db)):
 
 @router.get("/profile", response_model=UserResponse)
 def profile(user: User = Depends(current_user)):
+    return user
+
+
+@router.put("/profile/cosmetics", response_model=UserResponse)
+def update_cosmetics(payload: CosmeticsRequest, user: User = Depends(current_user),
+                     db: Session = Depends(get_db)):
+    if payload.theme not in user.unlocked_themes or payload.card_back not in user.unlocked_card_backs or payload.avatar not in user.unlocked_avatars:
+        raise HTTPException(status_code=403, detail="That cosmetic has not been unlocked")
+    user.selected_theme = payload.theme
+    user.selected_card_back = payload.card_back
+    user.selected_avatar = payload.avatar
+    db.add(user)
+    db.commit()
+    db.refresh(user)
     return user
 
 

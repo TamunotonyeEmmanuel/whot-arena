@@ -1,3 +1,5 @@
+import time
+
 from app.game import SHAPES, HouseRules, Room, Player
 
 def test_standard_nigerian_whot_deck_distribution():
@@ -30,6 +32,67 @@ def test_draw_advances():
     r = setup()
     r.draw("a")
     assert r.current().id == "b"
+
+def test_private_match_pauses_and_preserves_turn_time_for_reconnect():
+    r = setup()
+    r.turn_started = time.time() - 9
+    disconnected = r.players[1]
+    disconnected.connected = False
+    disconnected.disconnected_at = time.time()
+    r.pause_for_disconnect(disconnected)
+    paused = r.view("a")
+    assert paused["is_paused"] is True
+    assert 20 <= paused["turn_seconds_remaining"] <= 22
+    try:
+        r.draw("a")
+        assert False
+    except ValueError as error:
+        assert "paused" in str(error)
+
+    disconnected.connected = True
+    disconnected.disconnected_at = None
+    assert r.resume_after_disconnect() is True
+    resumed = r.view("a")
+    assert resumed["is_paused"] is False
+    assert 20 <= resumed["turn_seconds_remaining"] <= 22
+
+def test_public_match_does_not_pause_on_disconnect():
+    r = setup()
+    r.is_public = True
+    r.players[1].connected = False
+    r.pause_for_disconnect(r.players[1])
+    assert r.is_paused is False
+
+def test_private_host_can_pause_and_resume_with_turn_time_preserved():
+    r = setup()
+    r.turn_started = time.time() - 6
+    r.toggle_manual_pause("a")
+    assert r.is_paused
+    assert r.pause_reason == "manual"
+    assert r.paused_by == "Ada"
+    assert 23 <= r.view("a")["turn_seconds_remaining"] <= 25
+    try:
+        r.play("a", r.players[0].hand[0]["id"])
+        assert False
+    except ValueError as error:
+        assert "paused" in str(error)
+    r.toggle_manual_pause("a")
+    assert not r.is_paused
+    assert 23 <= r.view("a")["turn_seconds_remaining"] <= 25
+
+def test_guest_and_public_room_cannot_use_manual_pause():
+    r = setup()
+    try:
+        r.toggle_manual_pause("b")
+        assert False
+    except ValueError as error:
+        assert "host" in str(error)
+    r.is_public = True
+    try:
+        r.toggle_manual_pause("a")
+        assert False
+    except ValueError as error:
+        assert "Public" in str(error)
 
 def test_turn_timeout_draws_one_card_and_passes_even_with_a_playable_card():
     r = setup()
@@ -294,14 +357,40 @@ def test_last_card_wins_immediately():
     assert r.status == "finished"
     assert r.winner == "a"
 
-def test_reaching_one_card_announces_last_card():
+def test_reaching_one_card_requires_and_accepts_declaration():
     r = setup()
     r.discard = [{"shape": "circle", "number": 7, "id": "top"}]
     r.players[0].hand = [{"shape": "circle", "number": 3, "id": "play"},
                          {"shape": "star", "number": 3, "id": "last"}]
     r.play("a", "play")
     assert len(r.players[0].hand) == 1
-    assert "Ada has LAST CARD!" in r.last_action
+    assert r.players[0].last_card_required is True
+    assert "must declare LAST CARD" in r.last_action
+    r.declare_last_card("a")
+    assert r.players[0].last_card_required is False
+    assert "declared LAST CARD" in r.last_action
+
+def test_forgotten_last_card_declaration_draws_two_on_next_action():
+    r = setup()
+    r.discard = [{"shape": "circle", "number": 7, "id": "top"}]
+    r.players[0].hand = [{"shape": "circle", "number": 3, "id": "play"},
+                         {"shape": "star", "number": 3, "id": "last"}]
+    r.play("a", "play")
+    assert r.players[0].last_card_required
+    r.draw("b")
+    assert len(r.players[0].hand) == 3
+    assert r.players[0].last_card_required is False
+
+def test_computer_declares_last_card_automatically():
+    r = Room("BOT", "bot", [Player("bot", "Arena Bot", is_bot=True),
+                              Player("human", "Ada")])
+    r.start("bot")
+    r.discard = [{"shape": "circle", "number": 7, "id": "top"}]
+    r.players[0].hand = [{"shape": "circle", "number": 3, "id": "play"},
+                         {"shape": "star", "number": 3, "id": "last"}]
+    r.play("bot", "play")
+    assert r.players[0].last_card_required is False
+    assert "declared LAST CARD" in r.last_action
 
 def test_special_cards_cannot_be_played_as_the_winning_card():
     for number in (1, 2, 5, 8, 14, 20):
@@ -332,6 +421,32 @@ def test_rematch_is_host_only_and_resets_the_match():
     assert r.result_recorded is False
     assert r.voice_messages == []
     assert all(len(player.hand) == 5 for player in r.players)
+
+def test_best_of_three_tracks_round_wins_points_and_match_champion():
+    r = setup()
+    r.players[0].hand = []
+    r.players[1].hand = [{"shape": "star", "number": 5, "id": "ten-points"}]
+    r.finish_round("a")
+    assert r.round_wins == {"a": 1, "b": 0}
+    assert r.match_points == {"a": 10, "b": 0}
+    assert r.match_winner is None
+
+    r.rematch("a")
+    assert r.round_number == 2
+    r.players[0].hand = [{"shape": "circle", "number": 7, "id": "seven"}]
+    r.players[1].hand = []
+    r.finish_round("b")
+    assert r.round_wins == {"a": 1, "b": 1}
+    assert r.match_points == {"a": 10, "b": 7}
+
+    r.rematch("a")
+    assert r.round_number == 3
+    r.players[0].hand = []
+    r.players[1].hand = [{"shape": "circle", "number": 4, "id": "four"}]
+    r.finish_round("a")
+    assert r.round_wins == {"a": 2, "b": 1}
+    assert r.match_points == {"a": 14, "b": 7}
+    assert r.match_winner == "a"
 
     def test_voice_message_is_room_scoped_and_state_contains_metadata_only():
         r = Room("VOICE1", "a", [Player("a", "Ada"), Player("b", "Ben")],

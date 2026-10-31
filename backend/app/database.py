@@ -2,7 +2,7 @@ import os
 from contextlib import contextmanager
 from datetime import datetime, timezone
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, create_engine
+from sqlalchemy import DateTime, ForeignKey, Integer, String, create_engine, inspect, text
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship, sessionmaker
 
 
@@ -35,7 +35,34 @@ class User(Base):
     password_hash: Mapped[str] = mapped_column(String(255))
     matches_played: Mapped[int] = mapped_column(Integer, default=0)
     wins: Mapped[int] = mapped_column(Integer, default=0)
+    xp: Mapped[int] = mapped_column(Integer, default=0)
+    win_streak: Mapped[int] = mapped_column(Integer, default=0)
+    best_win_streak: Mapped[int] = mapped_column(Integer, default=0)
+    achievements: Mapped[str] = mapped_column(String(500), default="")
+    selected_theme: Mapped[str] = mapped_column(String(32), default="classic")
+    selected_card_back: Mapped[str] = mapped_column(String(32), default="classic")
+    selected_avatar: Mapped[str] = mapped_column(String(32), default="initial")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+    @property
+    def level(self):
+        return self.xp // 500 + 1
+
+    @property
+    def achievement_list(self):
+        return [item for item in self.achievements.split(",") if item]
+
+    @property
+    def unlocked_themes(self):
+        return ["classic"] + (["midnight"] if self.level >= 2 else []) + (["royal"] if self.level >= 4 else [])
+
+    @property
+    def unlocked_card_backs(self):
+        return ["classic"] + (["crimson"] if self.level >= 2 else []) + (["gold"] if self.level >= 5 else [])
+
+    @property
+    def unlocked_avatars(self):
+        return ["initial"] + (["crown"] if self.level >= 3 else []) + (["star"] if self.level >= 4 else [])
 
 
 class MatchResult(Base):
@@ -65,6 +92,20 @@ class MatchParticipant(Base):
 
 def init_database():
     Base.metadata.create_all(bind=engine)
+    existing = {column["name"] for column in inspect(engine).get_columns("users")}
+    additions = {
+        "xp": "INTEGER NOT NULL DEFAULT 0",
+        "win_streak": "INTEGER NOT NULL DEFAULT 0",
+        "best_win_streak": "INTEGER NOT NULL DEFAULT 0",
+        "achievements": "VARCHAR(500) NOT NULL DEFAULT ''",
+        "selected_theme": "VARCHAR(32) NOT NULL DEFAULT 'classic'",
+        "selected_card_back": "VARCHAR(32) NOT NULL DEFAULT 'classic'",
+        "selected_avatar": "VARCHAR(32) NOT NULL DEFAULT 'initial'",
+    }
+    with engine.begin() as connection:
+        for name, definition in additions.items():
+            if name not in existing:
+                connection.execute(text(f"ALTER TABLE users ADD COLUMN {name} {definition}"))
 
 
 @contextmanager

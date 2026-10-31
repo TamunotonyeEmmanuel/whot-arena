@@ -71,6 +71,7 @@ def test_completed_match_updates_registered_player_statistics():
         ])
         room.status = "finished"
         room.winner = "winner"
+        room.match_winner = "winner"
         record_match(room)
         record_match(room)
         profile = client.get("/api/profile", headers={
