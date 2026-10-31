@@ -339,63 +339,85 @@ const navItems = [
 ]
 
 
-function BackgroundMusic() {
+const RADIO_STATIONS = [
+  {
+    id: 'soundcity-ph',
+    name: 'Soundcity 96.5 FM — Port Harcourt',
+    url: 'https://streamingv2.shoutcast.com/soundcity-radio-port-harcourt-965',
+  },
+]
+
+function WhotArenaRadio() {
   const [playing, setPlaying] = useState(false)
-  const [error, setError] = useState(false)
+  const [volume, setVolume] = useState(() => {
+    const stored = Number(localStorage.getItem('whot.radio.volume') ?? '15')
+    return Number.isFinite(stored) ? Math.max(0, Math.min(100, stored)) : 15
+  })
+  const [error, setError] = useState('')
+  const [open, setOpen] = useState(false)
   const audioRef = useRef<HTMLAudioElement | null>(null)
-  const location = useLocation()
+  const station = RADIO_STATIONS[0]
 
   useEffect(() => {
-    const audio = new Audio('/audio/whot-background.mp3')
-    audio.loop = true
+    const audio = new Audio()
     audio.preload = 'none'
-    audio.volume = 0.12
+    audio.volume = volume / 100
     audioRef.current = audio
+    const onError = () => {
+      setPlaying(false)
+      setError('Soundcity stream is unavailable. Please try again later.')
+    }
+    const onPause = () => setPlaying(false)
+    const onPlay = () => setPlaying(true)
+    audio.addEventListener('error', onError)
+    audio.addEventListener('pause', onPause)
+    audio.addEventListener('play', onPlay)
     return () => {
       audio.pause()
       audio.removeAttribute('src')
       audio.load()
+      audio.removeEventListener('error', onError)
+      audio.removeEventListener('pause', onPause)
+      audio.removeEventListener('play', onPlay)
       audioRef.current = null
     }
   }, [])
 
   useEffect(() => {
-    // Keep music quieter during gameplay so it does not overpower conversation.
-    if (audioRef.current) audioRef.current.volume = location.pathname.startsWith('/game/') ? 0.05 : 0.12
-  }, [location.pathname])
+    if (audioRef.current) audioRef.current.volume = volume / 100
+    localStorage.setItem('whot.radio.volume', String(volume))
+  }, [volume])
 
-  async function toggleMusic() {
+  async function toggleRadio() {
     const audio = audioRef.current
     if (!audio) return
     if (!audio.paused) {
       audio.pause()
-      setPlaying(false)
       return
     }
+    setError('')
+    if (!audio.src) audio.src = station.url
     try {
       await audio.play()
-      setError(false)
-      setPlaying(true)
     } catch (reason) {
       setPlaying(false)
-      setError(true)
-      console.error('Background music could not play:', reason)
+      setError('Unable to play Soundcity. The stream may be offline or blocked by the browser.')
+      console.error('Soundcity radio playback failed:', reason)
     }
   }
 
   return (
-    <button
-      type="button"
-      onClick={() => void toggleMusic()}
-      aria-label={playing ? 'Turn background music off' : 'Turn background music on'}
-      aria-pressed={playing}
-      title={error ? 'Music unavailable. Check /audio/whot-background.mp3' : 'Toggle background music'}
-      style={{ position: 'fixed', right: 20, bottom: 20, zIndex: 1000,
-        padding: '12px 18px', borderRadius: 30, background: '#173c2b',
-        color: '#fff', border: '1px solid #d4af37', cursor: 'pointer', fontWeight: 600 }}
-    >
-      {error ? '♪ Music unavailable' : playing ? '♫ Music On' : '♪ Music Off'}
-    </button>
+    <div style={{ position: 'fixed', right: 16, bottom: 16, zIndex: 2000, maxWidth: 'calc(100vw - 32px)', color: '#fff', background: '#173c2b', border: '1px solid #d4af37', borderRadius: 16, padding: 12, boxShadow: '0 8px 28px #0005' }}>
+      <button type="button" onClick={() => setOpen(previous => !previous)} aria-expanded={open} aria-label="Toggle radio controls" style={{ color: 'inherit', background: 'transparent', border: 0, cursor: 'pointer', fontWeight: 700 }}>📻 WHOT Radio {playing ? '● LIVE' : '○ OFF'} {open ? '▾' : '▴'}</button>
+      {open && <div style={{ width: 235, maxWidth: '100%', paddingTop: 12 }}>
+        <div style={{ fontSize: 13, marginBottom: 10 }}>{station.name}</div>
+        <button type="button" onClick={() => void toggleRadio()} aria-pressed={playing} style={{ width: '100%', padding: 10, borderRadius: 8, background: '#d4af37', color: '#173c2b', border: 0, cursor: 'pointer', fontWeight: 700 }}>{playing ? '⏸ Pause Radio' : '▶ Play Radio'}</button>
+        <label style={{ display: 'block', fontSize: 12, marginTop: 10 }}>Volume: {volume}%
+          <input type="range" min="0" max="100" value={volume} onChange={event => setVolume(Number(event.target.value))} style={{ width: '100%' }} />
+        </label>
+        {error && <p role="alert" style={{ fontSize: 12, color: '#ffb4a8' }}>{error}</p>}
+      </div>}
+    </div>
   )
 }
 
@@ -1144,7 +1166,7 @@ function LaunchScreen({ onDone }: { onDone: () => void }) {
 function App() {
   const [launching, setLaunching] = useState(true)
   const finishLaunch = React.useCallback(() => setLaunching(false), [])
-  return <BrowserRouter><ArenaProvider><AppFrame /><BackgroundMusic />{launching && <LaunchScreen onDone={finishLaunch} />}</ArenaProvider></BrowserRouter>
+  return <BrowserRouter><ArenaProvider><AppFrame /><WhotArenaRadio />{launching && <LaunchScreen onDone={finishLaunch} />}</ArenaProvider></BrowserRouter>
 }
 
 export { App, CardFace, LiveVoicePanel, VoicePanel }
