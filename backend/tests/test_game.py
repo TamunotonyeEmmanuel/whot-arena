@@ -127,7 +127,7 @@ def test_whot_requires_valid_requested_shape():
     except ValueError as error:
         assert "valid shape" in str(error)
 
-def test_special_two_draws_and_skips_target():
+def test_special_two_gives_target_a_turn_before_penalty_is_taken():
     r = setup()
     r.discard = [{"shape": "circle", "number": 7, "id": "top"}]
     card = {"shape": "circle", "number": 2, "id": "two"}
@@ -135,10 +135,14 @@ def test_special_two_draws_and_skips_target():
     r.players[1].hand = [{"shape": "square", "number": 7, "id": "safe"}]
     before = len(r.players[1].hand)
     r.play("a", "two")
+    assert len(r.players[1].hand) == before
+    assert r.current().id == "b"
+    assert r.pending_draw == 2
+    r.draw("b")
     assert len(r.players[1].hand) == before + 2
     assert r.current().id == "a"
 
-def test_pick_three_draws_and_skips_target():
+def test_pick_three_gives_target_a_turn_before_penalty_is_taken():
     r = setup()
     r.discard = [{"shape": "circle", "number": 7, "id": "top"}]
     r.players[0].hand = [{"shape": "circle", "number": 5, "id": "three"},
@@ -146,6 +150,10 @@ def test_pick_three_draws_and_skips_target():
     r.players[1].hand = [{"shape": "square", "number": 7, "id": "safe"}]
     before = len(r.players[1].hand)
     r.play("a", "three")
+    assert len(r.players[1].hand) == before
+    assert r.current().id == "b"
+    assert r.pending_draw == 3
+    r.draw("b")
     assert len(r.players[1].hand) == before + 3
     assert r.current().id == "a"
 
@@ -175,6 +183,11 @@ def test_penalty_can_only_stack_with_the_same_card_then_draw_total_and_skip():
         assert str(error) == "Invalid card"
 
     r.play("b", "second-two")
+    assert r.pending_draw == 4
+    assert r.pending_penalty == 2
+    assert len(r.players[2].hand) == before
+    assert r.current().id == "c"
+    r.draw("c")
     assert r.pending_draw == 0
     assert r.pending_penalty is None
     assert len(r.players[2].hand) == before + 4
@@ -239,6 +252,8 @@ def test_house_rules_can_configure_deal_and_penalties():
     r.players[1].hand = [{"shape": "square", "number": 7, "id": "safe"}]
     before = len(r.players[1].hand)
     r.play("a", "two")
+    assert r.pending_draw == 4
+    r.draw("b")
     assert len(r.players[1].hand) == before + 4
 
 def test_hold_on_keeps_the_current_turn():

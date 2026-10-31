@@ -239,12 +239,6 @@ class Room:
             return
         self._advance()
 
-    def _resolve_unblockable_penalty(self):
-        if (self.status == "playing" and self.pending_draw
-                and not any(card["number"] == self.pending_penalty
-                            for card in self.current().hand)):
-            self._take_pending_penalty(self.current(), preserve_action=True)
-
     def play(self, pid, card_id, shape=None):
         if self.status != "playing" or self.current().id != pid:
             raise ValueError("Not your turn")
@@ -281,7 +275,6 @@ class Room:
             self.pending_draw += required
             self.last_action += f" — pick total is now {self.pending_draw}"
             self._advance()
-            self._resolve_unblockable_penalty()
         elif n == 8:
             self._advance(2)
         elif n == 14:
