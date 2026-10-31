@@ -10,7 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from .game import TURN_SECONDS, VOICE_MAX_BYTES, Room, Player
 from .accounts import router as accounts_router
 from .auth import token_user_id
-from .database import MatchParticipant, MatchResult, User, database_session, init_database
+from .database import ArenaTreasury, MatchParticipant, MatchResult, User, database_session, init_database
 
 rooms = {}
 connections = {}  # player id -> websocket
@@ -21,6 +21,9 @@ FINISHED_IDLE_SECONDS = 5 * 60
 state_lock = asyncio.Lock()
 computer_tasks = {}
 COMPUTER_MOVE_DELAY_SECONDS = 4
+WAGER_ADMIN_PERCENT = 10
+MINIMUM_WAGER = 10
+MAXIMUM_WAGER = 1_000_000
 
 def message_user_id(msg):
     token = msg.get("access_token")
@@ -46,11 +49,11 @@ def lock_room_wager(room):
         return
     humans = [player for player in room.players if not player.is_bot]
     if any(not player.user_id for player in humans):
-        raise ValueError("All players must sign in for an Arena Coins match")
+        raise ValueError("All players must sign in for a Virtual Naira match")
     with database_session() as db:
         users = {player.id: db.get(User, player.user_id) for player in humans}
         if any(not user or user.arena_coins < room.wager for user in users.values()):
-            raise ValueError("A player does not have enough Arena Coins for this stake")
+            raise ValueError("A player does not have enough Virtual Naira for this stake")
         for player in humans:
             user = users[player.id]
             user.arena_coins -= room.wager
@@ -135,8 +138,14 @@ def record_match(room):
             winner_user = db.get(User, winner.user_id)
             if winner_user:
                 pot = room.wager * len([player for player in room.players if not player.is_bot])
-                winner_user.arena_coins += pot
+                admin_fee = pot * WAGER_ADMIN_PERCENT // 100
+                winner_user.arena_coins += pot - admin_fee
                 winner.coin_balance = winner_user.arena_coins
+                treasury = db.get(ArenaTreasury, 1)
+                if treasury is None:
+                    treasury = ArenaTreasury(id=1, virtual_naira_balance=0)
+                    db.add(treasury)
+                treasury.virtual_naira_balance += admin_fee
                 room.wager_paid = True
                 room.wager_locked = False
         match = MatchResult(room_code=room.code,
@@ -243,16 +252,16 @@ async def ws_endpoint(ws: WebSocket):
                     name = str(msg.get("name", "Guest")).strip()[:20] or "Guest"
                     user_id = message_user_id(msg)
                     wager = int(msg.get("wager", 0) or 0) if action == "create" else 0
-                    if wager not in {0, 10, 25, 50, 100}:
-                        raise ValueError("Invalid Arena Coins stake")
+                    if wager < 0 or wager > MAXIMUM_WAGER or (wager and wager < MINIMUM_WAGER):
+                        raise ValueError(f"Stake must be free or between ₦{MINIMUM_WAGER:,} and ₦{MAXIMUM_WAGER:,}")
                     if wager and not user_id:
-                        raise ValueError("Sign in to create an Arena Coins table")
+                        raise ValueError("Sign in to create a Virtual Naira table")
                     pid = secrets.token_urlsafe(18)
                     async with state_lock:
                         code = new_room_code()
                         player = make_player(pid, name, user_id)
                         if wager and player.coin_balance < wager:
-                            raise ValueError("You do not have enough Arena Coins for this stake")
+                            raise ValueError("You do not have enough Virtual Naira for this stake")
                         room = Room(code=code, host=pid, players=[player], wager=wager)
                         if action == "computer":
                             room.add_player(Player("bot-" + secrets.token_urlsafe(8),
@@ -300,7 +309,7 @@ async def ws_endpoint(ws: WebSocket):
                         user_id = message_user_id(msg)
                         player = make_player(pid, str(msg.get("name", "Guest")).strip()[:20] or "Guest", user_id)
                         if room.wager and (not user_id or player.coin_balance < room.wager):
-                            raise ValueError("Sign in with enough Arena Coins to join this table")
+                            raise ValueError("Sign in with enough Virtual Naira to join this table")
                         room.add_player(player)
                         connections[pid] = ws
                     await send(ws, {"type": "session", "player_id": pid, "code": code,

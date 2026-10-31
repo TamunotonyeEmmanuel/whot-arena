@@ -4,8 +4,9 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from .auth import create_access_token, current_user, get_db, hash_password, verify_password
-from .database import MatchParticipant, MatchResult, User
-from .schemas import (AuthResponse, CosmeticsRequest, LoginRequest, MatchHistoryResponse,
+from .database import DirectMessage, MatchParticipant, MatchResult, User
+from .schemas import (AuthResponse, CosmeticsRequest, DirectMessageCreate,
+                      DirectMessageResponse, LoginRequest, MatchHistoryResponse,
                       PublicPlayerResponse, RegisterRequest, UserResponse)
 
 
@@ -83,3 +84,54 @@ def match_history(limit: int = 20, user: User = Depends(current_user),
         "player_count": match.player_count,
         "completed_at": match.completed_at,
     } for match in matches]
+
+
+@router.get("/players/search", response_model=list[PublicPlayerResponse])
+def search_players(q: str, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    query = q.strip()
+    if len(query) < 2:
+        return []
+    return list(db.scalars(
+        select(User).where(User.id != user.id, User.username.ilike(f"%{query}%"))
+        .order_by(User.username.asc()).limit(10)
+    ))
+
+
+def direct_message_payload(message: DirectMessage, db: Session):
+    sender = db.get(User, message.sender_id)
+    recipient = db.get(User, message.recipient_id)
+    return {"id": message.id, "sender_username": sender.username,
+            "recipient_username": recipient.username, "text": message.text,
+            "sent_at": message.sent_at}
+
+
+@router.get("/messages", response_model=list[DirectMessageResponse])
+def direct_messages(limit: int = 100, user: User = Depends(current_user),
+                    db: Session = Depends(get_db)):
+    limit = max(1, min(limit, 200))
+    messages = list(db.scalars(
+        select(DirectMessage)
+        .where(or_(DirectMessage.sender_id == user.id,
+                   DirectMessage.recipient_id == user.id))
+        .order_by(DirectMessage.sent_at.desc()).limit(limit)
+    ))
+    return [direct_message_payload(message, db) for message in reversed(messages)]
+
+
+@router.post("/messages", response_model=DirectMessageResponse, status_code=status.HTTP_201_CREATED)
+def send_direct_message(payload: DirectMessageCreate, user: User = Depends(current_user),
+                        db: Session = Depends(get_db)):
+    recipient = db.scalar(select(User).where(
+        User.username.ilike(payload.recipient_username.strip())))
+    if not recipient:
+        raise HTTPException(status_code=404, detail="Player username not found")
+    if recipient.id == user.id:
+        raise HTTPException(status_code=400, detail="Choose another player")
+    text_value = payload.text.strip()
+    if not text_value:
+        raise HTTPException(status_code=400, detail="Message cannot be empty")
+    message = DirectMessage(sender_id=user.id, recipient_id=recipient.id, text=text_value)
+    db.add(message)
+    db.commit()
+    db.refresh(message)
+    return direct_message_payload(message, db)

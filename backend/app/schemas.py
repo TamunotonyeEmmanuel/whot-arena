@@ -61,6 +61,19 @@ class MatchHistoryResponse(BaseModel):
     completed_at: datetime
 
 
+class DirectMessageCreate(BaseModel):
+    recipient_username: str = Field(min_length=3, max_length=24)
+    text: str = Field(min_length=1, max_length=500)
+
+
+class DirectMessageResponse(BaseModel):
+    id: int
+    sender_username: str
+    recipient_username: str
+    text: str
+    sent_at: datetime
+
+
 class AuthResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"

@@ -35,7 +35,7 @@ class User(Base):
     password_hash: Mapped[str] = mapped_column(String(255))
     matches_played: Mapped[int] = mapped_column(Integer, default=0)
     wins: Mapped[int] = mapped_column(Integer, default=0)
-    arena_coins: Mapped[int] = mapped_column(Integer, default=1000)
+    arena_coins: Mapped[int] = mapped_column(Integer, default=10_000)
     xp: Mapped[int] = mapped_column(Integer, default=0)
     win_streak: Mapped[int] = mapped_column(Integer, default=0)
     best_win_streak: Mapped[int] = mapped_column(Integer, default=0)
@@ -91,12 +91,36 @@ class MatchParticipant(Base):
     user: Mapped[User] = relationship()
 
 
+class DirectMessage(Base):
+    __tablename__ = "direct_messages"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    sender_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    recipient_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    text: Mapped[str] = mapped_column(String(500))
+    sent_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
+
+
+class ArenaTreasury(Base):
+    __tablename__ = "arena_treasury"
+
+    id: Mapped[int] = mapped_column(primary_key=True, default=1)
+    virtual_naira_balance: Mapped[int] = mapped_column(Integer, default=0)
+
+
+class DataMigration(Base):
+    __tablename__ = "data_migrations"
+
+    name: Mapped[str] = mapped_column(String(100), primary_key=True)
+    applied_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
 def init_database():
     Base.metadata.create_all(bind=engine)
     existing = {column["name"] for column in inspect(engine).get_columns("users")}
     additions = {
         "xp": "INTEGER NOT NULL DEFAULT 0",
-        "arena_coins": "INTEGER NOT NULL DEFAULT 1000",
+        "arena_coins": "INTEGER NOT NULL DEFAULT 10000",
         "win_streak": "INTEGER NOT NULL DEFAULT 0",
         "best_win_streak": "INTEGER NOT NULL DEFAULT 0",
         "achievements": "VARCHAR(500) NOT NULL DEFAULT ''",
@@ -108,6 +132,17 @@ def init_database():
         for name, definition in additions.items():
             if name not in existing:
                 connection.execute(text(f"ALTER TABLE users ADD COLUMN {name} {definition}"))
+        starting_balance_migration = "set_existing_users_starting_balance_10000"
+        already_applied = connection.execute(
+            text("SELECT name FROM data_migrations WHERE name = :name"),
+            {"name": starting_balance_migration},
+        ).first()
+        if not already_applied:
+            connection.execute(text("UPDATE users SET arena_coins = 10000"))
+            connection.execute(
+                text("INSERT INTO data_migrations (name, applied_at) VALUES (:name, :applied_at)"),
+                {"name": starting_balance_migration, "applied_at": utcnow()},
+            )
 
 
 @contextmanager

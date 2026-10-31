@@ -2,7 +2,7 @@ import React, { createContext, useContext, useEffect, useRef, useState } from 'r
 import { createPortal } from 'react-dom'
 import { createRoot } from 'react-dom/client'
 import { BrowserRouter, Link, NavLink, Navigate, Route, Routes, useLocation, useNavigate, useParams } from 'react-router-dom'
-import { ArrowLeft, ArrowRight, BatteryFull, BookOpen, Check, ChevronDown, CircleHelp, Clock3, Crown, DoorOpen, Gamepad2, History, Home, LogIn, LogOut, Menu, MessageCircle, Mic, MicOff, Moon, Pause, Play, Plus, Radio, Settings, Share2, Shield, Signal, Sparkles, Sun, Trophy, UserRound, Users, Volume2, Wifi, X } from 'lucide-react'
+import { ArrowLeft, ArrowRight, BatteryFull, BookOpen, Check, ChevronDown, CircleHelp, Clock3, Crown, DoorOpen, Gamepad2, History, Home, LogIn, LogOut, Menu, MessageCircle, Mic, MicOff, Moon, Pause, Play, Plus, Radio, Settings, Share2, Shield, Signal, Sparkles, Sun, Trophy, UserRound, Users, Volume2, Wallet, Wifi, X } from 'lucide-react'
 import './styles.css'
 import { gameSoundsEnabled, playGameSound, primeGameAudio, setGameSoundsEnabled } from './audio'
 
@@ -10,6 +10,8 @@ type Card = { id: string; shape: string; number: number }
 type Player = { id: string; name: string; count: number; connected: boolean; voice_ready?: boolean; voice_speaking?: boolean; reaction?: string | null; reaction_at?: number | null; coin_balance?: number; is_bot?: boolean; last_card_required?: boolean; table_theme?: string; card_back?: string; avatar?: string }
 type VoiceMessage = { id: string; player_id: string; name: string; content_type: string; size: number; sent_at: number }
 type ChatMessage = { id: string; player_id: string; name: string; text: string; sent_at: number }
+type DirectMessage = { id: number; sender_username: string; recipient_username: string; text: string; sent_at: string }
+type PlayerSearchResult = { id: number; username: string; wins: number; matches_played: number }
 type RtcSignal = { id: string; from: string; signal: { type: 'offer' | 'answer' | 'ice'; sdp?: RTCSessionDescriptionInit; candidate?: RTCIceCandidateInit } }
 type LiveAudioPacket = { id: string; from: string; audio: string }
 type RoomView = {
@@ -31,7 +33,7 @@ type RoomView = {
   pause_seconds_remaining: number
   voice_messages: VoiceMessage[]
   chat_messages: ChatMessage[]
-  wager: number; wager_locked: boolean; wager_pot: number
+  wager: number; wager_locked: boolean; wager_pot: number; wager_admin_fee: number; wager_winner_payout: number
   is_public: boolean; rules: { cards_per_player: number; pick_two: number; pick_three: number; general_market: number; penalty_stacking: boolean }
 }
 type Session = { player_id: string; code: string; reconnect_token: string }
@@ -456,12 +458,12 @@ function AppFrame() {
       </nav>
       <div className="sidebar-bottom">
         <div className="connection-state"><span className={`status-dot ${connected ? 'online' : ''}`} />{connected ? 'Game server connected' : 'Game server offline'}</div>
-        {user ? <div className="account-mini"><div className="avatar avatar-small">{user.username.slice(0, 1).toUpperCase()}</div><div className="account-copy"><strong>{user.username}</strong><span>Player account</span></div><button className="icon-button" title="Sign out" onClick={signOut}><LogOut size={17} /></button></div> : <Link className="side-signin" to="/login"><LogIn size={16} /> Sign in to your account</Link>}
+        {user ? <div className="account-mini"><div className="avatar avatar-small">{user.username.slice(0, 1).toUpperCase()}</div><div className="account-copy"><strong>{user.username}</strong><span className="account-coins">₦{user.arena_coins.toLocaleString()} virtual</span></div><button className="icon-button" title="Sign out" onClick={signOut}><LogOut size={17} /></button></div> : <Link className="side-signin" to="/login"><LogIn size={16} /> Sign in to your account</Link>}
       </div>
     </aside>
     {menuOpen && <button className="mobile-scrim" aria-label="Close navigation" onClick={() => setMenuOpen(false)} />}
     <div className="main-column">
-      <header className="topbar"><button className="icon-button mobile-menu" onClick={() => setMenuOpen(!menuOpen)} aria-label="Open menu">{menuOpen ? <X size={20} /> : <Menu size={20} />}</button><div className="crumb">{location.pathname === '/' ? 'Welcome to the arena' : location.pathname.split('/')[1]?.replace('-', ' ')}</div><div className="top-actions"><span className="server-pill"><span className={`status-dot ${connected ? 'online' : ''}`} />{connected ? 'LIVE' : 'READY'}</span><button type="button" className="icon-button theme-toggle" onClick={() => applyColorTheme(theme === 'dark' ? 'light' : 'dark')} aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`} title={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}>{theme === 'dark' ? <Sun size={17} /> : <Moon size={17} />}</button><Link className="top-avatar" to={user ? '/profile' : '/login'} aria-label="Open profile">{user ? user.username.slice(0, 1).toUpperCase() : <UserRound size={17} />}</Link></div></header>
+      <header className="topbar"><button className="icon-button mobile-menu" onClick={() => setMenuOpen(!menuOpen)} aria-label="Open menu">{menuOpen ? <X size={20} /> : <Menu size={20} />}</button><div className="crumb">{location.pathname === '/' ? 'Welcome to the arena' : location.pathname.split('/')[1]?.replace('-', ' ')}</div><div className="top-actions">{user && <Link to="/profile" className="top-coin-balance" aria-label={`${user.arena_coins} Virtual Naira`}>₦ <strong>{user.arena_coins.toLocaleString()}</strong></Link>}<span className="server-pill"><span className={`status-dot ${connected ? 'online' : ''}`} />{connected ? 'LIVE' : 'READY'}</span><button type="button" className="icon-button theme-toggle" onClick={() => applyColorTheme(theme === 'dark' ? 'light' : 'dark')} aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`} title={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}>{theme === 'dark' ? <Sun size={17} /> : <Moon size={17} />}</button><Link className="top-avatar" to={user ? '/profile' : '/login'} aria-label="Open profile">{user ? user.username.slice(0, 1).toUpperCase() : <UserRound size={17} />}</Link></div></header>
       {!session && savedSession && <div className="saved-room-bar"><span><Radio size={15} /><strong>Unfinished table {savedSession.code}</strong></span><button type="button" className="button button-lime" onClick={() => void resumePreviousTable()}>Resume table <ArrowRight size={15} /></button></div>}
       {error && <div role="alert" className="toast-error"><span>{error}</span><button aria-label="Dismiss" onClick={clearError}><X size={16} /></button></div>}
       <main className="page-content"><Routes>
@@ -480,6 +482,7 @@ function AppFrame() {
         <Route path="/help" element={<HelpPage />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes></main>
+      {(user || (session && view)) && <VoicePanel messages={view?.voice_messages || []} chatMessages={view?.chat_messages || []} playerId={session?.player_id || ''} enabled={view?.status === 'playing'} players={view?.players || (user ? [{ id: 'account', name: user.username, count: 0, connected: true }] : [])} balance={view?.players.find(player => player.id === session?.player_id)?.coin_balance || user?.arena_coins || 0} wager={view?.wager || 0} pot={view?.wager_pot || 0} username={user?.username} />}
       {session && <Link to={view?.status === 'lobby' ? `/lobby/${session.code}` : `/game/${session.code}`} className="room-chip" title="Continue your open table"><Radio size={14} /> Continue room {session.code}<span className={`status-dot ${connected ? 'online' : ''}`} /></Link>}
     </div>
   </div>
@@ -513,7 +516,7 @@ function Dashboard() {
   }, [user?.id])
   const resumePath = session && view?.status !== 'lobby' ? `/game/${session.code}` : session ? `/lobby/${session.code}` : '/create'
   return <><PageTitle eyebrow="PLAYER DASHBOARD" title={`Good to see you${user ? `, ${user.username}` : ''}.`} detail="Pick up a game or see how you stack up." action={<Link className="button button-lime" to="/create"><Plus size={17} /> New game</Link>} />
-    <div className="stats-row"><Stat icon={<Trophy />} label="Wins" value={profile?.wins ?? '—'} tone="gold" /><Stat icon={<Gamepad2 />} label="Games played" value={profile?.matches_played ?? '—'} tone="green" /><Stat icon={<Radio />} label="Room status" value={session ? 'In room' : 'Ready'} tone="coral" /></div>
+    <div className="stats-row"><Stat icon={<Trophy />} label="Wins" value={profile?.wins ?? '—'} tone="gold" /><Stat icon={<Gamepad2 />} label="Games played" value={profile?.matches_played ?? '—'} tone="green" /><Stat icon={<Sparkles />} label="Virtual Naira" value={profile ? `₦${profile.arena_coins.toLocaleString()}` : '—'} tone="gold" /><Stat icon={<Radio />} label="Room status" value={session ? 'In room' : 'Ready'} tone="coral" /></div>
     {session && <section className="open-table-banner content-panel"><div className="open-table-icon"><Radio size={19} /></div><div><span className="small-label">OPEN TABLE · {session.code}</span><h2>{connected && view ? 'Your table is ready to resume.' : 'Reconnecting to your table…'}</h2><p>{connected && view ? 'Continue from where you left off.' : 'Wait for the connection, or close this saved table session.'}</p></div><div className="open-table-actions"><Link className="button button-green" to={resumePath}><Gamepad2 size={16} /> Resume table</Link><button type="button" className="button button-outline" onClick={() => { leaveRoom(); navigate('/create') }}>Close open table</button></div></section>}
     <div className="dashboard-grid"><section className="content-panel feature-panel"><div className="panel-topline"><span className="small-label">YOUR NEXT GAME</span><span className="status-tag"><span className="status-dot online" /> OPEN</span></div><h2>Make the first move.</h2><p>Create a private table, invite up to three friends, and let the cards decide.</p><div className="panel-actions"><Link className="button button-green" to="/create"><Plus size={17} /> Create a room</Link><Link className="text-link" to="/join">Join with a code <ArrowRight size={15} /></Link></div><div className="panel-mark">W</div></section><section className="content-panel rank-panel"><div className="panel-topline"><span className="small-label">THE ARENA</span><Trophy size={18} /></div><h3>Play. Win. Climb.</h3><p>Rankings update after completed matches with registered players.</p><Link className="text-link" to="/leaderboard">View leaderboard <ArrowRight size={15} /></Link><div className="rank-decoration"><span /><span /><span /><span /><span /></div></section></div>
     <div className="section-heading"><div><span className="small-label">KEEP EXPLORING</span><h2>Make yourself at home</h2></div></div><div className="quick-grid"><Link to="/help" className="quick-action"><span className="quick-icon green"><BookOpen size={19} /></span><span><strong>Rules at a glance</strong><small>Learn the Arena's house rules</small></span><ArrowRight size={17} /></Link><Link to="/profile" className="quick-action"><span className="quick-icon coral"><UserRound size={19} /></span><span><strong>Your player profile</strong><small>Account and match statistics</small></span><ArrowRight size={17} /></Link><Link to="/settings" className="quick-action"><span className="quick-icon gold"><Settings size={19} /></span><span><strong>Game settings</strong><small>Set your name and preferences</small></span><ArrowRight size={17} /></Link></div>
@@ -545,12 +548,13 @@ function CreateRoom() {
   const [roomError, setRoomError] = useState('')
   const [loadingLabel, setLoadingLabel] = useState('')
   const [wager, setWager] = useState(0)
+  const [playMode, setPlayMode] = useState<'free' | 'stake'>('free')
   async function create(action: 'create' | 'quick_match' | 'computer') {
     setRoomError('')
     setLoadingLabel(action === 'create' ? 'OPENING YOUR TABLE' : action === 'computer' ? 'DEALING AGAINST THE COMPUTER' : 'FINDING YOUR MATCH')
     try {
       const [next] = await Promise.all([
-        connectRoom(action, { name: name.trim() || 'Guest', ...(action === 'create' ? { wager } : {}) }),
+        connectRoom(action, { name: name.trim() || 'Guest', ...(action === 'create' ? { wager: playMode === 'stake' ? wager : 0 } : {}) }),
         new Promise(resolve => window.setTimeout(resolve, 1200)),
       ])
       navigate(action === 'computer' ? `/game/${next.code}` : `/lobby/${next.code}`)
@@ -561,7 +565,7 @@ function CreateRoom() {
   }
   return <><PageTitle eyebrow="FIND YOUR TABLE" title="Let's play." detail="Play the computer, set up a private room, or find a quick match." /><div className="setup-layout setup-layout-three">
     <section className="content-panel setup-panel computer-match-panel"><span className="setup-number">01</span><span className="small-label">SOLO MATCH</span><h2>Challenge the computer.</h2><p>Jump straight into a two-player round against Arena Bot. No room code or waiting required.</p><label className="field-label">Your table name<input value={name} maxLength={20} onChange={event => setName(event.target.value)} onBlur={() => localStorage.setItem('whot.nickname', name)} placeholder="Choose a nickname" /></label><button disabled={busy} onClick={() => void create('computer')} className="button button-green full-button"><Gamepad2 size={17} /> {busy ? 'Dealing cards…' : 'Play vs computer'}</button></section>
-    <section className="content-panel setup-panel"><span className="setup-number">02</span><span className="small-label">PRIVATE ROOM</span><h2>Bring your own crew.</h2><p>Create a free table or optionally stake virtual Arena Coins. Wager tables require signed-in players.</p><label className="field-label">Arena Coins stake<select value={wager} onChange={event => setWager(Number(event.target.value))} disabled={!user}>{[0, 10, 25, 50, 100].map(value => <option value={value} key={value}>{value === 0 ? 'Free match' : `${value} coins each`}</option>)}</select></label>{user ? <div className="coin-balance">◉ {user.arena_coins} Arena Coins available</div> : <Link className="text-link" to="/login">Sign in to enable coin stakes <ArrowRight size={14} /></Link>}<button disabled={busy || wager > (user?.arena_coins || 0)} onClick={() => void create('create')} className="button button-green full-button"><Plus size={17} /> {busy ? 'Opening table…' : wager ? `Create · Stake ${wager}` : 'Create private room'}</button></section>
+    <section className="content-panel setup-panel"><span className="setup-number">02</span><span className="small-label">PRIVATE ROOM</span><h2>Bring your own crew.</h2><p>Choose a free match or set your own Virtual Naira stake.</p><div className="play-mode-choice"><button type="button" className={playMode === 'free' ? 'active' : ''} onClick={() => setPlayMode('free')}>Play free</button><button type="button" className={playMode === 'stake' ? 'active' : ''} onClick={() => setPlayMode('stake')} disabled={!user}>Play with Virtual Naira</button></div>{playMode === 'stake' && <label className="field-label">Stake per player<input type="number" min="10" max={user?.arena_coins || 1000000} step="1" value={wager || ''} onChange={event => setWager(Math.max(0, Number(event.target.value)))} placeholder="Enter amount, e.g. 500" /></label>}{user ? <div className="coin-balance">₦{user.arena_coins.toLocaleString()} available{playMode === 'stake' && wager > 0 ? ' · 90% winner payout' : ''}</div> : <Link className="text-link" to="/login">Sign in to enable Virtual Naira stakes <ArrowRight size={14} /></Link>}{playMode === 'stake' && <small className="stake-fee-note">A 10% admin fee is deducted from the total pot when the match ends.</small>}<button disabled={busy || (playMode === 'stake' && (wager < 10 || wager > (user?.arena_coins || 0)))} onClick={() => void create('create')} className="button button-green full-button"><Plus size={17} /> {busy ? 'Opening table…' : playMode === 'stake' ? `Create · Stake ₦${wager.toLocaleString()}` : 'Create free room'}</button></section>
     <section className="content-panel setup-panel quick-match-panel"><span className="setup-number">03</span><span className="small-label">QUICK MATCH</span><h2>Meet at the table.</h2><p>Pair up with the next player who joins quick match.</p><div className="quick-match-meta"><span><Users size={15} /> 2–4 players</span><span><Clock3 size={15} /> Usually under a minute</span></div><button disabled={busy} onClick={() => void create('quick_match')} className="button button-lime full-button"><Sparkles size={17} /> {busy ? 'Finding players…' : 'Find a quick match'}</button></section>
   </div>{roomError && <div role="alert" className="form-error form-error-block">{roomError}</div>}<div className="house-rule-callout"><Shield size={17} /><span><strong>Fair play is server-side.</strong> The game server deals cards, checks moves, and decides the winner.</span><Link to="/help">Rules <ArrowRight size={14} /></Link></div>{loadingLabel && <LoadingScreen message={loadingLabel} action />}</>
 }
@@ -608,9 +612,9 @@ function Lobby() {
       window.setTimeout(() => setInviteShared(false), 2200)
     } catch { /* Sharing can be cancelled by the player. */ }
   }
-  return <><PageTitle eyebrow={view.is_public ? 'QUICK MATCH LOBBY' : 'PRIVATE ROOM'} title="The table is set." detail="Share your code and wait for everyone to join." action={<button type="button" className="button button-outline" onClick={() => { leaveRoom(); navigate('/dashboard') }}><ArrowLeft size={16} /> Leave table</button>} /><section className="lobby-room content-panel"><div className="lobby-code"><div><span className="small-label">ROOM CODE</span><strong>{view.code}</strong></div><div className="lobby-invite-actions"><button className="button button-outline" onClick={() => void navigator.clipboard?.writeText(view.code)}><Check size={15} /> Copy code</button><button className="button button-green" onClick={() => void shareInvite()}><Share2 size={15} /> {inviteShared ? 'Link shared' : 'Invite players'}</button></div></div>{view.wager > 0 && <div className="wager-banner"><span>◉ ARENA COINS MATCH</span><strong>{view.wager} coins per player · {view.wager_pot} current pot</strong><small>Coins lock when the host starts. The best-of-three champion wins the pot.</small></div>}<div className="lobby-divider" /><div className="lobby-player-heading"><span className="small-label">PLAYERS</span><span>{view.players.length} / 4 seats</span></div><div className="player-list">{Array.from({ length: 4 }, (_, index) => {
+  return <><PageTitle eyebrow={view.is_public ? 'QUICK MATCH LOBBY' : 'PRIVATE ROOM'} title="The table is set." detail="Share your code and wait for everyone to join." action={<button type="button" className="button button-outline" onClick={() => { leaveRoom(); navigate('/dashboard') }}><ArrowLeft size={16} /> Leave table</button>} /><section className="lobby-room content-panel"><div className="lobby-code"><div><span className="small-label">ROOM CODE</span><strong>{view.code}</strong></div><div className="lobby-invite-actions"><button className="button button-outline" onClick={() => void navigator.clipboard?.writeText(view.code)}><Check size={15} /> Copy code</button><button className="button button-green" onClick={() => void shareInvite()}><Share2 size={15} /> {inviteShared ? 'Link shared' : 'Invite players'}</button></div></div>{view.wager > 0 && <div className="wager-banner"><span>₦ VIRTUAL NAIRA MATCH</span><strong>₦{view.wager.toLocaleString()} per player · ₦{view.wager_pot.toLocaleString()} current pot</strong><small>Virtual Naira locks when the host starts. The best-of-three champion wins the pot.</small></div>}<div className="lobby-divider" /><div className="lobby-player-heading"><span className="small-label">PLAYERS</span><span>{view.players.length} / 4 seats</span></div><div className="player-list">{Array.from({ length: 4 }, (_, index) => {
     const player = view.players[index]
-    return player ? <div className="lobby-player" key={player.id}><div className={`avatar ${player.id === view.host ? 'host-avatar' : ''}`}>{player.name.slice(0, 1).toUpperCase()}</div><div className="player-copy"><strong>{player.name}{player.id === session?.player_id ? ' (You)' : ''}</strong><span>{player.id === view.host ? 'Host' : 'Ready to play'} · {player.connected ? 'Connected' : 'Reconnecting'}{view.wager > 0 ? ` · ◉ ${player.coin_balance ?? 0}` : ''}</span></div>{player.id === view.host && <Crown size={17} className="host-crown" />}{player.id === session?.player_id && <span className="you-tag">YOU</span>}</div> : <div className="lobby-player empty-seat" key={`empty-${index}`}><div className="avatar empty-avatar"><Plus size={16} /></div><div className="player-copy"><strong>Waiting for a player</strong><span>Share the room code to fill this seat</span></div></div>
+    return player ? <div className="lobby-player" key={player.id}><div className={`avatar ${player.id === view.host ? 'host-avatar' : ''}`}>{player.name.slice(0, 1).toUpperCase()}</div><div className="player-copy"><strong>{player.name}{player.id === session?.player_id ? ' (You)' : ''}</strong><span>{player.id === view.host ? 'Host' : 'Ready to play'} · {player.connected ? 'Connected' : 'Reconnecting'}{view.wager > 0 ? ` · ₦${(player.coin_balance ?? 0).toLocaleString()}` : ''}</span></div>{player.id === view.host && <Crown size={17} className="host-crown" />}{player.id === session?.player_id && <span className="you-tag">YOU</span>}</div> : <div className="lobby-player empty-seat" key={`empty-${index}`}><div className="avatar empty-avatar"><Plus size={16} /></div><div className="player-copy"><strong>Waiting for a player</strong><span>Share the room code to fill this seat</span></div></div>
   })}</div><div className="lobby-footer"><div className="connection-state"><span className={`status-dot ${connected ? 'online' : ''}`} />{connected ? 'Room is live' : 'Connecting…'}</div>{isHost ? <button className="button button-lime" disabled={view.players.length < 2 || view.players.some(player => !player.connected)} onClick={() => send('start')}><Gamepad2 size={17} /> Start game <ArrowRight size={16} /></button> : <span className="waiting-label"><span className="pulse-dot" /> Waiting for host to start</span>}</div></section><div className="lobby-footnote"><Shield size={15} /> The server will privately deal five cards to each player when the host starts.</div></>
 }
 
@@ -680,7 +684,7 @@ function GameTable() {
   }
   function confirmWhot() { if (selectedWhot) { send('play', { card_id: selectedWhot.id, shape }); setSelectedWhot(null) } }
   function exitRoom() {
-    if (wagerLocked && !window.confirm('Leave this Arena Coins match? Your locked stake remains in the pot.')) return
+    if (wagerLocked && !window.confirm('Leave this Virtual Naira match? Your locked stake remains in the pot.')) return
     leaveRoom()
     navigate('/dashboard')
   }
@@ -694,7 +698,7 @@ function GameTable() {
             <span className="status-dot online" />
             {view.status === 'finished' ? 'ROUND COMPLETE' : view.is_paused ? 'GAME PAUSED' : myTurn ? 'YOUR TURN' : `TURN: ${view.players.find(player => player.id === view.turn)?.name || 'OPPONENT'}`}
           </span>
-          {view.wager > 0 && <span className="table-wager">◉ {view.wager_pot} COIN POT</span>}
+          {view.wager > 0 && <span className="table-wager">₦{view.wager_pot.toLocaleString()} VIRTUAL POT</span>}
         </div>
         <div className="match-scoreboard" aria-label={`Best of three match score, round ${view.round_number}`}><span>ROUND {view.round_number} · BEST OF 3</span><div>{view.players.map(player => <span className={player.id === view.match_winner ? 'score-champion' : ''} key={player.id}><strong>{player.name}</strong><b>{view.round_wins[player.id] || 0}</b><small>{view.match_points[player.id] || 0} pts</small></span>)}</div></div>
         <div className="game-actions">{view.host === session?.player_id && !view.is_public && view.status === 'playing' && <button type="button" className="button button-outline game-pause" disabled={view.is_paused && view.pause_reason !== 'manual'} onClick={() => send('pause')}>{view.is_paused && view.pause_reason === 'manual' ? <><Play size={15} /> Resume</> : <><Pause size={15} /> Pause</>}</button>}<button type="button" className="button button-outline game-leave" title="Leave room and return to dashboard" onClick={exitRoom}><DoorOpen size={15} /> Leave room</button></div>
@@ -708,7 +712,7 @@ function GameTable() {
           {opponents.map((player, index) => (
             <div className={`opponent ${!player.connected ? 'player-away' : ''} ${view.turn === player.id ? 'opponent-turn' : ''}`} key={player.id}>
               <div className={`opponent-avatar-wrap ${player.voice_speaking ? 'voice-speaking' : ''}`}>{reactionVisible(player) && <span className="player-reaction" aria-label={`${player.name} reacted ${player.reaction}`}>{player.reaction}</span>}<div className={`avatar opponent-avatar avatar-${index}`}>{avatarGlyph(player.name, player.avatar)}</div><span className={`status-dot ${player.connected ? 'online' : ''}`} /></div>
-              <strong>{player.name}{player.is_bot ? ' · CPU' : ''}</strong><span className={player.count === 1 ? 'last-card-label' : ''}>{player.count === 1 ? 'LAST CARD' : `${player.count} cards`}</span>{view.turn === player.id && <span className="opponent-turn-label">{player.is_bot ? 'THINKING' : 'THEIR TURN'}</span>}
+              <strong>{player.name}{player.is_bot ? ' · CPU' : ''}</strong><span className={player.count === 1 ? 'last-card-label' : ''}>{player.count === 1 ? 'LAST CARD' : `${player.count} cards`}</span>{view.wager > 0 && !player.is_bot && <span className="player-wallet">₦{(player.coin_balance ?? 0).toLocaleString()}</span>}{view.turn === player.id && <span className="opponent-turn-label">{player.is_bot ? 'THINKING' : 'THEIR TURN'}</span>}
               <div className="opponent-card-fan">{Array.from({ length: Math.min(player.count, 3) }, (_, cardIndex) => <CardFace key={cardIndex} back />)}</div>
             </div>
           ))}
@@ -722,12 +726,12 @@ function GameTable() {
         {view.pending_draw > 0 && <div className="requested-shape penalty-stack" role="status"><span>PENALTY STACK</span><strong>Pick {view.pending_draw} · Block with another {view.pending_penalty}</strong></div>}
         <div className="table-message" aria-live="polite">{toast || view.last_action}</div>
         <div className="reaction-picker" aria-label="Quick reactions">{['😂', '🔥', '😭', '👏'].map(reaction => <button type="button" key={reaction} onClick={() => send('reaction', { reaction })} aria-label={`React ${reaction}`}>{reaction}</button>)}</div>
-        <div className="you-at-table"><div className={`you-avatar-wrap ${me?.voice_speaking ? 'voice-speaking' : ''}`}>{reactionVisible(me) && <span className="player-reaction" aria-label={`You reacted ${me?.reaction}`}>{me?.reaction}</span>}<div className="avatar you-avatar">{avatarGlyph(me?.name || 'You', me?.avatar)}</div></div><div><strong>{me?.name || 'You'} <span>(you)</span></strong><small>{myTurn ? 'Your move' : view.status === 'finished' ? 'Round over' : 'Waiting for your turn'}</small></div>{myTurn && <span className="turn-clock"><Clock3 size={15} /> PLAY NOW</span>}</div>
+        <div className="you-at-table"><div className={`you-avatar-wrap ${me?.voice_speaking ? 'voice-speaking' : ''}`}>{reactionVisible(me) && <span className="player-reaction" aria-label={`You reacted ${me?.reaction}`}>{me?.reaction}</span>}<div className="avatar you-avatar">{avatarGlyph(me?.name || 'You', me?.avatar)}</div></div><div><strong>{me?.name || 'You'} <span>(you)</span></strong><small>{myTurn ? 'Your move' : view.status === 'finished' ? 'Round over' : 'Waiting for your turn'}{view.wager > 0 ? ` · ₦${(me?.coin_balance ?? 0).toLocaleString()}` : ''}</small></div>{myTurn && <span className="turn-clock"><Clock3 size={15} /> PLAY NOW</span>}</div>
       </section>
       {view.status === 'finished' ? (
         <section className="round-result">
           <div className="result-icon">{view.winner === session?.player_id ? <Crown size={26} /> : <Trophy size={26} />}</div>
-          <div><span className="small-label">{view.match_winner ? 'MATCH COMPLETE' : `ROUND ${view.round_number} COMPLETE`}</span><h2>{view.match_winner ? `${championName} won the match!` : view.winner === session?.player_id ? 'You won the round!' : `${winnerName} won the round.`}</h2><p>{view.match_winner ? view.wager > 0 ? `The champion wins the ${view.wager_pot} Arena Coins pot.` : 'The best-of-three match is complete. The host can start a fresh match.' : 'First to two round wins takes the match. Remaining cards determine the points awarded.'}</p>{Object.keys(view.final_scores || {}).length > 0 && <div className="final-scores">{view.players.map(player => <span key={player.id}><strong>{player.name}</strong> {view.final_scores[player.id]} left · {view.round_wins[player.id] || 0} wins · {view.match_points[player.id] || 0} pts</span>)}</div>}</div>
+          <div><span className="small-label">{view.match_winner ? 'MATCH COMPLETE' : `ROUND ${view.round_number} COMPLETE`}</span><h2>{view.match_winner ? `${championName} won the match!` : view.winner === session?.player_id ? 'You won the round!' : `${winnerName} won the round.`}</h2><p>{view.match_winner ? view.wager > 0 ? `The champion wins the ₦${view.wager_pot.toLocaleString()} Virtual Naira pot.` : 'The best-of-three match is complete. The host can start a fresh match.' : 'First to two round wins takes the match. Remaining cards determine the points awarded.'}</p>{Object.keys(view.final_scores || {}).length > 0 && <div className="final-scores">{view.players.map(player => <span key={player.id}><strong>{player.name}</strong> {view.final_scores[player.id]} left · {view.round_wins[player.id] || 0} wins · {view.match_points[player.id] || 0} pts</span>)}</div>}</div>
           {view.host === session?.player_id && view.players.every(player => player.connected)
             ? <button className="button button-green" onClick={() => send('rematch')}>{view.match_winner ? 'New match' : 'Next round'} <ArrowRight size={16} /></button>
             : <Link to="/create" className="button button-green">New table <ArrowRight size={16} /></Link>}
@@ -740,7 +744,6 @@ function GameTable() {
       )}
       </div>
       {!opponents.every(player => player.is_bot) && <LiveVoicePanel players={view.players} playerId={session?.player_id || ''} enabled={view.status === 'playing'} />}
-      <VoicePanel messages={view.voice_messages || []} chatMessages={view.chat_messages || []} playerId={session?.player_id || ''} enabled={view.status === 'playing'} />
       </div>
       {selectedWhot && createPortal(<div className="shape-modal-backdrop" onMouseDown={() => setSelectedWhot(null)}><section className="shape-modal" role="dialog" aria-modal="true" aria-labelledby="shape-modal-title" onMouseDown={event => event.stopPropagation()}><button type="button" className="icon-button shape-modal-close" onClick={() => setSelectedWhot(null)} aria-label="Cancel shape selection"><X size={18} /></button><div className="shape-modal-card"><span>20</span><strong>WHOT</strong></div><span className="small-label">WHOT 20</span><h2 id="shape-modal-title">Choose the next shape</h2><p>Every player must match the shape you select.</p><div className="shape-modal-grid">{shapes.map(item => <button type="button" key={item} className={`shape-modal-choice shape-${item} ${shape === item ? 'shape-modal-choice-active' : ''}`} onClick={() => setShape(item)} aria-pressed={shape === item}><span>{shapeGlyph[item]}</span><strong>{item}</strong></button>)}</div><button type="button" className="button button-lime shape-modal-confirm" onClick={confirmWhot}><Check size={16} /> Play WHOT · {shapeGlyph[shape]} {shape}</button></section></div>, document.body)}
     </div>
@@ -1104,38 +1107,69 @@ function LiveVoicePanel({ players, playerId, enabled }: { players: Player[]; pla
   return <aside className={`voice-panel live-voice-panel content-panel ${drawerOpen ? 'voice-drawer-open' : ''}`} style={drawerTop === null ? undefined : { top: drawerTop, bottom: 'auto' }} aria-label="Live table voice"><button type="button" className="voice-drawer-toggle" onPointerDown={startDrawerDrag} onPointerMove={moveDrawer} onPointerUp={finishDrawerDrag} onPointerCancel={finishDrawerDrag} onClick={toggleDrawer} aria-expanded={drawerOpen} aria-label={drawerOpen ? 'Close or move live voice controls' : 'Open or move live voice controls'}>{muted ? <Mic size={20} /> : <MicOff size={20} />}<ChevronDown size={14} /></button><div className="voice-heading"><span className={`voice-icon ${status === 'live' ? 'voice-live' : ''}`}><Volume2 size={17} /></span><div><strong>Live table voice</strong><small>{statusText}</small></div><span className="status-dot online" /></div><div className="live-voice-room"><button type="button" className={`live-mic-orbit ${status === 'live' && !muted ? 'mic-active' : ''}`} onClick={toggleMute} disabled={!enabled || status === 'starting' || status === 'unsupported' || status === 'failed'} aria-label={!localStreamRef.current ? 'Start live microphone' : muted ? 'Unmute live microphone' : 'Mute live microphone'}><span>{muted ? <MicOff size={27} /> : <Mic size={27} />}</span></button><strong>{status === 'starting' ? 'Opening microphone…' : muted ? 'Tap the mic to speak live' : 'You are speaking live'}</strong><small>{voiceError || (connectionSlow ? 'Direct voice connection failed. This network may require a TURN server.' : 'Nothing is recorded. Everyone at the table hears you live.')}</small></div><div className="voice-compose">{status === 'blocked' ? <button type="button" className="button button-green full-button" onClick={() => { startPromiseRef.current = null; setStatus('starting'); void startMicrophone() }}><Mic size={16} /> Allow microphone</button> : playbackBlocked ? <button type="button" className="button button-green full-button" onClick={enablePlayback}><Volume2 size={16} /> Enable speaker</button> : <button type="button" className={`button ${muted ? 'button-green' : 'button-outline'} full-button`} disabled={!enabled || status === 'starting'} onClick={toggleMute}>{muted ? <><Mic size={16} /> Tap to speak</> : <><MicOff size={16} /> Stop speaking</>}</button>}<span className="voice-hint">Live only · no recording is saved</span></div></aside>
 }
 
-function VoicePanel({ messages, chatMessages, playerId, enabled }: { messages: VoiceMessage[]; chatMessages: ChatMessage[]; playerId: string; enabled: boolean }) {
+function VoicePanel({ messages, chatMessages, playerId, enabled, players, balance, wager, pot, username }: { messages: VoiceMessage[]; chatMessages: ChatMessage[]; playerId: string; enabled: boolean; players: Player[]; balance: number; wager: number; pot: number; username?: string }) {
   const { voiceUrls, requestVoice, send } = useArena()
   const [notification, setNotification] = useState('')
   const [open, setOpen] = useState(false)
   const [textMessage, setTextMessage] = useState('')
   const [unread, setUnread] = useState(0)
+  const [phoneApp, setPhoneApp] = useState<'home' | 'messenger' | 'bank' | 'settings'>('home')
+  const [phoneMusic, setPhoneMusic] = useState(backgroundMusicEnabled)
+  const [phoneSounds, setPhoneSounds] = useState(gameSoundsEnabled)
+  const [phoneTheme, setPhoneTheme] = useState<ColorTheme>(preferredTheme)
+  const [messageMode, setMessageMode] = useState<'direct' | 'table'>(username ? 'direct' : 'table')
+  const [directMessages, setDirectMessages] = useState<DirectMessage[]>([])
+  const [recipient, setRecipient] = useState('')
+  const [directText, setDirectText] = useState('')
+  const [directError, setDirectError] = useState('')
+  const [playerMatches, setPlayerMatches] = useState<PlayerSearchResult[]>([])
   const previousMessageCountRef = useRef(messages.length)
   const previousChatCountRef = useRef(chatMessages.length)
+
+  useEffect(() => {
+    if (!username) return
+    let active = true
+    const load = () => fetch(`${API_URL}/api/messages?limit=100`, { headers: { Authorization: `Bearer ${sessionStorage.getItem('whot.token')}` } })
+      .then(async response => { if (response.ok && active) setDirectMessages(await response.json() as DirectMessage[]) })
+      .catch(() => undefined)
+    void load()
+    const timer = window.setInterval(load, 5000)
+    return () => { active = false; window.clearInterval(timer) }
+  }, [username])
+
+  useEffect(() => {
+    if (!username || recipient.trim().length < 2) { setPlayerMatches([]); return }
+    const timer = window.setTimeout(() => {
+      void fetch(`${API_URL}/api/players/search?q=${encodeURIComponent(recipient.trim())}`, { headers: { Authorization: `Bearer ${sessionStorage.getItem('whot.token')}` } })
+        .then(async response => { if (response.ok) setPlayerMatches(await response.json() as PlayerSearchResult[]) })
+        .catch(() => undefined)
+    }, 250)
+    return () => window.clearTimeout(timer)
+  }, [recipient, username])
 
   useEffect(() => {
     if (messages.length > previousMessageCountRef.current) {
       const latest = messages[messages.length - 1]
       setNotification(`New voice note from ${latest.name}`)
-      if (!open && latest.player_id !== playerId) setUnread(previous => previous + 1)
+      if ((!open || phoneApp !== 'messenger') && latest.player_id !== playerId) setUnread(previous => previous + 1)
       playGameSound('join')
       const timer = window.setTimeout(() => setNotification(''), 3500)
       previousMessageCountRef.current = messages.length
       return () => window.clearTimeout(timer)
     }
     previousMessageCountRef.current = messages.length
-  }, [messages, open, playerId])
+  }, [messages, open, phoneApp, playerId])
 
   useEffect(() => {
     if (chatMessages.length > previousChatCountRef.current) {
       const latest = chatMessages[chatMessages.length - 1]
-      if (!open && latest.player_id !== playerId) {
+      if ((!open || phoneApp !== 'messenger') && latest.player_id !== playerId) {
         setUnread(previous => previous + 1)
         playGameSound('join')
       }
     }
     previousChatCountRef.current = chatMessages.length
-  }, [chatMessages, open, playerId])
+  }, [chatMessages, open, phoneApp, playerId])
 
   function sendTextMessage(event: React.FormEvent) {
     event.preventDefault()
@@ -1145,9 +1179,27 @@ function VoicePanel({ messages, chatMessages, playerId, enabled }: { messages: V
     setTextMessage('')
   }
 
+  async function sendDirectMessage(event: React.FormEvent) {
+    event.preventDefault()
+    if (!recipient.trim() || !directText.trim()) return
+    setDirectError('')
+    try {
+      const response = await fetch(`${API_URL}/api/messages`, { method: 'POST', headers: { Authorization: `Bearer ${sessionStorage.getItem('whot.token')}`, 'content-type': 'application/json' }, body: JSON.stringify({ recipient_username: recipient.trim(), text: directText.trim() }) })
+      if (!response.ok) throw new Error((await response.json()).detail || 'Could not send message')
+      const message = await response.json() as DirectMessage
+      setDirectMessages(previous => [...previous, message])
+      setDirectText('')
+    } catch (error) { setDirectError(error instanceof Error ? error.message : 'Could not send message') }
+  }
+
   function toggleChat() {
     setOpen(previous => !previous)
-    setUnread(0)
+    if (!open) setPhoneApp('home')
+  }
+
+  function openPhoneApp(app: 'home' | 'messenger' | 'bank' | 'settings') {
+    setPhoneApp(app)
+    if (app === 'messenger') setUnread(0)
   }
 
   const feed = [
@@ -1156,21 +1208,18 @@ function VoicePanel({ messages, chatMessages, playerId, enabled }: { messages: V
   ].sort((a, b) => a.sent_at - b.sent_at)
   const phoneTime = new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
 
+  const appTitle = phoneApp === 'home' ? 'WHOT Phone' : phoneApp === 'messenger' ? 'Messenger' : phoneApp === 'bank' ? 'Arena Bank' : 'Game Settings'
   return createPortal(<div className="table-chat-shell">
-    <button type="button" className={`chat-fab ${open ? 'chat-fab-open' : ''}`} onClick={toggleChat} aria-label={open ? 'Close table chat' : 'Open table chat'}>{open ? <X size={21} /> : <><MessageCircle size={21} />{unread > 0 && <span>{Math.min(unread, 9)}</span>}</>}</button>
-    {open && <aside className="table-chat-phone" aria-label="Table chat">
+    <button type="button" className={`chat-fab ${open ? 'chat-fab-open' : ''}`} onClick={toggleChat} aria-label={open ? 'Close game phone' : 'Open game phone'}>{open ? <X size={21} /> : <><MessageCircle size={21} />{unread > 0 && <span>{Math.min(unread, 9)}</span>}</>}</button>
+    {open && <aside className="table-chat-phone" aria-label="WHOT game phone">
       <div className="iphone-screen">
-      <div className="iphone-statusbar" aria-hidden="true"><strong>{phoneTime}</strong><span className="iphone-island" /><span className="iphone-signals"><Signal size={12} fill="currentColor" /><Wifi size={13} /><BatteryFull size={16} /></span></div>
-      <div className="iphone-chat-header"><button type="button" className="icon-button iphone-back" onClick={toggleChat} aria-label="Close chat"><ArrowLeft size={19} /></button><span className="iphone-contact"><Users size={17} /></span><div><strong>WHOT Table</strong><small><span /> {notification || 'Players online'}</small></div><button type="button" className="icon-button" onClick={toggleChat} aria-label="Close chat"><X size={17} /></button></div>
-      <div className="iphone-chat-date">Today</div>
-      <div className="voice-feed chat-feed" aria-live="polite">
-        {feed.length ? feed.map(item => item.kind === 'text' ? <div className={`chat-bubble ${item.message.player_id === playerId ? 'chat-bubble-mine' : ''}`} key={`text-${item.message.id}`}><div className="voice-message-meta"><strong>{item.message.name}</strong><time>{new Date(item.message.sent_at * 1000).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</time></div><p>{item.message.text}</p></div> : <div className={`voice-message ${item.message.player_id === playerId ? 'chat-bubble-mine' : ''}`} key={`voice-${item.message.id}`}><div className="voice-message-meta"><strong>{item.message.name}</strong><time>{new Date(item.message.sent_at * 1000).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</time></div>{voiceUrls[item.message.id] ? <audio controls preload="none" src={voiceUrls[item.message.id]} aria-label={`Voice message from ${item.message.name}`} /> : <button className="voice-play" onClick={() => requestVoice(item.message.id)}><Volume2 size={14} /> Listen <span>{Math.max(1, Math.round(item.message.size / 16_000))} KB</span></button>}</div>) : <div className="voice-empty"><Mic size={19} /><span>No messages yet.</span><small>Say hello to the table.</small></div>}
-      </div>
-      <div className="voice-compose chat-compose">
-        <form onSubmit={sendTextMessage}><input value={textMessage} maxLength={500} onChange={event => setTextMessage(event.target.value)} placeholder="Message" aria-label="Message the table" disabled={!enabled} /><button type="submit" className="icon-button iphone-send" disabled={!enabled || !textMessage.trim()} aria-label="Send message"><ArrowRight size={17} /></button></form>
-        <span className="voice-hint">Use Live table voice to speak · voice is not recorded</span>
-      </div>
-      <span className="iphone-homebar" aria-hidden="true" />
+        <div className="iphone-statusbar" aria-hidden="true"><strong>{phoneTime}</strong><span className="iphone-island" /><span className="iphone-signals"><Signal size={12} fill="currentColor" /><Wifi size={13} /><BatteryFull size={16} /></span></div>
+        <div className="iphone-chat-header"><button type="button" className="icon-button iphone-back" onClick={() => phoneApp === 'home' ? toggleChat() : openPhoneApp('home')} aria-label={phoneApp === 'home' ? 'Close phone' : 'Phone home'}><ArrowLeft size={19} /></button><span className="iphone-contact">{phoneApp === 'messenger' ? <MessageCircle size={17} /> : phoneApp === 'bank' ? <Wallet size={17} /> : phoneApp === 'settings' ? <Settings size={17} /> : <Gamepad2 size={17} />}</span><div><strong>{appTitle}</strong><small><span /> {phoneApp === 'messenger' ? notification || `${players.filter(player => player.connected && !player.is_bot).length} players online` : 'WHOT Arena'}</small></div><button type="button" className="icon-button" onClick={toggleChat} aria-label="Close phone"><X size={17} /></button></div>
+        {phoneApp === 'home' && <div className="phone-home"><div className="phone-welcome"><small>GAME ROOM</small><strong>{players.find(player => player.id === playerId)?.name || 'Player'}</strong><span>Choose an app</span></div><div className="phone-app-grid"><button onClick={() => openPhoneApp('bank')}><span className="phone-app-icon bank"><Wallet size={23} /></span><strong>Bank</strong></button><button onClick={() => openPhoneApp('messenger')}><span className="phone-app-icon messenger"><MessageCircle size={23} />{unread > 0 && <i>{Math.min(unread, 9)}</i>}</span><strong>Messenger</strong></button><button onClick={() => openPhoneApp('settings')}><span className="phone-app-icon settings"><Settings size={23} /></span><strong>Settings</strong></button></div><div className="phone-player-list"><span>PLAYERS</span>{players.filter(player => !player.is_bot).map(player => <div key={player.id}><span className="avatar">{player.name.slice(0, 1).toUpperCase()}</span><strong>{player.name}{player.id === playerId ? ' · You' : ''}</strong><small>{player.connected ? 'Online' : 'Reconnecting'}</small></div>)}</div></div>}
+        {phoneApp === 'messenger' && <div className="phone-messenger">{username && <div className="messenger-tabs"><button className={messageMode === 'direct' ? 'active' : ''} onClick={() => setMessageMode('direct')}>Direct messages</button><button className={messageMode === 'table' ? 'active' : ''} onClick={() => setMessageMode('table')} disabled={!playerId}>Table chat</button></div>}{messageMode === 'direct' && username ? <><div className="direct-recipient"><input value={recipient} maxLength={24} onChange={event => setRecipient(event.target.value)} placeholder="Player username" aria-label="Recipient username" />{playerMatches.length > 0 && <div>{playerMatches.slice(0, 4).map(player => <button key={player.id} onClick={() => { setRecipient(player.username); setPlayerMatches([]) }}>@{player.username}</button>)}</div>}</div><div className="voice-feed chat-feed direct-feed" aria-live="polite">{directMessages.length ? directMessages.map(message => { const mine = message.sender_username === username; return <div className={`chat-bubble ${mine ? 'chat-bubble-mine' : ''}`} key={`direct-${message.id}`}><div className="voice-message-meta"><strong>{mine ? `To @${message.recipient_username}` : `@${message.sender_username}`}</strong><time>{new Date(message.sent_at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</time></div><p>{message.text}</p></div> }) : <div className="voice-empty"><MessageCircle size={19} /><span>No direct messages yet.</span><small>Enter a username to start a conversation.</small></div>}</div><div className="voice-compose chat-compose direct-compose"><form onSubmit={sendDirectMessage}><input value={directText} maxLength={500} onChange={event => setDirectText(event.target.value)} placeholder={recipient ? `Message @${recipient}` : 'Choose a username first'} aria-label="Direct message" disabled={!recipient.trim()} /><button type="submit" className="icon-button iphone-send" disabled={!recipient.trim() || !directText.trim()} aria-label="Send direct message"><ArrowRight size={17} /></button></form>{directError && <span className="voice-error">{directError}</span>}</div></> : <><div className="iphone-chat-date">Table</div><div className="voice-feed chat-feed" aria-live="polite">{feed.length ? feed.map(item => item.kind === 'text' ? <div className={`chat-bubble ${item.message.player_id === playerId ? 'chat-bubble-mine' : ''}`} key={`text-${item.message.id}`}><div className="voice-message-meta"><strong>{item.message.name}</strong><time>{new Date(item.message.sent_at * 1000).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</time></div><p>{item.message.text}</p></div> : <div className={`voice-message ${item.message.player_id === playerId ? 'chat-bubble-mine' : ''}`} key={`voice-${item.message.id}`}><div className="voice-message-meta"><strong>{item.message.name}</strong><time>{new Date(item.message.sent_at * 1000).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</time></div>{voiceUrls[item.message.id] ? <audio controls preload="none" src={voiceUrls[item.message.id]} aria-label={`Voice message from ${item.message.name}`} /> : <button className="voice-play" onClick={() => requestVoice(item.message.id)}><Volume2 size={14} /> Listen <span>{Math.max(1, Math.round(item.message.size / 16_000))} KB</span></button>}</div>) : <div className="voice-empty"><MessageCircle size={19} /><span>No table messages yet.</span><small>{enabled ? 'Say hello to the table.' : 'Table chat opens when the match starts.'}</small></div>}</div><div className="voice-compose chat-compose"><form onSubmit={sendTextMessage}><input value={textMessage} maxLength={500} onChange={event => setTextMessage(event.target.value)} placeholder={enabled ? 'Message the table' : 'Available when match starts'} aria-label="Message the table" disabled={!enabled} /><button type="submit" className="icon-button iphone-send" disabled={!enabled || !textMessage.trim()} aria-label="Send message"><ArrowRight size={17} /></button></form></div></>}</div>}
+        {phoneApp === 'bank' && <div className="phone-bank"><span className="phone-bank-mark">₦</span><small>TOTAL VIRTUAL NAIRA</small><strong>₦{balance.toLocaleString()}</strong><div><span>Current stake<b>{wager ? `₦${wager.toLocaleString()}` : 'Free match'}</b></span><span>Table pot<b>{pot ? `₦${pot.toLocaleString()}` : 'No pot'}</b></span></div><p>Virtual Naira has no cash value and cannot be purchased, transferred, or withdrawn.</p></div>}
+        {phoneApp === 'settings' && <div className="phone-settings"><label className="toggle-row"><span><strong>Background music</strong><small>Game soundtrack</small></span><input type="checkbox" checked={phoneMusic} onChange={event => { setPhoneMusic(event.target.checked); setBackgroundMusicEnabled(event.target.checked) }} /></label><label className="toggle-row"><span><strong>Game sounds</strong><small>Cards, turns, and taps</small></span><input type="checkbox" checked={phoneSounds} onChange={event => { setPhoneSounds(event.target.checked); setGameSoundsEnabled(event.target.checked) }} /></label><div className="phone-theme"><span>COLOR MODE</span><button className={phoneTheme === 'light' ? 'active' : ''} onClick={() => { setPhoneTheme('light'); applyColorTheme('light') }}><Sun size={16} /> Light</button><button className={phoneTheme === 'dark' ? 'active' : ''} onClick={() => { setPhoneTheme('dark'); applyColorTheme('dark') }}><Moon size={16} /> Dark</button></div></div>}
+        <span className="iphone-homebar" aria-hidden="true" />
       </div>
     </aside>}
   </div>, document.body)

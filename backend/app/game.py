@@ -517,6 +517,9 @@ class Room:
             "wager": self.wager,
             "wager_locked": self.wager_locked,
             "wager_pot": self.wager * len([p for p in self.players if not p.is_bot]),
+            "wager_admin_fee": (self.wager * len([p for p in self.players if not p.is_bot])) // 10,
+            "wager_winner_payout": ((self.wager * len([p for p in self.players if not p.is_bot]))
+                                     - (self.wager * len([p for p in self.players if not p.is_bot])) // 10),
             "voice_messages": [{key: value for key, value in message.items()
                                 if key != "audio"} for message in self.voice_messages],
             "chat_messages": self.chat_messages,

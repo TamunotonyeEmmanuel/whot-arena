@@ -19,6 +19,7 @@ def test_register_login_profile_and_leaderboard():
         assert registered.status_code == 201, registered.text
         body = registered.json()
         assert body["user"]["username"] == payload["username"]
+        assert body["user"]["arena_coins"] == 10_000
         assert body["access_token"]
 
         duplicate = client.post("/api/auth/register", json=payload)
