@@ -315,6 +315,8 @@ async def ws_endpoint(ws: WebSocket):
                                 room.updated_at = time.time()
                         else:
                             player.connected = False
+                            player.voice_ready = False
+                            player.voice_speaking = False
                             player.disconnected_at = time.time()
                             room.pause_for_disconnect(player)
                             room.updated_at = time.time()
@@ -349,6 +351,9 @@ async def ws_endpoint(ws: WebSocket):
                             room.toggle_manual_pause(pid)
                         elif action == "rtc_ready":
                             room.player(pid).voice_ready = True
+                            room.updated_at = time.time()
+                        elif action == "rtc_speaking":
+                            room.player(pid).voice_speaking = bool(msg.get("speaking"))
                             room.updated_at = time.time()
                         elif action == "rtc_signal":
                             target = str(msg.get("target", ""))
@@ -440,6 +445,7 @@ async def ws_endpoint(ws: WebSocket):
                     p = room.player(pid)
                     p.connected = False
                     p.voice_ready = False
+                    p.voice_speaking = False
                     p.disconnected_at = time.time()
                     room.pause_for_disconnect(p)
                     room.updated_at = time.time()

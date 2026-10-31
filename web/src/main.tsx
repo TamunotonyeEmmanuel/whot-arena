@@ -7,7 +7,7 @@ import './styles.css'
 import { gameSoundsEnabled, playGameSound, primeGameAudio, setGameSoundsEnabled } from './audio'
 
 type Card = { id: string; shape: string; number: number }
-type Player = { id: string; name: string; count: number; connected: boolean; voice_ready?: boolean; is_bot?: boolean; last_card_required?: boolean; table_theme?: string; card_back?: string; avatar?: string }
+type Player = { id: string; name: string; count: number; connected: boolean; voice_ready?: boolean; voice_speaking?: boolean; is_bot?: boolean; last_card_required?: boolean; table_theme?: string; card_back?: string; avatar?: string }
 type VoiceMessage = { id: string; player_id: string; name: string; content_type: string; size: number; sent_at: number }
 type ChatMessage = { id: string; player_id: string; name: string; text: string; sent_at: number }
 type RtcSignal = { id: string; from: string; signal: { type: 'offer' | 'answer' | 'ice'; sdp?: RTCSessionDescriptionInit; candidate?: RTCIceCandidateInit } }
@@ -340,19 +340,25 @@ const navItems = [
 
 
 function ArenaBackgroundMusic() {
+  const { view } = useArena()
   const audioRef = useRef<HTMLAudioElement | null>(null)
+  const playbackAllowedRef = useRef(true)
   const location = useLocation()
   const inGame = location.pathname.startsWith('/game/')
+  const playerLeftGame = Boolean(inGame && view && (view.pause_reason === 'disconnect' || view.players.some(player => !player.is_bot && !player.connected)))
+  const liveVoiceActive = Boolean(inGame && view?.players.some(player => !player.is_bot && player.voice_speaking))
+  const musicPaused = playerLeftGame || liveVoiceActive
+  playbackAllowedRef.current = !musicPaused
 
   useEffect(() => {
     const audio = new Audio('/audio/whot-background.mp3')
     audio.loop = true
     audio.preload = 'auto'
-    audio.volume = 0.015
+    audio.volume = 0.01
     audioRef.current = audio
     let active = true
     const tryPlay = () => {
-      if (!active || !audio.paused) return
+      if (!active || !playbackAllowedRef.current || !audio.paused) return
       void Promise.resolve(audio.play()).catch(() => {
         // Browsers may require a user gesture before playing audio.
       })
@@ -373,8 +379,15 @@ function ArenaBackgroundMusic() {
   }, [])
 
   useEffect(() => {
-    if (audioRef.current) audioRef.current.volume = inGame ? 0.01 : 0.015
-  }, [inGame])
+    const audio = audioRef.current
+    if (!audio) return
+    audio.volume = 0.01
+    if (musicPaused) {
+      audio.pause()
+      return
+    }
+    if (audio.paused) void Promise.resolve(audio.play()).catch(() => undefined)
+  }, [inGame, musicPaused])
 
   return null
 }
@@ -680,6 +693,9 @@ function LiveVoicePanel({ players, playerId, enabled }: { players: Player[]; pla
   const [connectionSlow, setConnectionSlow] = useState(false)
   const [voiceError, setVoiceError] = useState('')
   const [drawerOpen, setDrawerOpen] = useState(false)
+  const [drawerTop, setDrawerTop] = useState<number | null>(null)
+  const drawerDragRef = useRef<{ startY: number; startTop: number; height: number; moved: boolean } | null>(null)
+  const suppressDrawerClickRef = useRef(false)
   const mutedRef = useRef(muted)
   mutedRef.current = muted
   const localStreamRef = useRef<MediaStream | null>(null)
@@ -700,7 +716,7 @@ function LiveVoicePanel({ players, playerId, enabled }: { players: Player[]; pla
   const handledAudioIdsRef = useRef(new Set<string>())
 
   function unlockLivePlayback() {
-    const playback = relayPlaybackRef.current || new AudioContext()
+    const playback = relayPlaybackRef.current || new AudioContext({ latencyHint: 'playback' })
     relayPlaybackRef.current = playback
     if (playback.state !== 'running') {
       void playback.resume().then(() => setPlaybackBlocked(false)).catch(() => setPlaybackBlocked(true))
@@ -710,7 +726,7 @@ function LiveVoicePanel({ players, playerId, enabled }: { players: Player[]; pla
 
   function startRelayCapture(stream: MediaStream) {
     if (relayProcessorRef.current) return
-    const context = new AudioContext()
+    const context = new AudioContext({ latencyHint: 'interactive' })
     const source = context.createMediaStreamSource(stream)
     const processor = context.createScriptProcessor(2048, 1, 1)
     const silent = context.createGain()
@@ -718,7 +734,7 @@ function LiveVoicePanel({ players, playerId, enabled }: { players: Player[]; pla
     processor.onaudioprocess = event => {
       if (mutedRef.current) return
       const input = event.inputBuffer.getChannelData(0)
-      const ratio = context.sampleRate / 16000
+      const ratio = context.sampleRate / 24000
       const samples = new Int16Array(Math.floor(input.length / ratio))
       for (let index = 0; index < samples.length; index += 1) {
         const start = Math.floor(index * ratio)
@@ -763,9 +779,11 @@ function LiveVoicePanel({ players, playerId, enabled }: { players: Player[]; pla
       }
       setMuted(false)
       setStatus('live')
+      send('rtc_speaking', { speaking: true })
       startRelayCapture(stream)
       return stream
     }).catch(() => {
+      send('rtc_speaking', { speaking: false })
       setStatus('blocked')
       return null
     })
@@ -826,6 +844,7 @@ function LiveVoicePanel({ players, playerId, enabled }: { players: Player[]; pla
   useEffect(() => {
     if (enabled) send('rtc_ready')
     return () => {
+      send('rtc_speaking', { speaking: false })
       localStreamRef.current?.getTracks().forEach(track => track.stop())
       peersRef.current.forEach(peer => peer.close())
       audioRef.current.forEach(audio => { audio.pause(); audio.srcObject = null })
@@ -910,7 +929,7 @@ function LiveVoicePanel({ players, playerId, enabled }: { players: Player[]; pla
     }
     if (!pending.length) return
 
-    const context = relayPlaybackRef.current || new AudioContext()
+    const context = relayPlaybackRef.current || new AudioContext({ latencyHint: 'playback' })
     relayPlaybackRef.current = context
     if (context.state !== 'running') {
       setPlaybackBlocked(true)
@@ -922,7 +941,7 @@ function LiveVoicePanel({ players, playerId, enabled }: { players: Player[]; pla
         const bytes = Uint8Array.from(atob(packet.audio), character => character.charCodeAt(0))
         if (bytes.byteLength < 2 || bytes.byteLength % 2 !== 0) continue
         const samples = new Int16Array(bytes.buffer, bytes.byteOffset, bytes.byteLength / 2)
-        const buffer = context.createBuffer(1, samples.length, 16000)
+        const buffer = context.createBuffer(1, samples.length, 24000)
         const channel = buffer.getChannelData(0)
         for (let index = 0; index < samples.length; index += 1) {
           channel[index] = samples[index] / 0x8000
@@ -931,12 +950,19 @@ function LiveVoicePanel({ players, playerId, enabled }: { players: Player[]; pla
         const previousTime = relayPlaybackTimesRef.current.get(packet.from) || 0
         // A small initial buffer smooths packet arrival; drop accumulated latency.
         const now = context.currentTime
-        const startAt = previousTime < now || previousTime > now + 1
-          ? now + 0.14
+        const startAt = previousTime < now || previousTime > now + 1.5
+          ? now + 0.28
           : previousTime
         const source = context.createBufferSource()
+        const smoothing = context.createGain()
+        const fade = Math.min(.004, buffer.duration / 4)
         source.buffer = buffer
-        source.connect(context.destination)
+        source.connect(smoothing)
+        smoothing.connect(context.destination)
+        smoothing.gain.setValueAtTime(0, startAt)
+        smoothing.gain.linearRampToValueAtTime(1, startAt + fade)
+        smoothing.gain.setValueAtTime(1, startAt + buffer.duration - fade)
+        smoothing.gain.linearRampToValueAtTime(0, startAt + buffer.duration)
         const sources = relaySourcesRef.current.get(packet.from) || new Set<AudioBufferSourceNode>()
         sources.add(source)
         relaySourcesRef.current.set(packet.from, sources)
@@ -970,6 +996,7 @@ function LiveVoicePanel({ players, playerId, enabled }: { players: Player[]; pla
     const next = !muted
     localStreamRef.current?.getAudioTracks().forEach(track => { track.enabled = !next })
     audioRef.current.forEach(audio => { void audio.play().catch(() => undefined) })
+    send('rtc_speaking', { speaking: !next })
     setMuted(next)
   }
 
@@ -978,9 +1005,39 @@ function LiveVoicePanel({ players, playerId, enabled }: { players: Player[]; pla
     void Promise.all([...audioRef.current.values()].map(audio => audio.play()).concat(relayPlayback ? [relayPlayback.resume()] : [])).then(() => setPlaybackBlocked(false)).catch(() => setPlaybackBlocked(true))
   }
 
+  function startDrawerDrag(event: React.PointerEvent<HTMLButtonElement>) {
+    const panel = event.currentTarget.closest('.live-voice-panel')?.getBoundingClientRect()
+    if (!panel) return
+    event.currentTarget.setPointerCapture(event.pointerId)
+    drawerDragRef.current = { startY: event.clientY, startTop: panel.top, height: panel.height, moved: false }
+  }
+
+  function moveDrawer(event: React.PointerEvent<HTMLButtonElement>) {
+    const drag = drawerDragRef.current
+    if (!drag) return
+    const distance = event.clientY - drag.startY
+    if (Math.abs(distance) > 5) drag.moved = true
+    if (!drag.moved) return
+    const maximum = Math.max(65, window.innerHeight - drag.height - 8)
+    setDrawerTop(Math.max(65, Math.min(maximum, drag.startTop + distance)))
+  }
+
+  function finishDrawerDrag() {
+    if (drawerDragRef.current?.moved) {
+      suppressDrawerClickRef.current = true
+      window.setTimeout(() => { suppressDrawerClickRef.current = false }, 0)
+    }
+    drawerDragRef.current = null
+  }
+
+  function toggleDrawer() {
+    if (suppressDrawerClickRef.current) return
+    setDrawerOpen(open => !open)
+  }
+
   const voiceCount = players.filter(player => player.connected && !player.is_bot).length
   const statusText = `${voiceCount} ${voiceCount === 1 ? 'player' : 'players'} connected`
-  return <aside className={`voice-panel live-voice-panel content-panel ${drawerOpen ? 'voice-drawer-open' : ''}`} aria-label="Live table voice"><button type="button" className="voice-drawer-toggle" onClick={() => setDrawerOpen(open => !open)} aria-expanded={drawerOpen} aria-label={drawerOpen ? 'Close live voice controls' : 'Open live voice controls'}>{muted ? <Mic size={20} /> : <MicOff size={20} />}<ChevronDown size={14} /></button><div className="voice-heading"><span className={`voice-icon ${status === 'live' ? 'voice-live' : ''}`}><Volume2 size={17} /></span><div><strong>Live table voice</strong><small>{statusText}</small></div><span className="status-dot online" /></div><div className="live-voice-room"><button type="button" className={`live-mic-orbit ${status === 'live' && !muted ? 'mic-active' : ''}`} onClick={toggleMute} disabled={!enabled || status === 'starting' || status === 'unsupported' || status === 'failed'} aria-label={!localStreamRef.current ? 'Start live microphone' : muted ? 'Unmute live microphone' : 'Mute live microphone'}><span>{muted ? <MicOff size={27} /> : <Mic size={27} />}</span></button><strong>{status === 'starting' ? 'Opening microphone…' : muted ? 'Tap the mic to speak live' : 'You are speaking live'}</strong><small>{voiceError || (connectionSlow ? 'Direct voice connection failed. This network may require a TURN server.' : 'Nothing is recorded. Everyone at the table hears you live.')}</small></div><div className="voice-compose">{status === 'blocked' ? <button type="button" className="button button-green full-button" onClick={() => { startPromiseRef.current = null; setStatus('starting'); void startMicrophone() }}><Mic size={16} /> Allow microphone</button> : playbackBlocked ? <button type="button" className="button button-green full-button" onClick={enablePlayback}><Volume2 size={16} /> Enable speaker</button> : <button type="button" className={`button ${muted ? 'button-green' : 'button-outline'} full-button`} disabled={!enabled || status === 'starting'} onClick={toggleMute}>{muted ? <><Mic size={16} /> Tap to speak</> : <><MicOff size={16} /> Stop speaking</>}</button>}<span className="voice-hint">Live only · no recording is saved</span></div></aside>
+  return <aside className={`voice-panel live-voice-panel content-panel ${drawerOpen ? 'voice-drawer-open' : ''}`} style={drawerTop === null ? undefined : { top: drawerTop, bottom: 'auto' }} aria-label="Live table voice"><button type="button" className="voice-drawer-toggle" onPointerDown={startDrawerDrag} onPointerMove={moveDrawer} onPointerUp={finishDrawerDrag} onPointerCancel={finishDrawerDrag} onClick={toggleDrawer} aria-expanded={drawerOpen} aria-label={drawerOpen ? 'Close or move live voice controls' : 'Open or move live voice controls'}>{muted ? <Mic size={20} /> : <MicOff size={20} />}<ChevronDown size={14} /></button><div className="voice-heading"><span className={`voice-icon ${status === 'live' ? 'voice-live' : ''}`}><Volume2 size={17} /></span><div><strong>Live table voice</strong><small>{statusText}</small></div><span className="status-dot online" /></div><div className="live-voice-room"><button type="button" className={`live-mic-orbit ${status === 'live' && !muted ? 'mic-active' : ''}`} onClick={toggleMute} disabled={!enabled || status === 'starting' || status === 'unsupported' || status === 'failed'} aria-label={!localStreamRef.current ? 'Start live microphone' : muted ? 'Unmute live microphone' : 'Mute live microphone'}><span>{muted ? <MicOff size={27} /> : <Mic size={27} />}</span></button><strong>{status === 'starting' ? 'Opening microphone…' : muted ? 'Tap the mic to speak live' : 'You are speaking live'}</strong><small>{voiceError || (connectionSlow ? 'Direct voice connection failed. This network may require a TURN server.' : 'Nothing is recorded. Everyone at the table hears you live.')}</small></div><div className="voice-compose">{status === 'blocked' ? <button type="button" className="button button-green full-button" onClick={() => { startPromiseRef.current = null; setStatus('starting'); void startMicrophone() }}><Mic size={16} /> Allow microphone</button> : playbackBlocked ? <button type="button" className="button button-green full-button" onClick={enablePlayback}><Volume2 size={16} /> Enable speaker</button> : <button type="button" className={`button ${muted ? 'button-green' : 'button-outline'} full-button`} disabled={!enabled || status === 'starting'} onClick={toggleMute}>{muted ? <><Mic size={16} /> Tap to speak</> : <><MicOff size={16} /> Stop speaking</>}</button>}<span className="voice-hint">Live only · no recording is saved</span></div></aside>
 }
 
 function VoicePanel({ messages, chatMessages, playerId, enabled }: { messages: VoiceMessage[]; chatMessages: ChatMessage[]; playerId: string; enabled: boolean }) {
