@@ -319,6 +319,7 @@ class Room:
             "hand": self.player(pid).hand if self.player(pid) else [],
             "top": self.discard[-1] if self.discard else None,
             "market_count": len(self.deck),
+            "turn_started_at": self.turn_started,
             "turn_seconds_remaining": (max(0, min(TURN_SECONDS, int(
                 TURN_SECONDS - (time.time() - self.turn_started) + 0.999)))
                 if self.status == "playing" else 0),

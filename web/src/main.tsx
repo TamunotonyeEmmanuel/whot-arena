@@ -17,6 +17,7 @@ type RoomView = {
   requested_shape: string | null; winner: string | null; last_action: string
   final_scores: Record<string, number>
   market_count: number
+  turn_started_at: number
   turn_seconds_remaining: number
   voice_messages: VoiceMessage[]
   chat_messages: ChatMessage[]
@@ -502,7 +503,7 @@ function GameTable() {
     setTurnSeconds(view.turn_seconds_remaining ?? 30)
     const timer = window.setInterval(() => setTurnSeconds(previous => Math.max(0, previous - 1)), 1000)
     return () => window.clearInterval(timer)
-  }, [view?.turn, view?.turn_seconds_remaining, view?.status])
+  }, [view?.turn, view?.turn_started_at, view?.turn_seconds_remaining, view?.status])
   if (!view || view.code !== code.toUpperCase()) return <div className="center-state"><div className="loader-mark">W</div><h2>Restoring your game…</h2><p>Your hand stays private while the table reconnects.</p><button type="button" className="button button-outline" onClick={() => { leaveRoom(); navigate('/create') }}>Close open table</button></div>
   const me = view.players.find(player => player.id === session?.player_id)
   const opponents = view.players.filter(player => player.id !== session?.player_id)

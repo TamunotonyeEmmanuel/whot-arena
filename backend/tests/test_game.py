@@ -43,6 +43,7 @@ def test_turn_timeout_draws_one_card_and_passes_even_with_a_playable_card():
     assert r.current().id == "b"
     assert "ran out of time" in r.last_action
     assert 29 <= r.view("a")["turn_seconds_remaining"] <= 30
+    assert r.view("a")["turn_started_at"] == r.turn_started
 
 def test_exhausted_market_ends_round_and_scores_every_hand():
     r = setup()
