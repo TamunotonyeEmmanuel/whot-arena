@@ -20,7 +20,7 @@ LOBBY_IDLE_SECONDS = 15 * 60
 FINISHED_IDLE_SECONDS = 5 * 60
 state_lock = asyncio.Lock()
 computer_tasks = {}
-COMPUTER_MOVE_DELAY_SECONDS = 10
+COMPUTER_MOVE_DELAY_SECONDS = 4
 
 def message_user_id(msg):
     token = msg.get("access_token")
