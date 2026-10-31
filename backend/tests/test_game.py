@@ -97,6 +97,14 @@ def test_privacy():
     r = setup()
     assert len(r.view("a")["hand"]) == 5
     assert "hand" not in r.view("a")["players"][1]
+
+def test_computer_player_is_identified_without_exposing_its_hand():
+    r = Room("SOLO", "human", [Player("human", "Ada"),
+                                Player("bot", "Arena Bot", is_bot=True)])
+    r.start("human")
+    bot = next(player for player in r.view("human")["players"] if player["id"] == "bot")
+    assert bot["is_bot"] is True
+    assert "hand" not in bot
 def test_max_players_is_enforced_by_server():
     r = Room("TEST", "a", [Player("a", "Ada")])
     for pid in ("b", "c", "d"):

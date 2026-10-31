@@ -7,7 +7,7 @@ import './styles.css'
 import { gameSoundsEnabled, playGameSound, primeGameAudio, setGameSoundsEnabled } from './audio'
 
 type Card = { id: string; shape: string; number: number }
-type Player = { id: string; name: string; count: number; connected: boolean; voice_ready?: boolean }
+type Player = { id: string; name: string; count: number; connected: boolean; voice_ready?: boolean; is_bot?: boolean }
 type VoiceMessage = { id: string; player_id: string; name: string; content_type: string; size: number; sent_at: number }
 type ChatMessage = { id: string; player_id: string; name: string; text: string; sent_at: number }
 type RtcSignal = { id: string; from: string; signal: { type: 'offer' | 'answer' | 'ice'; sdp?: RTCSessionDescriptionInit; candidate?: RTCIceCandidateInit } }
@@ -423,21 +423,25 @@ function CreateRoom() {
   const [name, setName] = useState(user?.username || localStorage.getItem('whot.nickname') || 'Guest')
   const [roomError, setRoomError] = useState('')
   const [loadingLabel, setLoadingLabel] = useState('')
-  async function create(action: 'create' | 'quick_match') {
+  async function create(action: 'create' | 'quick_match' | 'computer') {
     setRoomError('')
-    setLoadingLabel(action === 'create' ? 'OPENING YOUR TABLE' : 'FINDING YOUR MATCH')
+    setLoadingLabel(action === 'create' ? 'OPENING YOUR TABLE' : action === 'computer' ? 'DEALING AGAINST THE COMPUTER' : 'FINDING YOUR MATCH')
     try {
       const [next] = await Promise.all([
         connectRoom(action, { name: name.trim() || 'Guest' }),
         new Promise(resolve => window.setTimeout(resolve, 1200)),
       ])
-      navigate(`/lobby/${next.code}`)
+      navigate(action === 'computer' ? `/game/${next.code}` : `/lobby/${next.code}`)
     } catch (error) {
       setLoadingLabel('')
       setRoomError(error instanceof Error ? error.message : 'Could not create room')
     }
   }
-  return <><PageTitle eyebrow="FIND YOUR TABLE" title="Let's play." detail="Set up a private game or find a player for a quick match." /><div className="setup-layout"><section className="content-panel setup-panel"><span className="setup-number">01</span><span className="small-label">PRIVATE ROOM</span><h2>Bring your own crew.</h2><p>Create a room and share its six-character code. Your friends can join from the web or mobile app.</p><label className="field-label">Your table name<input value={name} maxLength={20} onChange={event => setName(event.target.value)} onBlur={() => localStorage.setItem('whot.nickname', name)} placeholder="Choose a nickname" /></label><button disabled={busy} onClick={() => void create('create')} className="button button-green full-button"><Plus size={17} /> {busy ? 'Opening table…' : 'Create private room'}</button></section><section className="content-panel setup-panel quick-match-panel"><span className="setup-number">02</span><span className="small-label">QUICK MATCH</span><h2>Meet at the table.</h2><p>Open a public lobby and pair up with the next player who joins quick match.</p><div className="quick-match-meta"><span><Users size={15} /> 2–4 players</span><span><Clock3 size={15} /> Usually under a minute</span></div><button disabled={busy} onClick={() => void create('quick_match')} className="button button-lime full-button"><Sparkles size={17} /> {busy ? 'Finding players…' : 'Find a quick match'}</button></section></div>{roomError && <div role="alert" className="form-error form-error-block">{roomError}</div>}<div className="house-rule-callout"><Shield size={17} /><span><strong>Fair play is server-side.</strong> The game server deals cards, checks moves, and decides the winner.</span><Link to="/help">Rules <ArrowRight size={14} /></Link></div>{loadingLabel && <LoadingScreen message={loadingLabel} action />}</>
+  return <><PageTitle eyebrow="FIND YOUR TABLE" title="Let's play." detail="Play the computer, set up a private room, or find a quick match." /><div className="setup-layout setup-layout-three">
+    <section className="content-panel setup-panel computer-match-panel"><span className="setup-number">01</span><span className="small-label">SOLO MATCH</span><h2>Challenge the computer.</h2><p>Jump straight into a two-player round against Arena Bot. No room code or waiting required.</p><label className="field-label">Your table name<input value={name} maxLength={20} onChange={event => setName(event.target.value)} onBlur={() => localStorage.setItem('whot.nickname', name)} placeholder="Choose a nickname" /></label><button disabled={busy} onClick={() => void create('computer')} className="button button-green full-button"><Gamepad2 size={17} /> {busy ? 'Dealing cards…' : 'Play vs computer'}</button></section>
+    <section className="content-panel setup-panel"><span className="setup-number">02</span><span className="small-label">PRIVATE ROOM</span><h2>Bring your own crew.</h2><p>Create a room and share its six-character code. Friends can join from web or mobile.</p><button disabled={busy} onClick={() => void create('create')} className="button button-green full-button"><Plus size={17} /> {busy ? 'Opening table…' : 'Create private room'}</button></section>
+    <section className="content-panel setup-panel quick-match-panel"><span className="setup-number">03</span><span className="small-label">QUICK MATCH</span><h2>Meet at the table.</h2><p>Pair up with the next player who joins quick match.</p><div className="quick-match-meta"><span><Users size={15} /> 2–4 players</span><span><Clock3 size={15} /> Usually under a minute</span></div><button disabled={busy} onClick={() => void create('quick_match')} className="button button-lime full-button"><Sparkles size={17} /> {busy ? 'Finding players…' : 'Find a quick match'}</button></section>
+  </div>{roomError && <div role="alert" className="form-error form-error-block">{roomError}</div>}<div className="house-rule-callout"><Shield size={17} /><span><strong>Fair play is server-side.</strong> The game server deals cards, checks moves, and decides the winner.</span><Link to="/help">Rules <ArrowRight size={14} /></Link></div>{loadingLabel && <LoadingScreen message={loadingLabel} action />}</>
 }
 
 function JoinRoom() {
@@ -476,6 +480,14 @@ function CardFace({ card, large = false, back = false, selected = false, playabl
   return <button type="button" className={`whot-card ${large ? 'card-large' : ''} tone-${shapeTone[card.shape]} ${selected ? 'card-selected' : ''} ${playable ? 'card-playable' : ''}`} onClick={onClick} disabled={!playable} style={{ '--card-index': index } as React.CSSProperties} aria-label={`Play ${card.number} ${card.shape}`}><span className="card-corner top-corner"><span>{card.number}</span><small>{shapeGlyph[card.shape]}</small></span><span className="card-glyph">{shapeGlyph[card.shape]}</span><span className="card-number">{card.number}</span><span className="card-corner bottom-corner"><span>{card.number}</span><small>{shapeGlyph[card.shape]}</small></span></button>
 }
 
+function WinnerCelebration({ name }: { name: string }) {
+  const sparks = Array.from({ length: 18 }, (_, index) => index)
+  return <div className="winner-celebration" role="status" aria-live="assertive" aria-label={`${name} wins the round`}>
+    {[0, 1, 2, 3].map(burst => <div className={`firework firework-${burst + 1}`} key={burst} aria-hidden="true">{sparks.map(spark => <span key={spark} style={{ '--spark': spark } as React.CSSProperties} />)}</div>)}
+    <div className="winner-announcement"><Crown size={34} /><span>ROUND WINNER</span><strong>{name}</strong></div>
+  </div>
+}
+
 function GameTable() {
   const { code = '' } = useParams()
   const { view, session, send, leaveRoom } = useArena()
@@ -494,6 +506,7 @@ function GameTable() {
   if (!view || view.code !== code.toUpperCase()) return <div className="center-state"><div className="loader-mark">W</div><h2>Restoring your game…</h2><p>Your hand stays private while the table reconnects.</p><button type="button" className="button button-outline" onClick={() => { leaveRoom(); navigate('/create') }}>Close open table</button></div>
   const me = view.players.find(player => player.id === session?.player_id)
   const opponents = view.players.filter(player => player.id !== session?.player_id)
+  const winnerName = view.players.find(player => player.id === view.winner)?.name || 'Arena winner'
   const myTurn = view.turn === session?.player_id && view.status === 'playing'
   const isLegal = (card: Card) => card.number === 20 || card.number === view.top?.number || card.shape === (view.requested_shape || view.top?.shape)
   function play(card: Card) {
@@ -504,6 +517,7 @@ function GameTable() {
   function confirmWhot() { if (selectedWhot) { send('play', { card_id: selectedWhot.id, shape }); setSelectedWhot(null) } }
   return (
     <div className="game-page">
+      {view.status === 'finished' && <WinnerCelebration name={winnerName} />}
       <div className="game-topline">
         <div>
           <Eyebrow>ROOM {view.code}</Eyebrow>
@@ -522,7 +536,7 @@ function GameTable() {
           {opponents.map((player, index) => (
             <div className={`opponent ${!player.connected ? 'player-away' : ''} ${view.turn === player.id ? 'opponent-turn' : ''}`} key={player.id}>
               <div className="opponent-avatar-wrap"><div className={`avatar opponent-avatar avatar-${index}`}>{player.name.slice(0, 1).toUpperCase()}</div><span className={`status-dot ${player.connected ? 'online' : ''}`} /></div>
-              <strong>{player.name}</strong><span className={player.count === 1 ? 'last-card-label' : ''}>{player.count === 1 ? 'LAST CARD' : `${player.count} cards`}</span>{view.turn === player.id && <span className="opponent-turn-label">THEIR TURN</span>}
+              <strong>{player.name}{player.is_bot ? ' · CPU' : ''}</strong><span className={player.count === 1 ? 'last-card-label' : ''}>{player.count === 1 ? 'LAST CARD' : `${player.count} cards`}</span>{view.turn === player.id && <span className="opponent-turn-label">{player.is_bot ? 'THINKING' : 'THEIR TURN'}</span>}
               <div className="opponent-card-fan">{Array.from({ length: Math.min(player.count, 3) }, (_, cardIndex) => <CardFace key={cardIndex} back />)}</div>
             </div>
           ))}
@@ -552,6 +566,7 @@ function GameTable() {
         </section>
       )}
       </div>
+      {!opponents.every(player => player.is_bot) && <LiveVoicePanel players={view.players} playerId={session?.player_id || ''} enabled={view.status === 'playing'} />}
       <VoicePanel messages={view.voice_messages || []} chatMessages={view.chat_messages || []} playerId={session?.player_id || ''} enabled={view.status === 'playing'} />
       </div>
     </div>

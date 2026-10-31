@@ -38,6 +38,7 @@ class Player:
     disconnected_at: Optional[float] = None
     reconnect_token: str = field(default_factory=lambda: secrets.token_urlsafe(32), repr=False)
     user_id: Optional[int] = None
+    is_bot: bool = False
 
 @dataclass
 class Room:
@@ -312,7 +313,8 @@ class Room:
             "code": self.code, "status": self.status, "host": self.host,
             "you": pid, "turn": self.current().id if self.status == "playing" else None,
             "players": [{"id": p.id, "name": p.name, "count": len(p.hand),
-                         "connected": p.connected, "voice_ready": p.voice_ready}
+                         "connected": p.connected, "voice_ready": p.voice_ready,
+                         "is_bot": p.is_bot}
                         for p in self.players],
             "hand": self.player(pid).hand if self.player(pid) else [],
             "top": self.discard[-1] if self.discard else None,

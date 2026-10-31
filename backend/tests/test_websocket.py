@@ -161,6 +161,21 @@ def test_quick_match_pairs_and_starts_two_players(server_url):
             assert len(first_state["players"]) == 2
 
 
+def test_computer_match_starts_immediately_and_bot_replies(server_url):
+    with connect(server_url) as player:
+        send(player, {"action": "computer", "name": "Solo"})
+        session = receive_type(player, "session")
+        state = receive_type(player, "state")["data"]
+        assert state["status"] == "playing"
+        assert len(state["players"]) == 2
+        assert next(p for p in state["players"] if p["id"] != session["player_id"])["is_bot"]
+        send(player, {"action": "draw"})
+        replied = receive_type(player, "state")["data"]
+        assert replied["status"] in {"playing", "finished"}
+        if replied["status"] == "playing":
+            assert replied["turn"] == session["player_id"]
+
+
 def test_untrusted_websocket_origin_is_rejected():
     from fastapi.testclient import TestClient
     from app.main import app

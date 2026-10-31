@@ -47,6 +47,14 @@ async def broadcast(room):
             except Exception:
                 pass
 
+def play_computer_turns(room):
+    """Resolve consecutive computer turns before returning control to a human."""
+    moves = 0
+    while room.status == "playing" and room.current().is_bot and moves < 20:
+        room.auto_move()
+        moves += 1
+    record_match(room)
+
 def record_match(room):
     if room.status != "finished" or room.result_recorded:
         return
@@ -84,7 +92,7 @@ async def monitor():
                          and now - current.disconnected_at >= RECONNECT_SECONDS)
                         or now - room.turn_started >= TURN_SECONDS):
                         room.timeout_turn()
-                        record_match(room)
+                        play_computer_turns(room)
                         changed.append(room)
                 if room.status == "lobby":
                     expired = [p for p in room.players if not p.connected and
@@ -146,7 +154,7 @@ async def ws_endpoint(ws: WebSocket):
             msg = await ws.receive_json()
             action = msg.get("action")
             try:
-                if action == "create":
+                if action in {"create", "computer"}:
                     if pid is not None:
                         raise ValueError("This connection already has a session")
                     name = str(msg.get("name", "Guest")).strip()[:20] or "Guest"
@@ -156,6 +164,10 @@ async def ws_endpoint(ws: WebSocket):
                         code = new_room_code()
                         player = Player(pid, name, user_id=user_id)
                         room = Room(code=code, host=pid, players=[player])
+                        if action == "computer":
+                            room.add_player(Player("bot-" + secrets.token_urlsafe(8),
+                                                   "Arena Bot", is_bot=True))
+                            room.start(pid)
                         rooms[code] = room
                         connections[pid] = ws
                     await send(ws, {"type": "session", "player_id": pid, "code": code,
@@ -264,11 +276,13 @@ async def ws_endpoint(ws: WebSocket):
                             room.start(pid)
                         elif action == "play":
                             room.play(pid, msg.get("card_id"), msg.get("shape"))
-                            record_match(room)
+                            play_computer_turns(room)
                         elif action == "draw":
                             room.draw(pid)
+                            play_computer_turns(room)
                         elif action == "rematch":
                             room.rematch(pid)
+                            play_computer_turns(room)
                         elif action == "rtc_ready":
                             room.player(pid).voice_ready = True
                             room.updated_at = time.time()
