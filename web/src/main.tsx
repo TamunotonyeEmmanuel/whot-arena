@@ -17,6 +17,7 @@ type RoomView = {
   requested_shape: string | null; winner: string | null; last_action: string
   final_scores: Record<string, number>
   market_count: number
+  turn_seconds_remaining: number
   voice_messages: VoiceMessage[]
   chat_messages: ChatMessage[]
   is_public: boolean; rules: { cards_per_player: number; pick_two: number; pick_three: number; general_market: number; penalty_stacking: boolean }
@@ -481,8 +482,15 @@ function GameTable() {
   const [selectedWhot, setSelectedWhot] = useState<Card | null>(null)
   const [shape, setShape] = useState('circle')
   const [toast, setToast] = useState('')
+  const [turnSeconds, setTurnSeconds] = useState(20)
   const navigate = useNavigate()
   useEffect(() => { if (view?.status === 'finished') setToast(view.winner === session?.player_id ? 'You emptied your hand. What a finish!' : `${view.players.find(player => player.id === view.winner)?.name || 'A player'} takes the round.`) }, [view?.status, view?.winner])
+  useEffect(() => {
+    if (view?.status !== 'playing') { setTurnSeconds(0); return }
+    setTurnSeconds(view.turn_seconds_remaining ?? 20)
+    const timer = window.setInterval(() => setTurnSeconds(previous => Math.max(0, previous - 1)), 1000)
+    return () => window.clearInterval(timer)
+  }, [view?.turn, view?.turn_seconds_remaining, view?.status])
   if (!view || view.code !== code.toUpperCase()) return <div className="center-state"><div className="loader-mark">W</div><h2>Restoring your game…</h2><p>Your hand stays private while the table reconnects.</p><button type="button" className="button button-outline" onClick={() => { leaveRoom(); navigate('/create') }}>Close open table</button></div>
   const me = view.players.find(player => player.id === session?.player_id)
   const opponents = view.players.filter(player => player.id !== session?.player_id)
@@ -510,6 +518,7 @@ function GameTable() {
       <div className="table-column">
       <section className="table-felt">
         <div className="table-stitch" />
+        {view.status === 'playing' && <div className={`table-turn-timer ${turnSeconds <= 5 ? 'table-turn-timer-urgent' : ''}`} aria-live="polite" aria-label={`${turnSeconds} seconds remaining`}><Clock3 size={16} /><strong>{turnSeconds}</strong><span>SEC</span></div>}
         <div className="opponents-row">
           {opponents.map((player, index) => (
             <div className={`opponent ${!player.connected ? 'player-away' : ''} ${view.turn === player.id ? 'opponent-turn' : ''}`} key={player.id}>

@@ -16,6 +16,7 @@ VOICE_HISTORY_LIMIT = 20
 VOICE_COOLDOWN_SECONDS = 1.0
 CHAT_HISTORY_LIMIT = 100
 CHAT_MAX_CHARS = 500
+TURN_SECONDS = 20
 LAST_CARD_REQUIRES_REPLACEMENT = {1, 2, 5, 8, 14, 20}
 # Explicit house rules: 1 extra turn, 2 +2, 5 +3, 8 skip, 14 market (+1 each opponent),
 # 20 wild request shape. Special actions do not stack. Penalty draws end the target turn.
@@ -279,6 +280,16 @@ class Room:
         self.last_action = f"{self.current().name} drew a card"
         self._advance()
 
+    def timeout_turn(self):
+        if self.status != "playing":
+            return
+        player = self.current()
+        if self._draw(player) == 0 or not self.deck:
+            self.finish_exhausted_market()
+            return
+        self.last_action = f"{player.name} ran out of time and drew a card"
+        self._advance()
+
     def auto_move(self):
         if self.status != "playing":
             return
@@ -306,6 +317,9 @@ class Room:
             "hand": self.player(pid).hand if self.player(pid) else [],
             "top": self.discard[-1] if self.discard else None,
             "market_count": len(self.deck),
+            "turn_seconds_remaining": (max(0, min(TURN_SECONDS, int(
+                TURN_SECONDS - (time.time() - self.turn_started) + 0.999)))
+                if self.status == "playing" else 0),
             "requested_shape": self.requested_shape,
             "winner": self.winner, "last_action": self.last_action,
             "final_scores": self.final_scores,

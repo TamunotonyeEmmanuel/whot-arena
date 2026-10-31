@@ -31,6 +31,19 @@ def test_draw_advances():
     r.draw("a")
     assert r.current().id == "b"
 
+def test_turn_timeout_draws_one_card_and_passes_even_with_a_playable_card():
+    r = setup()
+    current = r.current()
+    current.hand = [{"shape": r.discard[-1]["shape"], "number": 3, "id": "playable"}]
+    before = len(current.hand)
+
+    r.timeout_turn()
+
+    assert len(current.hand) == before + 1
+    assert r.current().id == "b"
+    assert "ran out of time" in r.last_action
+    assert 19 <= r.view("a")["turn_seconds_remaining"] <= 20
+
 def test_exhausted_market_ends_round_and_scores_every_hand():
     r = setup()
     r.deck = []

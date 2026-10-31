@@ -7,7 +7,7 @@ import os
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from .game import VOICE_MAX_BYTES, Room, Player
+from .game import TURN_SECONDS, VOICE_MAX_BYTES, Room, Player
 from .accounts import router as accounts_router
 from .auth import token_user_id
 from .database import MatchParticipant, MatchResult, User, database_session, init_database
@@ -16,7 +16,6 @@ rooms = {}
 connections = {}  # player id -> websocket
 RECONNECT_SECONDS = 30
 LOBBY_RECONNECT_SECONDS = 10 * 60
-TURN_SECONDS = 45
 LOBBY_IDLE_SECONDS = 15 * 60
 FINISHED_IDLE_SECONDS = 5 * 60
 state_lock = asyncio.Lock()
@@ -84,7 +83,7 @@ async def monitor():
                     if ((not current.connected and current.disconnected_at is not None
                          and now - current.disconnected_at >= RECONNECT_SECONDS)
                         or now - room.turn_started >= TURN_SECONDS):
-                        room.auto_move()
+                        room.timeout_turn()
                         record_match(room)
                         changed.append(room)
                 if room.status == "lobby":
