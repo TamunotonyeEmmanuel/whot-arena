@@ -29,6 +29,15 @@ def test_draw_advances():
     r = setup()
     r.draw("a")
     assert r.current().id == "b"
+
+def test_general_market_player_continues_without_drawing_when_cards_remain():
+    r = setup()
+    r.discard = [{"shape": "circle", "number": 7, "id": "top"}]
+    r.players[0].hand = [{"shape": "circle", "number": 14, "id": "market"},
+                         {"shape": "star", "number": 3, "id": "keep"}]
+    r.play("a", "market")
+    assert len(r.players[0].hand) == 1
+    assert r.current().id == "a"
 def test_privacy():
     r = setup()
     assert len(r.view("a")["hand"]) == 5
@@ -139,7 +148,7 @@ def test_general_market_draws_for_every_opponent():
     before = [len(player.hand) for player in r.players]
     r.play("a", "market")
     assert [len(player.hand) for player in r.players] == [1, before[1] + 1, before[2] + 1]
-    assert r.current().id == "b"
+    assert r.current().id == "a"
 
 def test_eight_skips_the_next_player():
     r = Room("TEST", "a", [Player("a", "Ada"), Player("b", "Ben"),

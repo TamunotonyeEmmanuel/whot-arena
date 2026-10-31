@@ -768,7 +768,7 @@ const rules = [
   ['2', 'Pick Two', 'The next player draws two and loses their turn.'],
   ['5', 'Pick Three', 'The next player draws three and loses their turn.'],
   ['8', 'Suspension', 'Skip the next player.'],
-  ['14', 'General Market', 'Every opponent draws one card.'],
+  ['14', 'General Market', 'Every opponent draws one card, then you play again.'],
   ['20', 'WHOT', 'Choose the next shape. WHOT can be played at any time.'],
 ]
 function HelpPage() {

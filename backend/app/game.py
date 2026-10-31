@@ -213,7 +213,8 @@ class Room:
             for other in self.players:
                 if other.id != pid:
                     self._draw(other, self.rules.general_market)
-            self._advance()
+            self.turn_started = time.time()
+            self.updated_at = self.turn_started
         else:
             self._advance()
 
