@@ -518,7 +518,6 @@ function GameTable() {
       <div className="table-column">
       <section className="table-felt">
         <div className="table-stitch" />
-        {view.status === 'playing' && <div className={`table-turn-timer ${turnSeconds <= 5 ? 'table-turn-timer-urgent' : ''}`} aria-live="polite" aria-label={`${turnSeconds} seconds remaining`}><Clock3 size={16} /><strong>{turnSeconds}</strong><span>SEC</span></div>}
         <div className="opponents-row">
           {opponents.map((player, index) => (
             <div className={`opponent ${!player.connected ? 'player-away' : ''} ${view.turn === player.id ? 'opponent-turn' : ''}`} key={player.id}>
@@ -530,7 +529,7 @@ function GameTable() {
         </div>
         <div className="center-piles">
           <div className="pile-block"><span className="pile-label">DRAW PILE</span><div className={`pile-stack${view.market_count > 0 && view.market_count <= 5 ? ' pile-stack-low' : ''}`} onClick={() => myTurn && send('draw')} role="button" tabIndex={0} onKeyDown={event => event.key === 'Enter' && myTurn && send('draw')} aria-label={`Draw one card and pass. ${view.market_count} cards remain`}><CardFace back large /><span className="market-count">{view.market_count}</span><span className="pile-count">{myTurn ? 'TAP TO DRAW' : `${view.market_count} CARDS`}</span></div></div>
-          <div className="table-arrow">{myTurn ? <Sparkles size={19} /> : <ArrowRight size={19} />}</div>
+          <div className="table-arrow">{view.status === 'playing' ? <div className={`table-turn-timer ${turnSeconds <= 5 ? 'table-turn-timer-urgent' : ''}`} aria-live="polite" aria-label={`${turnSeconds} seconds remaining`}><Clock3 size={16} /><strong>{turnSeconds}</strong><span>SEC</span></div> : <Sparkles size={19} />}</div>
           <div className="pile-block"><span className="pile-label">ON THE TABLE</span><div className="top-card-slot"><CardFace card={view.top} large selected /><div className="top-glow" /></div></div>
         </div>
         {view.requested_shape && <div className="requested-shape"><span>SHAPE REQUESTED</span><strong>{shapeGlyph[view.requested_shape]} {view.requested_shape}</strong></div>}
