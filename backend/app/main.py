@@ -259,8 +259,9 @@ def record_match(room):
                     user = db.get(User, player.user_id)
                     if user:
                         user.matches_played += 1
-                        user.xp += 100 + room.match_points.get(player.id, 0)
-                        if winner is player:
+                        team_won = room.team_key(player.id) == room.team_key(winner.id)
+                        user.xp += 100 + room.match_points.get(room.team_key(player.id), 0)
+                        if team_won:
                             user.wins += 1
                             user.xp += 150
                             user.win_streak += 1
@@ -282,7 +283,7 @@ def record_match(room):
                         db.add(MatchParticipant(
                             match_result_id=match.id,
                             user_id=player.user_id,
-                            did_win=player is winner,
+                            did_win=team_won,
                         ))
             if room.wager_locked and not room.wager_paid and winner.user_id:
                 pot = room.wager * len([p for p in room.players if not p.is_bot])
@@ -451,6 +452,9 @@ async def ws_endpoint(ws: WebSocket):
                     if not user_id:
                         raise ValueError("Log in before playing a game")
                     wager = int(msg.get("wager", 0) or 0) if action == "create" else 0
+                    team_mode = action == "create" and msg.get("team_mode") is True
+                    if team_mode and wager:
+                        raise ValueError("Virtual Naira stakes are not available in team matches")
                     if wager < 0 or wager > MAXIMUM_WAGER or (wager and wager < MINIMUM_WAGER):
                         raise ValueError(f"Stake must be free or between ₦{MINIMUM_WAGER:,} and ₦{MAXIMUM_WAGER:,}")
                     ensure_wager_available(
@@ -464,7 +468,8 @@ async def ws_endpoint(ws: WebSocket):
                         player = make_player(pid, name, user_id)
                         if wager and player.coin_balance < wager:
                             raise ValueError("You do not have enough Virtual Naira for this stake")
-                        room = Room(code=code, host=pid, players=[player], wager=wager)
+                        room = Room(code=code, host=pid, players=[player], wager=wager,
+                                    team_mode=team_mode)
                         if action == "computer":
                             room.add_player(Player("bot-" + secrets.token_urlsafe(8),
                                                    "Arena Bot", is_bot=True))

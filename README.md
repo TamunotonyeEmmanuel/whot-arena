@@ -97,7 +97,10 @@ Host starts with at least two players. Only your own cards are visible.
 Tap a card to play it, or Draw Card & Pass. WHOT 20 prompts for a shape.
 
 ## House rules in this MVP
-5 cards dealt to each player. Match the top card's shape or number;
+5 cards dealt to each player. Private rooms may optionally enable 2v2 teams:
+seats 1 and 3 play together against seats 2 and 4, with team round wins and
+match points shared. Team matches require four human players and are free-play
+only. Standard free-for-all matches remain unchanged. Match the top card's shape or number;
 WHOT 20 can be played anytime and requests a shape.
 1: play again. 2: next player draws two and loses turn.
 5: next player draws three and loses turn. 8: skip next player.

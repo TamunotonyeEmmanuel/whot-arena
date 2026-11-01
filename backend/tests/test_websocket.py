@@ -100,10 +100,11 @@ def launch_restart_test_server(database_url):
     pytest.fail(f"Restart test server did not start: {output}")
 
 
-def create(socket, server_url, name="Ada"):
+def create(socket, server_url, name="Ada", team_mode=False):
     send(socket, {
         "action": "create",
         "name": name,
+        "team_mode": team_mode,
         "access_token": account_token(server_url),
     })
     session = receive_type(socket, "session")
@@ -155,6 +156,33 @@ def test_match_authorization_privacy_and_reconnect(server_url):
                             "reconnect_token": guest_session["reconnect_token"]})
             assert receive_type(restored, "session")["player_id"] == guest_session["player_id"]
             assert len(receive_type(restored, "state")["data"]["hand"]) == 5
+
+def test_team_room_requires_four_players_and_assigns_alternating_seats(server_url):
+    with connect(server_url) as host:
+        host_session, lobby = create(host, server_url, team_mode=True)
+        assert lobby["team_mode"] is True
+        send(host, {"action": "start"})
+        assert "four human players" in receive_type(host, "error")["message"]
+
+        sockets = []
+        try:
+            for name in ("Ben", "Cleo", "Deji"):
+                guest = connect(server_url)
+                sockets.append(guest)
+                join(guest, server_url, host_session["code"], name)
+                receive_type(host, "state")
+            send(host, {"action": "start"})
+            host_state = receive_type(host, "state")["data"]
+            assert host_state["status"] == "playing"
+            assert [player["team"] for player in host_state["players"]] == [
+                1, 2, 1, 2,
+            ]
+            for guest in sockets:
+                state = receive_type(guest, "state")["data"]
+                assert state["team_mode"] is True
+        finally:
+            for guest in sockets:
+                guest.close()
 
 
 def test_refresh_reconnect_replaces_the_previous_socket(server_url):

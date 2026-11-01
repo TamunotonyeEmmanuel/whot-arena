@@ -99,6 +99,34 @@ def test_completed_match_updates_registered_player_statistics():
         })
         assert opponent_history.json()[0]["result"] == "loss"
 
+def test_team_match_records_both_teammates_as_winners():
+    players = [credentials() for _ in range(4)]
+    with TestClient(app) as client:
+        registrations = [
+            client.post("/api/auth/register", json=payload).json()
+            for payload in players
+        ]
+        accounts = [registration["user"] for registration in registrations]
+        room = Room("TEAMSTATS", "p1", [
+            Player(f"p{index + 1}", payload["username"],
+                   user_id=account["id"], team=index % 2 + 1)
+            for index, (payload, account) in enumerate(zip(players, accounts))
+        ], team_mode=True, status="finished", match_winner="p3")
+
+        record_match(room)
+
+        for index in range(len(accounts)):
+            profile = client.get("/api/profile", headers={
+                "Authorization": "Bearer " + registrations[index]["access_token"],
+            }).json()
+            assert profile["wins"] == (1 if index in (0, 2) else 0)
+            history = client.get("/api/history", headers={
+                "Authorization": "Bearer " + registrations[index]["access_token"],
+            }).json()
+            assert history[0]["result"] == (
+                "win" if index in (0, 2) else "loss"
+            )
+
 
 def test_match_stake_is_atomic_and_locking_is_idempotent():
     first_payload = credentials()

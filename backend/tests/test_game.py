@@ -541,6 +541,75 @@ def test_best_of_three_tracks_round_wins_points_and_match_champion():
     assert r.match_points == {"a": 14, "b": 7}
     assert r.match_winner == "a"
 
+def team_setup():
+    room = Room("TEAMS", "a", [
+        Player("a", "Ada"), Player("b", "Ben"),
+        Player("c", "Cleo"), Player("d", "Deji"),
+    ], team_mode=True)
+    room.start("a")
+    return room
+
+def test_team_match_assigns_alternating_seats_and_shares_match_score():
+    room = team_setup()
+
+    assert [player.team for player in room.players] == [1, 2, 1, 2]
+    assert room.round_wins == {"team-1": 0, "team-2": 0}
+    assert room.match_points == {"team-1": 0, "team-2": 0}
+    assert room.view("c")["players"][2]["team"] == 1
+
+    room.players[1].hand = [{"shape": "circle", "number": 7, "id": "b7"}]
+    room.players[3].hand = [{"shape": "star", "number": 5, "id": "d10"}]
+    room.finish_round("a")
+
+    assert room.round_wins == {"team-1": 1, "team-2": 0}
+    assert room.match_points == {"team-1": 17, "team-2": 0}
+
+    room.rematch("a")
+    room.finish_round("c")
+    assert room.round_wins == {"team-1": 2, "team-2": 0}
+    assert room.match_winner == "c"
+
+def test_team_match_requires_four_human_players():
+    room = Room("TEAMS", "a", [
+        Player("a", "Ada"), Player("b", "Ben"), Player("c", "Cleo"),
+    ], team_mode=True)
+    try:
+        room.start("a")
+        assert False
+    except ValueError as error:
+        assert "four human players" in str(error)
+
+    room.players.append(Player("d", "Bot", is_bot=True))
+    try:
+        room.start("a")
+        assert False
+    except ValueError as error:
+        assert "four human players" in str(error)
+
+def test_team_match_cannot_use_virtual_naira_stakes():
+    room = Room("TEAMS", "a", [
+        Player("a", "Ada"), Player("b", "Ben"),
+        Player("c", "Cleo"), Player("d", "Deji"),
+    ], team_mode=True, wager=100)
+    try:
+        room.start("a")
+        assert False
+    except ValueError as error:
+        assert "not available in team matches" in str(error)
+
+def test_team_mates_cannot_call_each_other_for_missed_last_card():
+    room = team_setup()
+    room.players[2].hand = [{"shape": "circle", "number": 3, "id": "last"}]
+    room.players[2].last_card_required = True
+    try:
+        room.call_last_card("a", "c")
+        assert False
+    except ValueError as error:
+        assert "no opponent" in str(error)
+
+    room.call_last_card("b", "c")
+    assert len(room.players[2].hand) == 3
+
     def test_voice_message_is_room_scoped_and_state_contains_metadata_only():
         r = Room("VOICE1", "a", [Player("a", "Ada"), Player("b", "Ben")],
                  status="playing")

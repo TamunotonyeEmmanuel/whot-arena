@@ -8,6 +8,8 @@ The browser uses `VITE_API_URL` for HTTP and `VITE_WS_URL` for the WebSocket. Th
 
 The in-game phone also contains a standalone, local two-player snooker frame. Open the phone during an Arena session, tap **Snooker**, then use the aim and power controls to take shots. Snooker state is client-only and does not use the WHOT WebSocket or account match history.
 
+Private rooms can opt into 2v2 teams. Seat order pairs players 1 and 3 against players 2 and 4; the server shares round wins and match points across each team and requires four human players to start. Team matches do not support Virtual Naira wagers. Quick match, computer games, and ordinary private rooms retain their existing free-for-all behavior.
+
 ## Browser routes
 
 | Route | Purpose | Backend contract |

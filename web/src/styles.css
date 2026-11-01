@@ -300,3 +300,20 @@ html[data-theme="dark"] .lobby-room .lobby-code strong,html[data-theme="dark"] .
 .snooker-app-launch{position:relative}
 .snooker-app-launch:focus-visible{outline:2px solid #fff;outline-offset:3px}
 .snooker-header-eight{width:18px;height:18px;display:grid;place-items:center;border:1px solid #ffffff75;border-radius:50%;color:#191a1d;background:#fff;font-size:9px;font-weight:900}
+.team-mode-toggle{display:flex;align-items:center;gap:10px;margin:12px 0;padding:10px;border:1px solid #dfe5dc;border-radius:8px;color:#42564a;background:#f8faf6;cursor:pointer}
+.team-mode-toggle input{width:17px;height:17px;flex:0 0 auto;accent-color:#27804b}
+.team-mode-toggle>span{display:grid;gap:3px}
+.team-mode-toggle strong{font-size:10px}
+.team-mode-toggle small{color:#7b887e;font-size:9px}
+.team-mode-banner{display:flex;align-items:center;gap:9px;margin:12px 0;padding:10px 12px;border:1px solid #b8d2ae;border-radius:8px;color:#315b3b;background:#e8f3e1}
+.team-mode-banner>span{display:grid;gap:3px}
+.team-mode-banner strong{font-size:10px}
+.team-mode-banner small{color:#58725c;font-size:9px}
+.team-tag{display:inline-flex;align-items:center;margin-left:6px;padding:2px 5px;border:1px solid #c9d9c7;border-radius:9px;color:#416348;background:#edf5e9;font-size:7px;font-style:normal;font-weight:900;letter-spacing:.3px;vertical-align:middle}
+.team-tag-2{color:#55618b;border-color:#cdd3e8;background:#edf0fa}
+html[data-theme="dark"] .team-mode-toggle{color:#dce9df;border-color:#34483c;background:#192c21}
+html[data-theme="dark"] .team-mode-toggle small{color:#9eafa2}
+html[data-theme="dark"] .team-mode-banner{color:#c6e1c4;border-color:#3e6240;background:#213a25}
+html[data-theme="dark"] .team-mode-banner small{color:#adc4ae}
+html[data-theme="dark"] .team-tag{color:#c4e1c5;border-color:#456b48;background:#29432d}
+html[data-theme="dark"] .team-tag-2{color:#d1d7f0;border-color:#515d84;background:#303a5b}

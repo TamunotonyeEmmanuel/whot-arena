@@ -90,8 +90,8 @@ def leaderboard(limit: int = 50, db: Session = Depends(get_db)):
 def match_history(limit: int = 20, user: User = Depends(current_user),
                   db: Session = Depends(get_db)):
     limit = max(1, min(limit, 100))
-    matches = db.scalars(
-        select(MatchResult)
+    matches = db.execute(
+        select(MatchResult, MatchParticipant.did_win)
         .join(MatchParticipant)
         .where(MatchParticipant.user_id == user.id)
         .order_by(MatchResult.completed_at.desc())
@@ -99,10 +99,10 @@ def match_history(limit: int = 20, user: User = Depends(current_user),
     )
     return [{
         "room_code": match.room_code,
-        "result": "win" if match.winner_user_id == user.id else "loss",
+        "result": "win" if did_win else "loss",
         "player_count": match.player_count,
         "completed_at": match.completed_at,
-    } for match in matches]
+    } for match, did_win in matches]
 
 
 @router.get("/players/search", response_model=list[PublicPlayerResponse])

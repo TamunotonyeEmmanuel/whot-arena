@@ -53,6 +53,7 @@ class Player:
     table_theme: str = "classic"
     card_back: str = "classic"
     avatar: str = "initial"
+    team: Optional[int] = None
 
 @dataclass
 class Room:
@@ -82,6 +83,7 @@ class Room:
     result_recorded: bool = False
     final_scores: dict = field(default_factory=dict)
     is_public: bool = False
+    team_mode: bool = False
     rules: HouseRules = field(default_factory=HouseRules)
     voice_messages: list = field(default_factory=list)
     voice_sent_at: dict = field(default_factory=dict)
@@ -93,6 +95,25 @@ class Room:
 
     def player(self, pid):
         return next((p for p in self.players if p.id == pid), None)
+
+    def team_number(self, pid):
+        if not self.team_mode:
+            return None
+        player = self.player(pid)
+        if player is None:
+            return None
+        if player.team in (1, 2):
+            return player.team
+        return self.players.index(player) % 2 + 1
+
+    def team_key(self, pid):
+        team = self.team_number(pid)
+        return f"team-{team}" if team else pid
+
+    def score_keys(self):
+        return ["team-1", "team-2"] if self.team_mode else [
+            player.id for player in self.players
+        ]
 
     def snapshot(self):
         state = asdict(self)
@@ -221,25 +242,51 @@ class Room:
 
     def finish_exhausted_market(self):
         scores = {player.id: self.hand_score(player) for player in self.players}
-        winner = min(self.players,
-                     key=lambda player: (scores[player.id], len(player.hand),
-                                         self.players.index(player)))
+        if self.team_mode:
+            team_scores = {
+                team: sum(scores[player.id] for player in self.players
+                          if self.team_key(player.id) == team)
+                for team in self.score_keys()
+            }
+            winner_team = min(
+                self.score_keys(),
+                key=lambda team: (
+                    team_scores[team],
+                    sum(len(player.hand) for player in self.players
+                        if self.team_key(player.id) == team),
+                    team,
+                ),
+            )
+            winner = next(player for player in self.players
+                          if self.team_key(player.id) == winner_team)
+            totals = ", ".join(
+                f"Team {team[-1]}: {team_scores[team]}" for team in self.score_keys()
+            )
+        else:
+            winner = min(self.players,
+                         key=lambda player: (scores[player.id], len(player.hand),
+                                             self.players.index(player)))
+            totals = ", ".join(f"{player.name}: {scores[player.id]}"
+                               for player in self.players)
         self.finish_round(winner.id, scores)
-        totals = ", ".join(f"{player.name}: {scores[player.id]}"
-                           for player in self.players)
-        self.last_action = f"Market exhausted — {winner.name} wins on points. {totals}"
+        winner_label = (f"Team {self.team_number(winner.id)}"
+                        if self.team_mode else winner.name)
+        self.last_action = f"Market exhausted — {winner_label} wins on points. {totals}"
 
     def finish_round(self, winner_id, scores=None):
         self.final_scores = scores or {player.id: self.hand_score(player)
                                        for player in self.players}
         self.winner = winner_id
-        self.round_wins.setdefault(winner_id, 0)
-        self.round_wins[winner_id] += 1
-        awarded = sum(score for player_id, score in self.final_scores.items()
-                      if player_id != winner_id)
-        self.match_points.setdefault(winner_id, 0)
-        self.match_points[winner_id] += awarded
-        if self.round_wins[winner_id] >= 2:
+        winner_key = self.team_key(winner_id)
+        self.round_wins.setdefault(winner_key, 0)
+        self.round_wins[winner_key] += 1
+        awarded = sum(
+            score for player_id, score in self.final_scores.items()
+            if self.team_key(player_id) != winner_key
+        )
+        self.match_points.setdefault(winner_key, 0)
+        self.match_points[winner_key] += awarded
+        if self.round_wins[winner_key] >= 2:
             self.match_winner = winner_id
         self.status = "finished"
         self.updated_at = time.time()
@@ -247,14 +294,21 @@ class Room:
     def start(self, pid, continue_match=False):
         if pid != self.host or self.status != "lobby":
             raise ValueError("Only the host can start a lobby")
+        if self.team_mode and (len(self.players) != 4
+                               or any(player.is_bot for player in self.players)):
+            raise ValueError("A 2v2 team match needs four human players")
         if not 2 <= len(self.players) <= 4:
             raise ValueError("A match needs 2 to 4 players")
+        if self.team_mode and self.wager:
+            raise ValueError("Virtual Naira stakes are not available in team matches")
         if any(not player.connected for player in self.players):
             raise ValueError("All players must be connected before starting")
+        for index, player in enumerate(self.players):
+            player.team = index % 2 + 1 if self.team_mode else None
         if not continue_match:
             self.round_number = 1
-            self.round_wins = {player.id: 0 for player in self.players}
-            self.match_points = {player.id: 0 for player in self.players}
+            self.round_wins = {key: 0 for key in self.score_keys()}
+            self.match_points = {key: 0 for key in self.score_keys()}
             self.match_winner = None
             self.match_id = secrets.token_urlsafe(32)
         self.deck = [{"shape": shape, "number": n, "id": secrets.token_hex(5)}
@@ -299,8 +353,8 @@ class Room:
         starts_new_match = self.match_winner is not None
         if starts_new_match:
             self.round_number = 1
-            self.round_wins = {player.id: 0 for player in self.players}
-            self.match_points = {player.id: 0 for player in self.players}
+            self.round_wins = {key: 0 for key in self.score_keys()}
+            self.match_points = {key: 0 for key in self.score_keys()}
             self.match_winner = None
         else:
             self.round_number += 1
@@ -402,6 +456,7 @@ class Room:
         caller = self.player(caller_id)
         target = self.player(target_id)
         if (self.status != "playing" or not caller or not target or caller is target
+                or (self.team_mode and self.team_key(caller_id) == self.team_key(target_id))
                 or not target.last_card_required or len(target.hand) != 1):
             raise ValueError("There is no opponent to call for a missed LAST CARD")
         target.last_card_required = False
@@ -542,6 +597,7 @@ class Room:
             "code": self.code, "status": self.status, "host": self.host,
             "you": pid, "turn": self.current().id if self.status == "playing" else None,
             "players": [{"id": p.id, "name": p.name, "count": len(p.hand),
+                         "team": self.team_number(p.id),
                          "connected": p.connected, "voice_ready": p.voice_ready,
                          "voice_speaking": p.voice_speaking,
                          "reaction": p.reaction, "reaction_at": p.reaction_at,
@@ -573,6 +629,14 @@ class Room:
             "match_points": self.match_points, "last_action": self.last_action,
             "final_scores": self.final_scores,
             "is_public": self.is_public,
+            "team_mode": self.team_mode,
+            "team_scores": {
+                key: {
+                    "round_wins": self.round_wins.get(key, 0),
+                    "match_points": self.match_points.get(key, 0),
+                }
+                for key in self.score_keys()
+            } if self.team_mode else {},
             "wager": self.wager,
             "wager_locked": self.wager_locked,
             "wager_pot": self.wager * len([p for p in self.players if not p.is_bot]),

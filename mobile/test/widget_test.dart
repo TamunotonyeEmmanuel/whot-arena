@@ -16,6 +16,7 @@ void main() {
     await tester.pumpWidget(const ArenaApp());
     await tester.pumpAndSettle();
     expect(find.text('CREATE PRIVATE ROOM'), findsOneWidget);
+    expect(find.text('2v2 TEAM MATCH'), findsOneWidget);
     expect(find.text('QUICK MATCH'), findsOneWidget);
     expect(find.text('JOIN ROOM'), findsOneWidget);
   });
