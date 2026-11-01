@@ -526,20 +526,23 @@ class _ArenaHomeState extends State<ArenaHome> {
                   child: Text(
                     '${card['number']}',
                     style: const TextStyle(
-                      fontSize: 20,
+                      fontSize: 25,
                       fontWeight: FontWeight.bold,
                       color: Color(0xFF1049A0),
                     ),
                   ),
                 ),
                 Center(
-                  child: Text(
-                    'WHOT',
-                    style: TextStyle(
-                      fontSize: selected ? 18 : 15,
-                      fontWeight: FontWeight.bold,
-                      letterSpacing: 0.5,
-                      color: const Color(0xFF1049A0),
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    child: Text(
+                      'WHOT',
+                      style: const TextStyle(
+                        fontSize: 25,
+                        fontWeight: FontWeight.bold,
+                        letterSpacing: 0.5,
+                        color: Color(0xFF1049A0),
+                      ),
                     ),
                   ),
                 ),
@@ -549,7 +552,7 @@ class _ArenaHomeState extends State<ArenaHome> {
                   child: Text(
                     '${card['number']}',
                     style: const TextStyle(
-                      fontSize: 20,
+                      fontSize: 25,
                       fontWeight: FontWeight.bold,
                       color: Color(0xFF1049A0),
                     ),

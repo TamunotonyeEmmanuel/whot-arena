@@ -319,11 +319,11 @@ html[data-theme="dark"] .team-tag{color:#c4e1c5;border-color:#456b48;background:
 html[data-theme="dark"] .team-tag-2{color:#d1d7f0;border-color:#515d84;background:#303a5b}
 /* WHOT cards mirror the corner value placement and typography of the deck. */
 .whot-card .card-glyph-whot{font-size:12px;font-weight:800;letter-spacing:.5px;line-height:1}
-.whot-card.card-large .card-glyph-whot{font-size:17px}
+.whot-card.card-large .card-glyph-whot{font-size:25px}
 .whot-card.whot-value-card .whot-number-top{top:5px;right:6px;left:auto;display:block;font-size:10px;line-height:1}
 .whot-card.whot-value-card .whot-number-bottom{right:auto;bottom:5px;left:6px;display:block;font-size:10px;line-height:1;transform:none}
-.whot-card.card-large.whot-value-card .whot-number-top{top:8px;right:9px;font-size:13px}
-.whot-card.card-large.whot-value-card .whot-number-bottom{bottom:8px;left:9px;font-size:13px}
+.whot-card.card-large.whot-value-card .whot-number-top{top:8px;right:9px;font-size:25px}
+.whot-card.card-large.whot-value-card .whot-number-bottom{bottom:8px;left:9px;font-size:25px}
 .hand-cards .whot-card .card-glyph-whot{font-size:10px}
 .hand-cards .whot-card.whot-value-card .whot-number-top{top:4px;right:4px;font-size:8px}
 .hand-cards .whot-card.whot-value-card .whot-number-bottom{bottom:4px;left:4px;font-size:8px}
