@@ -4,6 +4,7 @@ import { createRoot } from 'react-dom/client'
 import { BrowserRouter, Link, NavLink, Navigate, Route, Routes, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { ArrowLeft, ArrowRight, BatteryFull, BookOpen, Check, ChevronDown, CircleHelp, Clock3, Crown, DoorOpen, Gamepad2, History, Home, LogIn, LogOut, Menu, MessageCircle, Mic, MicOff, Moon, Pause, Play, Plus, Radio, Settings, Share2, Shield, Signal, Smartphone, Sparkles, Sun, Trophy, UserRound, Users, Volume2, Wallet, Wifi, X } from 'lucide-react'
 import './styles.css'
+import './live-voice-control.css'
 import { gameSoundsEnabled, playGameSound, primeGameAudio, setGameSoundsEnabled } from './audio'
 import lagosPhoneWallpaper from './assets/lagos-phone-wallpaper.png'
 
@@ -883,7 +884,12 @@ function LiveVoicePanel({ players, playerId, enabled }: { players: Player[]; pla
       return null
     }
     startPromiseRef.current = navigator.mediaDevices.getUserMedia({
-      audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+      audio: {
+        // The project DOM types predate the browser's string echo-cancellation modes.
+        echoCancellation: { ideal: 'all' } as unknown as boolean,
+        noiseSuppression: { ideal: true },
+        autoGainControl: { ideal: true },
+      },
       video: false,
     }).then(stream => {
       localStreamRef.current = stream
