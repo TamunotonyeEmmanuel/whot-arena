@@ -2,7 +2,7 @@ import os
 from contextlib import contextmanager
 from datetime import datetime, timezone
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, create_engine, inspect, text
+from sqlalchemy import DateTime, ForeignKey, Integer, String, UniqueConstraint, create_engine, inspect, text
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship, sessionmaker
 
 
@@ -43,6 +43,10 @@ class User(Base):
     selected_theme: Mapped[str] = mapped_column(String(32), default="classic")
     selected_card_back: Mapped[str] = mapped_column(String(32), default="classic")
     selected_avatar: Mapped[str] = mapped_column(String(32), default="initial")
+    last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    typing_to_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    typing_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    message_privacy: Mapped[str] = mapped_column(String(16), default="everyone")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
     @property
@@ -104,6 +108,8 @@ class DirectMessage(Base):
     recipient_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
     text: Mapped[str] = mapped_column(String(500))
     sent_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
+    delivered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    read_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class ArenaTreasury(Base):
@@ -111,6 +117,35 @@ class ArenaTreasury(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True, default=1)
     virtual_naira_balance: Mapped[int] = mapped_column(Integer, default=0)
+
+
+class Friendship(Base):
+    __tablename__ = "friendships"
+    __table_args__ = (UniqueConstraint("requester_id", "recipient_id"),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    requester_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    recipient_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    status: Mapped[str] = mapped_column(String(16), default="pending")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class UserBlock(Base):
+    __tablename__ = "user_blocks"
+    __table_args__ = (UniqueConstraint("blocker_id", "blocked_id"),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    blocker_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    blocked_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class MatchInvitation(Base):
+    __tablename__ = "match_invitations"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    sender_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    recipient_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    room_code: Mapped[str] = mapped_column(String(12), index=True)
+    status: Mapped[str] = mapped_column(String(16), default="pending")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
 class DataMigration(Base):
@@ -132,11 +167,19 @@ def init_database():
         "selected_theme": "VARCHAR(32) NOT NULL DEFAULT 'classic'",
         "selected_card_back": "VARCHAR(32) NOT NULL DEFAULT 'classic'",
         "selected_avatar": "VARCHAR(32) NOT NULL DEFAULT 'initial'",
+        "last_seen_at": "DATETIME",
+        "typing_to_id": "INTEGER",
+        "typing_at": "DATETIME",
+        "message_privacy": "VARCHAR(16) NOT NULL DEFAULT 'everyone'",
     }
     with engine.begin() as connection:
         for name, definition in additions.items():
             if name not in existing:
                 connection.execute(text(f"ALTER TABLE users ADD COLUMN {name} {definition}"))
+        message_columns = {column["name"] for column in inspect(engine).get_columns("direct_messages")}
+        for name in ("delivered_at", "read_at"):
+            if name not in message_columns:
+                connection.execute(text(f"ALTER TABLE direct_messages ADD COLUMN {name} DATETIME"))
         starting_balance_migration = "set_existing_users_starting_balance_10000"
         already_applied = connection.execute(
             text("SELECT name FROM data_migrations WHERE name = :name"),

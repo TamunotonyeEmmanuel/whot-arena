@@ -67,12 +67,24 @@ class DirectMessageCreate(BaseModel):
     text: str = Field(min_length=1, max_length=500)
 
 
+class TypingRequest(BaseModel):
+    recipient_username: str = Field(min_length=3, max_length=24)
+    typing: bool = True
+
+
+class MatchInvitationCreate(BaseModel):
+    recipient_username: str = Field(min_length=3, max_length=24)
+    room_code: str = Field(min_length=4, max_length=12)
+
+
 class DirectMessageResponse(BaseModel):
     id: int
     sender_username: str
     recipient_username: str
     text: str
     sent_at: datetime
+    delivered_at: datetime | None = None
+    read_at: datetime | None = None
 
 
 class AuthResponse(BaseModel):
