@@ -409,16 +409,58 @@ def test_reaching_one_card_requires_and_accepts_declaration():
     assert r.players[0].last_card_required is False
     assert "declared LAST CARD" in r.last_action
 
-def test_forgotten_last_card_declaration_draws_two_on_next_action():
+def test_opponent_must_call_missed_last_card_before_their_turn_action():
+    r = setup()
+    r.discard = [{"shape": "circle", "number": 7, "id": "top"}]
+    r.players[0].hand = [{"shape": "circle", "number": 3, "id": "play"},
+                         {"shape": "star", "number": 3, "id": "last"}]
+    r.players[1].hand = [{"shape": "circle", "number": 3, "id": "reply"},
+                         {"shape": "star", "number": 4, "id": "keep"}]
+    r.play("a", "play")
+    assert r.players[0].last_card_required
+    r.play("b", "reply")
+    assert len(r.players[0].hand) == 1
+    assert r.players[0].last_card_required is False
+    assert "picked 2 cards" not in r.last_action
+
+def test_opponent_can_call_missed_last_card_for_two_card_penalty():
     r = setup()
     r.discard = [{"shape": "circle", "number": 7, "id": "top"}]
     r.players[0].hand = [{"shape": "circle", "number": 3, "id": "play"},
                          {"shape": "star", "number": 3, "id": "last"}]
     r.play("a", "play")
-    assert r.players[0].last_card_required
-    r.draw("b")
+    r.call_last_card("b", "a")
     assert len(r.players[0].hand) == 3
     assert r.players[0].last_card_required is False
+    assert r.current().id == "b"
+    assert "Ben called LAST CARD" in r.last_action
+
+def test_missed_last_card_cannot_be_called_after_opponent_acts():
+    r = setup()
+    r.discard = [{"shape": "circle", "number": 7, "id": "top"}]
+    r.players[0].hand = [{"shape": "circle", "number": 3, "id": "play"},
+                         {"shape": "star", "number": 3, "id": "last"}]
+    r.players[1].hand = [{"shape": "circle", "number": 3, "id": "reply"},
+                         {"shape": "star", "number": 4, "id": "keep"}]
+    r.play("a", "play")
+    r.play("b", "reply")
+    try:
+        r.call_last_card("b", "a")
+        assert False, "An opponent cannot call after taking their turn action"
+    except ValueError:
+        pass
+
+def test_player_cannot_call_their_own_last_card():
+    r = setup()
+    r.discard = [{"shape": "circle", "number": 7, "id": "top"}]
+    r.players[0].hand = [{"shape": "circle", "number": 3, "id": "play"},
+                         {"shape": "star", "number": 3, "id": "last"}]
+    r.play("a", "play")
+    try:
+        r.call_last_card("a", "a")
+        assert False, "A player must not call their own LAST CARD"
+    except ValueError:
+        pass
 
 def test_computer_declares_last_card_automatically():
     r = Room("BOT", "bot", [Player("bot", "Arena Bot", is_bot=True),

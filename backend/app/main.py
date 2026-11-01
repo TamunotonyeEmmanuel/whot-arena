@@ -603,6 +603,8 @@ async def ws_endpoint(ws: WebSocket):
                         elif action == "draw":
                             room.draw(pid)
                             record_match(room)
+                        elif action == "call_last":
+                            room.call_last_card(pid, str(msg.get("target_id", "")))
                         elif action == "rematch":
                             if room.wager and room.match_winner and pid == room.host:
                                 lock_room_wager(room)

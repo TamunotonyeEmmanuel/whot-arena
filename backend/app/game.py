@@ -392,16 +392,24 @@ class Room:
             return
         self._advance()
 
-    def _penalize_missed_last_card(self):
-        missed = [player for player in self.players if player.last_card_required]
-        for player in missed:
+    def _expire_last_card_calls(self):
+        for player in self.players:
             player.last_card_required = False
-            drawn = self._draw(player, 2)
-            self.last_action = f"{player.name} forgot LAST CARD and picked 2 cards"
-            if drawn < 2 or not self.deck:
-                self.finish_exhausted_market()
-                return False
-        return True
+
+    def call_last_card(self, caller_id, target_id):
+        if self.is_paused:
+            raise ValueError("Game is paused while a player reconnects")
+        caller = self.player(caller_id)
+        target = self.player(target_id)
+        if (self.status != "playing" or not caller or not target or caller is target
+                or not target.last_card_required or len(target.hand) != 1):
+            raise ValueError("There is no opponent to call for a missed LAST CARD")
+        target.last_card_required = False
+        drawn = self._draw(target, 2)
+        self.last_action = f"{caller.name} called LAST CARD — {target.name} picked 2 cards"
+        self.updated_at = time.time()
+        if drawn < 2 or not self.deck:
+            self.finish_exhausted_market()
 
     def declare_last_card(self, pid):
         if self.is_paused:
@@ -418,14 +426,13 @@ class Room:
             raise ValueError("Game is paused while a player reconnects")
         if self.status != "playing" or self.current().id != pid:
             raise ValueError("Not your turn")
-        if not self._penalize_missed_last_card():
-            return
         p = self.current()
         card = next((c for c in p.hand if c["id"] == card_id), None)
         if card is None or not self.legal(card):
             raise ValueError("Invalid card")
         if card["number"] == 20 and shape not in SHAPES:
             raise ValueError("Choose a valid shape for WHOT")
+        self._expire_last_card_calls()
         p.hand.remove(card)
         self.discard.append(card)
         self.requested_shape = shape if card["number"] == 20 else None
@@ -479,8 +486,7 @@ class Room:
             raise ValueError("Game is paused while a player reconnects")
         if self.status != "playing" or self.current().id != pid:
             raise ValueError("Not your turn")
-        if not self._penalize_missed_last_card():
-            return
+        self._expire_last_card_calls()
         if self.pending_draw:
             self._take_pending_penalty(self.current(), "accepted the penalty")
             return
@@ -493,8 +499,7 @@ class Room:
     def timeout_turn(self):
         if self.status != "playing":
             return
-        if not self._penalize_missed_last_card():
-            return
+        self._expire_last_card_calls()
         player = self.current()
         if self.pending_draw:
             self._take_pending_penalty(player, "ran out of time")
@@ -509,6 +514,14 @@ class Room:
         if self.status != "playing":
             return
         p = self.current()
+        missed = next((player for player in self.players
+                       if player.id != p.id and player.last_card_required), None)
+        call_action = None
+        if missed:
+            self.call_last_card(p.id, missed.id)
+            call_action = self.last_action
+            if self.status != "playing":
+                return
         card = next((c for c in p.hand if self.legal(c)), None)
         if card:
             shape = None
@@ -521,6 +534,8 @@ class Room:
             self.play(p.id, card["id"], shape)
         else:
             self.draw(p.id)
+        if call_action:
+            self.last_action = f"{call_action}; {self.last_action}"
 
     def view(self, pid):
         return {

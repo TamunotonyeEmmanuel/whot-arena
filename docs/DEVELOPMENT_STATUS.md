@@ -39,7 +39,7 @@ Players match the top card by number or active shape; WHOT 20 is wild and reques
 - 14 makes each opponent draw one; its player continues.
 - WHOT 20 requests a shape.
 - A player may draw one card and pass even when holding a playable card; the drawn card is not played immediately.
-- A player who reaches one card must declare LAST CARD before the next game action or draw a two-card penalty. Bots declare automatically.
+- A player who reaches one card should declare LAST CARD. An opponent may call an undeclared player before the next game action to apply a two-card penalty; the penalty is not automatic. Bots declare automatically and call missed declarations on their turn.
 - Action cards cannot finish a hand; the player draws a replacement. Emptying a hand otherwise wins the round. If the market is exhausted, the lowest hand score wins (star cards count double and WHOT counts 20); the discard pile is not recycled.
 - A match is best of three rounds: the first player to win two rounds is the match winner.
 - A turn lasts 30 seconds; active-game disconnect grace is 30 seconds and lobby reconnect grace is 10 minutes.
@@ -60,7 +60,7 @@ HTTP endpoints include:
 - `GET /api/messages`, `POST /api/messages`, `POST /api/messages/read/{username}`, `POST /api/messages/typing`
 - `GET /api/match-invitations`, `POST /api/match-invitations`, `POST /api/match-invitations/{id}/{decision}`
 
-`/ws` handles room create/join/quick-match/reconnect, start/play/draw/rematch/leave, pause, last-card declaration, table chat/voice, and audio signaling. Room creation, joining, and matchmaking require an account token. Reconnect uses the session bearer token.
+`/ws` handles room create/join/quick-match/reconnect, start/play/draw/rematch/leave, pause, LAST CARD declaration/call, table chat/voice, and audio signaling. Room creation, joining, and matchmaking require an account token. Reconnect uses the session bearer token.
 
 ## Partially implemented or missing
 
@@ -104,7 +104,7 @@ Before fixes:
 
 After the production-readiness changes:
 
-- Backend: **65 passed**, including a real backend process-restart and reconnect test. Remaining output includes upstream Starlette/httpx and Python SQLite datetime-adapter deprecation warnings.
+- Backend: **68 passed**, including real backend process-restart/reconnect and LAST CARD call regressions. Remaining output includes upstream Starlette/httpx and Python SQLite datetime-adapter deprecation warnings.
 - Web: **3 passed**; TypeScript check and Vite production build succeeded. jsdom reports that media playback is not implemented while the audio component attempts autoplay.
 - Flutter: **1 passed**; `flutter analyze` reported no issues. The Flutter command warned that native Linux build dependencies are not installed; no Linux build was requested or performed.
 - PostgreSQL: migration DDL type compilation was checked, but no PostgreSQL service was available; live connectivity/migration behavior remains unverified.

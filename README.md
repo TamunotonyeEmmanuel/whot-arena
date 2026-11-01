@@ -102,7 +102,7 @@ WHOT 20 can be played anytime and requests a shape.
 5: next player draws three and loses turn. 8: skip next player.
 14: all other players draw one, then its player plays again. Pick Two only stacks on Pick Two, and Pick Three only stacks on Pick Three; a player without the matching card draws the accumulated total and loses their turn.
 
-Players must declare LAST CARD after reaching one card and before the next game action. Forgetting draws a two-card penalty; computer players declare automatically.
+Players should declare LAST CARD after reaching one card. If they do not, an opponent can call it before the next game action to give them a two-card penalty; the penalty is not automatic. Computer players declare automatically and call missed declarations on their turn.
 Players may draw one and pass even when holding a playable card; the draw ends their turn.
 The first player to empty their hand wins immediately, except that 1, 2, 5, 8,
 14, and 20 cannot finish a round; playing one last requires drawing a replacement.

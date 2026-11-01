@@ -678,6 +678,7 @@ function GameTable() {
   const winnerName = view.players.find(player => player.id === view.winner)?.name || 'Arena winner'
   const championName = view.players.find(player => player.id === view.match_winner)?.name || winnerName
   const myTurn = view.turn === session?.player_id && view.status === 'playing' && !view.is_paused
+  const missedLastCard = view.players.find(player => player.id !== session?.player_id && player.last_card_required)
   const isRoundOpening = view.last_action === 'Game started' || view.last_action.includes('started')
   const wagerLocked = view.wager_locked
   const reactionVisible = (player?: Player) => Boolean(player?.reaction && player.reaction_at && Date.now() / 1000 - player.reaction_at < 4)
@@ -730,6 +731,7 @@ function GameTable() {
         {view.requested_shape && <div className="requested-shape"><span>SHAPE REQUESTED</span><strong>{shapeGlyph[view.requested_shape]} {view.requested_shape}</strong></div>}
         {view.pending_draw > 0 && <div className="requested-shape penalty-stack" role="status"><span>PENALTY STACK</span><strong>Pick {view.pending_draw} · Block with another {view.pending_penalty}</strong></div>}
         <div className="table-message" aria-live="polite">{toast || view.last_action}</div>
+        {missedLastCard && view.status === 'playing' && !view.is_paused && <button type="button" className="button button-outline" onClick={() => send('call_last', { target_id: missedLastCard.id })} aria-label={`Call ${missedLastCard.name} for missing LAST CARD; they draw two cards`}>CALL LAST CARD · +2</button>}
         <div className="reaction-picker" aria-label="Quick reactions">{['😂', '🔥', '😭', '👏'].map(reaction => <button type="button" key={reaction} onClick={() => send('reaction', { reaction })} aria-label={`React ${reaction}`}>{reaction}</button>)}</div>
         <div className="you-at-table"><div className={`you-avatar-wrap ${me?.voice_speaking ? 'voice-speaking' : ''}`}>{reactionVisible(me) && <span className="player-reaction" aria-label={`You reacted ${me?.reaction}`}>{me?.reaction}</span>}<div className="avatar you-avatar">{avatarGlyph(me?.name || 'You', me?.avatar)}</div></div><div><strong>{me?.name || 'You'} <span>(you)</span></strong><small>{myTurn ? 'Your move' : view.status === 'finished' ? 'Round over' : 'Waiting for your turn'}{view.wager > 0 ? ` · ₦${(me?.coin_balance ?? 0).toLocaleString()}` : ''}</small></div>{myTurn && <span className="turn-clock"><Clock3 size={15} /> PLAY NOW</span>}</div>
       </section>

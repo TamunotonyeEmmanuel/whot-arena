@@ -139,6 +139,8 @@ def test_match_authorization_privacy_and_reconnect(server_url):
             assert len(host_state["hand"]) == len(guest_state["hand"]) == 5
             assert host_state["hand"] != guest_state["hand"]
             assert all("hand" not in player for player in host_state["players"])
+            send(host, {"action": "call_last", "target_id": "not-a-player"})
+            assert "no opponent to call" in receive_type(host, "error")["message"]
         disconnected = receive_type(host, "state")["data"]
         assert next(p for p in disconnected["players"]
                     if p["id"] == guest_session["player_id"])["connected"] is False
