@@ -500,6 +500,7 @@ class _ArenaHomeState extends State<ArenaHome> {
 
   Widget cardView(Map<String, dynamic> card, {bool selected = false}) {
     final isWhot = card['shape'] == 'whot';
+    final cardWidth = selected ? 105.0 : 73.0;
     const icons = {
       'circle': '●',
       'triangle': '▲',
@@ -509,7 +510,7 @@ class _ArenaHomeState extends State<ArenaHome> {
       'whot': 'W'
     };
     return Container(
-      width: selected ? 105 : 73,
+      width: cardWidth,
       height: selected ? 140 : 102,
       margin: const EdgeInsets.symmetric(vertical: 5),
       decoration: BoxDecoration(
@@ -539,8 +540,8 @@ class _ArenaHomeState extends State<ArenaHome> {
                     fit: BoxFit.scaleDown,
                     child: Text(
                       'WHOT',
-                      style: const TextStyle(
-                        fontSize: 12,
+                      style: TextStyle(
+                        fontSize: cardWidth * 12 / 73,
                         fontWeight: FontWeight.bold,
                         letterSpacing: 0.5,
                         color: Color(0xFF612B32),

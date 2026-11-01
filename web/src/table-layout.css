@@ -14,12 +14,8 @@
   height: 96px;
 }
 
-.table-frame .hand-cards .whot-card .card-glyph {
+.table-frame .hand-cards .whot-card .card-glyph:not(.card-glyph-whot) {
   font-size: 38px;
-}
-
-.table-frame .hand-cards .whot-card .card-glyph-whot {
-  font-size: 12px;
 }
 
 .table-frame .hand-cards .whot-card.whot-value-card .whot-number-top {
@@ -51,7 +47,7 @@
     height: 82px;
   }
 
-  .table-frame .hand-cards .whot-card .card-glyph {
+  .table-frame .hand-cards .whot-card .card-glyph:not(.card-glyph-whot) {
     font-size: 33px;
   }
 }
@@ -62,7 +58,7 @@
     height: 80px;
   }
 
-  .table-frame .hand-cards .whot-card .card-glyph {
+  .table-frame .hand-cards .whot-card .card-glyph:not(.card-glyph-whot) {
     font-size: 34px;
   }
 }
@@ -73,7 +69,7 @@
     height: 74px;
   }
 
-  .table-frame .hand-cards .whot-card .card-glyph {
+  .table-frame .hand-cards .whot-card .card-glyph:not(.card-glyph-whot) {
     font-size: 31px;
   }
 }
