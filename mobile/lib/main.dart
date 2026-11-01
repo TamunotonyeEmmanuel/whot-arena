@@ -501,6 +501,8 @@ class _ArenaHomeState extends State<ArenaHome> {
   Widget cardView(Map<String, dynamic> card, {bool selected = false}) {
     final isWhot = card['shape'] == 'whot';
     final cardWidth = selected ? 105.0 : 73.0;
+    final cornerFontSize = cardWidth * 0.1613;
+    final cornerInset = cardWidth * 0.0968;
     const icons = {
       'circle': '●',
       'triangle': '▲',
@@ -524,12 +526,12 @@ class _ArenaHomeState extends State<ArenaHome> {
           ? Stack(
               children: [
                 Positioned(
-                  top: 7,
-                  left: 8,
+                  top: cornerInset,
+                  left: cornerInset,
                   child: Text(
                     '${card['number']}',
-                    style: const TextStyle(
-                      fontSize: 25,
+                    style: TextStyle(
+                      fontSize: cornerFontSize,
                       fontWeight: FontWeight.bold,
                       color: Color(0xFF612B32),
                     ),
@@ -550,14 +552,17 @@ class _ArenaHomeState extends State<ArenaHome> {
                   ),
                 ),
                 Positioned(
-                  right: 8,
-                  bottom: 7,
-                  child: Text(
-                    '${card['number']}',
-                    style: const TextStyle(
-                      fontSize: 25,
-                      fontWeight: FontWeight.bold,
-                      color: Color(0xFF612B32),
+                  right: cornerInset,
+                  bottom: cornerInset,
+                  child: Transform.rotate(
+                    angle: 3.141592653589793,
+                    child: Text(
+                      '${card['number']}',
+                      style: TextStyle(
+                        fontSize: cornerFontSize,
+                        fontWeight: FontWeight.bold,
+                        color: Color(0xFF612B32),
+                      ),
                     ),
                   ),
                 ),
