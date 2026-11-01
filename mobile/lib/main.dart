@@ -499,6 +499,7 @@ class _ArenaHomeState extends State<ArenaHome> {
   }
 
   Widget cardView(Map<String, dynamic> card, {bool selected = false}) {
+    final isWhot = card['shape'] == 'whot';
     const icons = {
       'circle': '●',
       'triangle': '▲',
@@ -512,12 +513,13 @@ class _ArenaHomeState extends State<ArenaHome> {
       height: selected ? 140 : 102,
       margin: const EdgeInsets.symmetric(vertical: 5),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: isWhot ? const Color(0xFFF3E8D6) : Colors.white,
         borderRadius: BorderRadius.circular(11),
-        border: Border.all(color: gold, width: 2),
+        border: Border.all(
+            color: isWhot ? const Color(0xFFD6C1A2) : gold, width: 2),
         boxShadow: const [BoxShadow(color: Colors.black38, blurRadius: 6)],
       ),
-      child: card['shape'] == 'whot'
+      child: isWhot
           ? Stack(
               children: [
                 Positioned(
@@ -528,7 +530,7 @@ class _ArenaHomeState extends State<ArenaHome> {
                     style: const TextStyle(
                       fontSize: 25,
                       fontWeight: FontWeight.bold,
-                      color: Color(0xFF1049A0),
+                      color: Color(0xFF612B32),
                     ),
                   ),
                 ),
@@ -541,7 +543,7 @@ class _ArenaHomeState extends State<ArenaHome> {
                         fontSize: 12,
                         fontWeight: FontWeight.bold,
                         letterSpacing: 0.5,
-                        color: Color(0xFF1049A0),
+                        color: Color(0xFF612B32),
                       ),
                     ),
                   ),
@@ -554,7 +556,7 @@ class _ArenaHomeState extends State<ArenaHome> {
                     style: const TextStyle(
                       fontSize: 25,
                       fontWeight: FontWeight.bold,
-                      color: Color(0xFF1049A0),
+                      color: Color(0xFF612B32),
                     ),
                   ),
                 ),

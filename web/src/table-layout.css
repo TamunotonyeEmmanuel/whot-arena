@@ -24,14 +24,15 @@
 
 .table-frame .hand-cards .whot-card.whot-value-card .whot-number-top {
   top: 3px;
-  right: 3px;
-  left: auto;
+  right: auto;
+  left: 3px;
   font-size: 7px;
 }
 
 .table-frame .hand-cards .whot-card.whot-value-card .whot-number-bottom {
   bottom: 3px;
-  left: 3px;
+  right: 3px;
+  left: auto;
   font-size: 7px;
 }
 
