@@ -627,42 +627,44 @@ def test_room_view_hides_other_players_virtual_currency_balances():
     assert [player["coin_balance"] for player in ada_view["players"]] == [120, None]
     assert [player["coin_balance"] for player in ben_view["players"]] == [None, 80]
 
-    def test_voice_message_is_room_scoped_and_state_contains_metadata_only():
-        r = Room("VOICE1", "a", [Player("a", "Ada"), Player("b", "Ben")],
-                 status="playing")
-        metadata = r.add_voice_message("a", "audio/webm", b"recorded audio")
-        assert metadata["name"] == "Ada"
-        assert "audio" not in metadata
-        assert "audio" not in r.view("b")["voice_messages"][0]
-        assert r.voice_message("b", metadata["id"])["audio"] == b"recorded audio"
-        try:
-            r.voice_message("not-a-player", metadata["id"])
-            assert False
-        except ValueError as error:
-            assert "Join this room" in str(error)
+def test_voice_message_is_room_scoped_and_state_contains_metadata_only():
+    r = Room("VOICE1", "a", [Player("a", "Ada"), Player("b", "Ben")],
+             status="playing")
+    metadata = r.add_voice_message("a", "audio/webm", b"recorded audio")
+    assert metadata["name"] == "Ada"
+    assert "audio" not in metadata
+    assert "audio" not in r.view("b")["voice_messages"][0]
+    assert r.voice_message("b", metadata["id"])["audio"] == b"recorded audio"
+    try:
+        r.voice_message("not-a-player", metadata["id"])
+        assert False
+    except ValueError as error:
+        assert "Join this room" in str(error)
 
-    def test_voice_message_rejects_bad_media_empty_and_oversized_clips():
-        r = Room("VOICE1", "a", [Player("a", "Ada"), Player("b", "Ben")],
-                 status="playing")
-        for content_type, audio in (("text/plain", b"audio"), ([], b"audio"), ("audio/webm", b""),
-                                    ("audio/webm", b"x" * 512_001)):
-            try:
-                r.add_voice_message("a", content_type, audio)
-                assert False
-            except ValueError:
-                pass
 
-    def test_voice_messages_are_unavailable_in_lobby_and_rate_limited():
-        r = Room("VOICE1", "a", [Player("a", "Ada"), Player("b", "Ben")])
+def test_voice_message_rejects_bad_media_empty_and_oversized_clips():
+    r = Room("VOICE1", "a", [Player("a", "Ada"), Player("b", "Ben")],
+             status="playing")
+    for content_type, audio in (("text/plain", b"audio"), ([], b"audio"), ("audio/webm", b""),
+                                ("audio/webm", b"x" * 512_001)):
         try:
-            r.add_voice_message("a", "audio/webm", b"hello")
+            r.add_voice_message("a", content_type, audio)
             assert False
-        except ValueError as error:
-            assert "only available during a game" in str(error)
-        r.status = "playing"
+        except ValueError:
+            pass
+
+
+def test_voice_messages_are_unavailable_in_lobby_and_rate_limited():
+    r = Room("VOICE1", "a", [Player("a", "Ada"), Player("b", "Ben")])
+    try:
         r.add_voice_message("a", "audio/webm", b"hello")
-        try:
-            r.add_voice_message("a", "audio/webm", b"again")
-            assert False
-        except ValueError as error:
-            assert "wait" in str(error)
+        assert False
+    except ValueError as error:
+        assert "only available during a game" in str(error)
+    r.status = "playing"
+    r.add_voice_message("a", "audio/webm", b"hello")
+    try:
+        r.add_voice_message("a", "audio/webm", b"again")
+        assert False
+    except ValueError as error:
+        assert "wait" in str(error)

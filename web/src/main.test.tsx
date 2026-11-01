@@ -20,9 +20,10 @@ describe('WHOT Arena web client', () => {
     render(<CardFace card={{ id: 'wild', shape: 'whot', number: 20 }} playable onClick={onClick} />)
 
     const card = screen.getByRole('button', { name: 'Play 20 whot' })
-    expect(card.querySelector('.card-glyph')).toHaveTextContent('✦')
-    expect(card.querySelector('.card-whot-label')).toHaveTextContent('WHOT')
-    expect(card.querySelector('.top-corner')).toHaveTextContent('20')
+    expect(card.querySelector('.card-glyph')).toHaveTextContent('WHOT')
+    expect(card.querySelector('.whot-number-top')).toHaveTextContent('20')
+    expect(card.querySelector('.whot-number-bottom')).toHaveTextContent('20')
+    expect(card.querySelector('.card-whot-label')).not.toBeInTheDocument()
 
     await user.click(card)
 
