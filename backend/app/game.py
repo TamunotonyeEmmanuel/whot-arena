@@ -343,8 +343,9 @@ class Room:
     def rematch(self, pid):
         if self.status != "finished":
             raise ValueError("Match is not finished")
-        if pid != self.host:
-            raise ValueError("Only the host can start a rematch")
+        player = self.player(pid)
+        if not player or not player.connected:
+            raise ValueError("Only a connected player in this room can start a rematch")
         if any(not player.connected for player in self.players):
             raise ValueError("All players must reconnect before a rematch")
         self.voice_messages.clear()
@@ -359,7 +360,7 @@ class Room:
         else:
             self.round_number += 1
         self.status = "lobby"
-        self.start(pid, continue_match=not starts_new_match)
+        self.start(self.host, continue_match=not starts_new_match)
         self.last_action = "New match started" if self.round_number == 1 else f"Round {self.round_number} started"
 
     def add_voice_message(self, pid, content_type, audio):

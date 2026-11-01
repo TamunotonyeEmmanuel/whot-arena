@@ -611,7 +611,10 @@ async def ws_endpoint(ws: WebSocket):
                         elif action == "call_last":
                             room.call_last_card(pid, str(msg.get("target_id", "")))
                         elif action == "rematch":
-                            if room.wager and room.match_winner and pid == room.host:
+                            if (room.wager and room.match_winner
+                                    and room.status == "finished"
+                                    and room.player(pid)
+                                    and all(player.connected for player in room.players)):
                                 lock_room_wager(room)
                             room.rematch(pid)
                         elif action == "declare_last":

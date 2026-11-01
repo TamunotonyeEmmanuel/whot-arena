@@ -497,23 +497,28 @@ def test_special_last_card_replacement_does_not_trigger_forgotten_declaration_pe
     r.play("b", "block")
     assert len(r.players[0].hand) == 1
 
-def test_rematch_is_host_only_and_resets_the_match():
+def test_any_connected_player_can_rematch_and_room_state_resets():
     r = setup()
     r.status = "finished"
     r.winner = "b"
     r.result_recorded = True
     r.voice_messages = [{"id": "previous-round"}]
-    try:
-        r.rematch("b")
-        assert False
-    except ValueError as error:
-        assert "Only the host" in str(error)
-    r.rematch("a")
+    r.rematch("b")
     assert r.status == "playing"
     assert r.winner is None
     assert r.result_recorded is False
     assert r.voice_messages == []
     assert all(len(player.hand) == 5 for player in r.players)
+    assert r.host == "a"
+
+def test_non_player_cannot_start_a_rematch():
+    r = setup()
+    r.status = "finished"
+    try:
+        r.rematch("stranger")
+        assert False
+    except ValueError as error:
+        assert "connected player in this room" in str(error)
 
 def test_best_of_three_tracks_round_wins_points_and_match_champion():
     r = setup()
