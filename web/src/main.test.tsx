@@ -1,7 +1,7 @@
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
-import { App, Avatar, CardFace } from './main'
+import { App, Avatar, CardFace, shouldUseRelayFallback } from './main'
 
 describe('WHOT Arena web client', () => {
   it('navigates from the landing screen to the rules page', async () => {
@@ -34,5 +34,11 @@ describe('WHOT Arena web client', () => {
     render(<Avatar name="Player One" avatar="crown" />)
 
     expect(screen.getByRole('img', { name: 'Player One avatar' }).querySelector('img')).toHaveAttribute('src', '/avatars/crown.svg')
+  })
+
+  it('uses the relay when a direct voice connection is still connecting', () => {
+    expect(shouldUseRelayFallback('connecting')).toBe(true)
+    expect(shouldUseRelayFallback('connected')).toBe(false)
+    expect(shouldUseRelayFallback('closed')).toBe(false)
   })
 })

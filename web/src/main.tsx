@@ -70,6 +70,9 @@ const RTC_ICE_SERVERS: RTCIceServer[] = [
     credential: TURN_CREDENTIAL,
   }] : []),
 ]
+export function shouldUseRelayFallback(connectionState?: RTCPeerConnectionState) {
+  return connectionState !== 'connected' && connectionState !== 'closed'
+}
 const Context = createContext<ArenaContextValue | null>(null)
 const readStored = <T,>(key: string): T | null => {
   try { return JSON.parse(localStorage.getItem(key) || 'null') as T | null } catch { return null }
@@ -1116,14 +1119,23 @@ function LiveVoicePanel({ players, playerId, enabled }: { players: Player[]; pla
   }, [liveAudioPackets, playerId, directAudioPeers])
 
   useEffect(() => {
-    const waitingFor = players.some(player => player.id !== playerId && player.connected && player.voice_ready)
-    if (!waitingFor || connectedPeers.length || fallbackPeerIds.length) {
+    const waitingPlayers = players.filter(player => player.id !== playerId && player.connected && player.voice_ready
+      && !connectedPeers.includes(player.id) && !directAudioPeers.includes(player.id)
+      && !fallbackPeerIds.includes(player.id))
+    if (!waitingPlayers.length) {
       setConnectionSlow(false)
       return
     }
-    const timer = window.setTimeout(() => setConnectionSlow(true), 12000)
+    const timer = window.setTimeout(() => {
+      setConnectionSlow(true)
+      for (const player of waitingPlayers) {
+        if (shouldUseRelayFallback(peersRef.current.get(player.id)?.connectionState)) {
+          setRelayFallback(player.id, true)
+        }
+      }
+    }, 12000)
     return () => window.clearTimeout(timer)
-  }, [players, playerId, connectedPeers.length, fallbackPeerIds.length])
+  }, [players, playerId, connectedPeers, directAudioPeers, fallbackPeerIds])
 
   function toggleMute() {
     unlockLivePlayback()
