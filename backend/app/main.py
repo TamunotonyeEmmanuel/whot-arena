@@ -654,16 +654,30 @@ async def ws_endpoint(ws: WebSocket):
                                 raise ValueError("Invalid live voice packet")
                             if not audio or len(audio) > 6144:
                                 raise ValueError("Invalid live voice packet")
+                            target_ids = msg.get("target_ids")
+                            if (not isinstance(target_ids, list) or not target_ids
+                                    or len(target_ids) > 3
+                                    or any(not isinstance(target, str) for target in target_ids)
+                                    or len(set(target_ids)) != len(target_ids)):
+                                raise ValueError("Invalid live voice recipients")
+                            targets = [
+                                room.player(target) for target in target_ids
+                            ]
+                            if any(
+                                target_id == pid or not target or not target.connected
+                                or not target.voice_ready
+                                for target_id, target in zip(target_ids, targets)
+                            ):
+                                raise ValueError("Live voice recipient is unavailable")
                             voice_response = {
                                 "type": "rtc_audio",
                                 "id": secrets.token_hex(8),
                                 "from": pid,
                                 "audio": encoded_audio,
                             }
-                            live_audio_targets = [
-                                connections.get(player.id) for player in room.players
-                                if player.id != pid and player.connected and not player.is_bot
-                            ]
+                            live_audio_targets = [connections.get(target_id) for target_id in target_ids]
+                            if any(target is None for target in live_audio_targets):
+                                raise ValueError("Live voice recipient is unavailable")
                         elif action == "voice":
                             encoded_audio = msg.get("audio")
                             if not isinstance(encoded_audio, str):

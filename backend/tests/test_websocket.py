@@ -185,6 +185,43 @@ def test_live_voice_signaling_is_relayed_only_to_target_player(server_url):
             assert relayed["signal"] == offer
 
 
+def test_live_audio_fallback_is_sent_only_to_requested_ready_player(server_url):
+    with connect(server_url) as host:
+        host_session, _ = create(host, server_url)
+        with connect(server_url) as guest, connect(server_url) as bystander:
+            guest_session, _ = join(guest, server_url, host_session["code"], "Ben")
+            receive_type(host, "state")
+            bystander_session, _ = join(
+                bystander, server_url, host_session["code"], "Cleo"
+            )
+            receive_type(host, "state")
+            receive_type(guest, "state")
+
+            send(guest, {"action": "rtc_ready"})
+            send(bystander, {"action": "rtc_ready"})
+            for socket in (host, guest, bystander):
+                receive_type(socket, "state")
+                receive_type(socket, "state")
+
+            send(host, {
+                "action": "rtc_audio",
+                "audio": "AQI=",
+                "target_ids": [guest_session["player_id"]],
+            })
+            relayed = receive_type(guest, "rtc_audio")
+            assert relayed["from"] == host_session["player_id"]
+            assert relayed["audio"] == "AQI="
+            with pytest.raises(TimeoutError):
+                bystander.recv(timeout=0.2)
+
+            send(host, {
+                "action": "rtc_audio",
+                "audio": "AQI=",
+                "target_ids": [bystander_session["player_id"], "not-a-player"],
+            })
+            assert receive_type(host, "error")["message"] == "Live voice recipient is unavailable"
+
+
 def test_room_rejects_fifth_player_and_duplicate_session(server_url):
     sockets = []
     try:

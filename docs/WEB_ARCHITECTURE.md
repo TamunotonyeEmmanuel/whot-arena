@@ -4,7 +4,7 @@
 
 The browser app in `web/` is a React 19 + TypeScript SPA built by Vite, styled with Tailwind CSS and a small set of custom CSS rules, and routed with React Router. Lucide icons are used for action/navigation controls. The app is a separate client; it does not replace or compile the Flutter project.
 
-The browser uses `VITE_API_URL` for HTTP and `VITE_WS_URL` for the WebSocket. The defaults target local FastAPI on port 8000. In production these values are embedded at frontend build time and must use the public HTTPS and WSS API origins. No credentials or private keys belong in Vite environment variables.
+The browser uses `VITE_API_URL` for HTTP and `VITE_WS_URL` for the WebSocket. The defaults target local FastAPI on port 8000. In production these values are embedded at frontend build time and must use the public HTTPS and WSS API origins. Live voice uses peer-to-peer WebRTC by default; optional TURN URLs and credentials can be supplied with `VITE_TURN_URL`, `VITE_TURN_USERNAME`, and `VITE_TURN_CREDENTIAL`. Since all `VITE_*` values are public in the built client, never use long-lived TURN credentials. TURN configuration is currently build-time only; automatic short-lived credential refresh needs a runtime credential endpoint and is not implemented.
 
 ## Browser routes
 
@@ -31,7 +31,7 @@ The server's existing draw rule allows a player to draw and pass on any turn, in
 
 The server sends a separate `Room.view(player_id)` to each connected participant. A view includes only that participant's hand and opponent counts. Card faces, piles, and turn indicators are rendered from that projection. The WebSocket transport uses the same protocol as Flutter and checks browser `Origin` against `CORS_ORIGINS`; a valid account token is required to create, join, or quick-match. Guest display names are supported, but anonymous room access is not.
 
-Voice notes use the room's existing authorized WebSocket session. Uploads are base64-encoded audio with an allowlisted media type and a 512 KB decoded limit. State broadcasts include sender, time, and size metadata only; a room member requests the audio by message ID, and the server returns it only on that member's socket. Recording is capped at 15 seconds in the browser. The room keeps up to 20 recent notes and 4 MB total in process memory. HTTPS is required in production for browser microphone access.
+Live voice sends audio directly over WebRTC when possible. Only peers whose direct connection fails use the WebSocket audio fallback; fallback packets are sent only to explicitly selected, connected room members. TURN is recommended for restrictive networks; use provider-managed, short-lived credentials because client build-time variables are public. Voice notes use the room's existing authorized WebSocket session. Uploads are base64-encoded audio with an allowlisted media type and a 512 KB decoded limit. State broadcasts include sender, time, and size metadata only; a room member requests the audio by message ID, and the server returns it only on that member's socket. Recording is capped at 15 seconds in the browser. The room keeps up to 20 recent notes and 4 MB total in process memory. HTTPS is required in production for browser microphone access.
 
 Bearer and reconnect credentials are held in `sessionStorage` for the current browser tab. Non-secret account display data and preferences use `localStorage`. Reconnect credentials remain bearer secrets; clear site data and sign out on shared devices.
 

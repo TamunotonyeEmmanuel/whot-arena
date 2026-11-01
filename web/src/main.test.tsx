@@ -1,7 +1,7 @@
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
-import { App, CardFace } from './main'
+import { App, Avatar, CardFace } from './main'
 
 describe('WHOT Arena web client', () => {
   it('navigates from the landing screen to the rules page', async () => {
@@ -28,5 +28,11 @@ describe('WHOT Arena web client', () => {
     render(<CardFace card={{ id: 'card', shape: 'square', number: 4 }} />)
 
     expect(screen.getByRole('button', { name: 'Play 4 square' })).toBeDisabled()
+  })
+
+  it('renders the selected avatar portrait asset', () => {
+    render(<Avatar name="Player One" avatar="crown" />)
+
+    expect(screen.getByRole('img', { name: 'Player One avatar' }).querySelector('img')).toHaveAttribute('src', '/avatars/crown.svg')
   })
 })

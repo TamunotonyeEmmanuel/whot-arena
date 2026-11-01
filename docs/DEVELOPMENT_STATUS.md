@@ -22,7 +22,7 @@ Active room snapshots are persisted in the configured SQL database and restored 
 
 - Account registration/login, password hashing, JWT-protected profile/history, public leaderboard, and admin overview.
 - Private room codes, public quick match, computer opponent, host start/rematch, two-to-four-player cap, server-side card dealing and move validation, per-player hand views, and reconnect tokens.
-- Turn timers, disconnect pause/autopilot, room chat, voice-note uploads/retrieval, and browser live-voice signaling.
+- Turn timers, disconnect pause/autopilot, room chat, voice-note uploads/retrieval, and browser live voice over WebRTC with targeted WebSocket fallback only for failed peers.
 - Profile statistics, match history for newly recorded matches, Arena Coins, XP/levels, basic achievements, cosmetic selection, friendships/requests, blocks, message privacy, direct messages/read/delivery status, presence/typing, and match invitations.
 - Responsive React screens, a Flutter client, synthesized browser game cues, background audio playback, and voice capture/playback UI.
 
@@ -104,7 +104,7 @@ Before fixes:
 
 After the production-readiness changes:
 
-- Backend: **68 passed**, including real backend process-restart/reconnect and LAST CARD call regressions. Remaining output includes upstream Starlette/httpx and Python SQLite datetime-adapter deprecation warnings.
+- Backend: **69 passed**, including real backend process-restart/reconnect, LAST CARD call, and targeted live-audio fallback regressions. Remaining output includes upstream Starlette/httpx and Python SQLite datetime-adapter deprecation warnings.
 - Web: **3 passed**; TypeScript check and Vite production build succeeded. jsdom reports that media playback is not implemented while the audio component attempts autoplay.
 - Flutter: **1 passed**; `flutter analyze` reported no issues. The Flutter command warned that native Linux build dependencies are not installed; no Linux build was requested or performed.
 - PostgreSQL: migration DDL type compilation was checked, but no PostgreSQL service was available; live connectivity/migration behavior remains unverified.

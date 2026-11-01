@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
+  <defs>
+    <clipPath id="circle"><circle cx="64" cy="64" r="64"/></clipPath>
+    <pattern id="checks" width="12" height="12" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+      <path d="M0 0h6v6H0zM6 6h6v6H6z" fill="#d5ef6c"/>
+      <path d="M6 0h6v6H6zM0 6h6v6H0z" fill="#214d35"/>
+    </pattern>
+  </defs>
+  <g clip-path="url(#circle)">
+    <path fill="#d5ef6c" d="M0 0h128v128H0z"/>
+    <circle cx="64" cy="64" r="52" fill="url(#checks)" stroke="#fff8df" stroke-width="4"/>
+    <path d="M43 40h42v48H43z" rx="8" fill="#fff8df" stroke="#234a37" stroke-width="4"/>
+    <path d="M51 53h26M51 64h26M51 75h26" stroke="#234a37" stroke-width="4" stroke-linecap="round"/>
+    <circle cx="64" cy="64" r="15" fill="#d5ef6c" stroke="#234a37" stroke-width="3"/>
+    <path d="m57 69 5-12h5l5 12-8-4z" fill="#234a37"/>
+  </g>
+</svg>

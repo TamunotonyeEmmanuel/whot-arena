@@ -471,12 +471,12 @@ function AppFrame() {
       </nav>
       <div className="sidebar-bottom">
         <div className="connection-state"><span className={`status-dot ${connected ? 'online' : ''}`} />{connected ? 'Game server connected' : 'Game server offline'}</div>
-        {user ? <div className="account-mini"><div className="avatar avatar-small">{user.username.slice(0, 1).toUpperCase()}</div><div className="account-copy"><strong>{user.username}</strong><span className="account-coins">₦{user.arena_coins.toLocaleString()} virtual</span></div><button className="icon-button" title="Sign out" onClick={signOut}><LogOut size={17} /></button></div> : <Link className="side-signin" to="/login"><LogIn size={16} /> Sign in to your account</Link>}
+        {user ? <div className="account-mini"><Avatar name={user.username} avatar={user.selected_avatar} className="avatar-small" /><div className="account-copy"><strong>{user.username}</strong><span className="account-coins">₦{user.arena_coins.toLocaleString()} virtual</span></div><button className="icon-button" title="Sign out" onClick={signOut}><LogOut size={17} /></button></div> : <Link className="side-signin" to="/login"><LogIn size={16} /> Sign in to your account</Link>}
       </div>
     </aside>
     {menuOpen && <button className="mobile-scrim" aria-label="Close navigation" onClick={() => setMenuOpen(false)} />}
     <div className="main-column">
-      <header className="topbar"><button className="icon-button mobile-menu" onClick={() => setMenuOpen(!menuOpen)} aria-label="Open menu">{menuOpen ? <X size={20} /> : <Menu size={20} />}</button><div className="crumb">{location.pathname === '/' ? 'Welcome to the arena' : location.pathname.split('/')[1]?.replace('-', ' ')}</div><div className="top-actions">{user && <Link to="/profile" className="top-coin-balance" aria-label={`${user.arena_coins} Virtual Naira`}>₦ <strong>{user.arena_coins.toLocaleString()}</strong></Link>}<span className="server-pill"><span className={`status-dot ${connected ? 'online' : ''}`} />{connected ? 'LIVE' : 'READY'}</span><button type="button" className="icon-button theme-toggle" onClick={() => applyColorTheme(theme === 'dark' ? 'light' : 'dark')} aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`} title={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}>{theme === 'dark' ? <Sun size={17} /> : <Moon size={17} />}</button><Link className="top-avatar" to={user ? '/profile' : '/login'} aria-label="Open profile">{user ? user.username.slice(0, 1).toUpperCase() : <UserRound size={17} />}</Link></div></header>
+      <header className="topbar"><button className="icon-button mobile-menu" onClick={() => setMenuOpen(!menuOpen)} aria-label="Open menu">{menuOpen ? <X size={20} /> : <Menu size={20} />}</button><div className="crumb">{location.pathname === '/' ? 'Welcome to the arena' : location.pathname.split('/')[1]?.replace('-', ' ')}</div><div className="top-actions">{user && <Link to="/profile" className="top-coin-balance" aria-label={`${user.arena_coins} Virtual Naira`}>₦ <strong>{user.arena_coins.toLocaleString()}</strong></Link>}<span className="server-pill"><span className={`status-dot ${connected ? 'online' : ''}`} />{connected ? 'LIVE' : 'READY'}</span><button type="button" className="icon-button theme-toggle" onClick={() => applyColorTheme(theme === 'dark' ? 'light' : 'dark')} aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`} title={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}>{theme === 'dark' ? <Sun size={17} /> : <Moon size={17} />}</button><Link className="top-avatar" to={user ? '/profile' : '/login'} aria-label="Open profile">{user ? <Avatar name={user.username} avatar={user.selected_avatar} /> : <UserRound size={17} />}</Link></div></header>
       {!session && savedSession && <div className="saved-room-bar"><span><Radio size={15} /><strong>Unfinished table {savedSession.code}</strong></span><button type="button" className="button button-lime" onClick={() => void resumePreviousTable()}>Resume table <ArrowRight size={15} /></button></div>}
       {error && <div role="alert" className="toast-error"><span>{error}</span><button aria-label="Dismiss" onClick={clearError}><X size={16} /></button></div>}
       <main className="page-content"><Routes>
@@ -619,7 +619,7 @@ function Lobby() {
   }
   return <><PageTitle eyebrow={view.is_public ? 'QUICK MATCH LOBBY' : 'PRIVATE ROOM'} title="The table is set." detail="Share your code and wait for everyone to join." action={<button type="button" className="button button-outline" onClick={() => { leaveRoom(); navigate('/dashboard') }}><ArrowLeft size={16} /> Leave table</button>} /><section className="lobby-room content-panel"><div className="lobby-code"><div><span className="small-label">ROOM CODE</span><strong>{view.code}</strong></div><div className="lobby-invite-actions"><button className="button button-outline" onClick={() => void navigator.clipboard?.writeText(view.code)}><Check size={15} /> Copy code</button><button className="button button-green" onClick={() => void shareInvite()}><Share2 size={15} /> {inviteShared ? 'Link shared' : 'Invite players'}</button></div></div>{view.wager > 0 && <div className="wager-banner"><span>₦ VIRTUAL NAIRA MATCH</span><strong>₦{view.wager.toLocaleString()} per player · ₦{view.wager_pot.toLocaleString()} current pot</strong><small>Virtual Naira locks when the host starts. The best-of-three champion wins the pot.</small></div>}<div className="lobby-divider" /><div className="lobby-player-heading"><span className="small-label">PLAYERS</span><span>{view.players.length} / 4 seats</span></div><div className="player-list">{Array.from({ length: 4 }, (_, index) => {
     const player = view.players[index]
-    return player ? <div className="lobby-player" key={player.id}><div className={`avatar ${player.id === view.host ? 'host-avatar' : ''}`}>{player.name.slice(0, 1).toUpperCase()}</div><div className="player-copy"><strong>{player.name}{player.id === session?.player_id ? ' (You)' : ''}</strong><span>{player.id === view.host ? 'Host' : 'Ready to play'} · {player.connected ? 'Connected' : 'Reconnecting'}{view.wager > 0 ? ` · ₦${(player.coin_balance ?? 0).toLocaleString()}` : ''}</span></div>{player.id === view.host && <Crown size={17} className="host-crown" />}{player.id === session?.player_id && <span className="you-tag">YOU</span>}</div> : <div className="lobby-player empty-seat" key={`empty-${index}`}><div className="avatar empty-avatar"><Plus size={16} /></div><div className="player-copy"><strong>Waiting for a player</strong><span>Share the room code to fill this seat</span></div></div>
+    return player ? <div className="lobby-player" key={player.id}><Avatar name={player.name} avatar={player.avatar} className={player.id === view.host ? 'host-avatar' : ''} /><div className="player-copy"><strong>{player.name}{player.id === session?.player_id ? ' (You)' : ''}</strong><span>{player.id === view.host ? 'Host' : 'Ready to play'} · {player.connected ? 'Connected' : 'Reconnecting'}{view.wager > 0 ? ` · ₦${(player.coin_balance ?? 0).toLocaleString()}` : ''}</span></div>{player.id === view.host && <Crown size={17} className="host-crown" />}{player.id === session?.player_id && <span className="you-tag">YOU</span>}</div> : <div className="lobby-player empty-seat" key={`empty-${index}`}><div className="avatar empty-avatar"><Plus size={16} /></div><div className="player-copy"><strong>Waiting for a player</strong><span>Share the room code to fill this seat</span></div></div>
   })}</div><div className="lobby-footer"><div className="connection-state"><span className={`status-dot ${connected ? 'online' : ''}`} />{connected ? 'Room is live' : 'Connecting…'}</div>{isHost ? <button className="button button-lime" disabled={view.players.length < 2 || view.players.some(player => !player.connected)} onClick={() => send('start')}><Gamepad2 size={17} /> Start game <ArrowRight size={16} /></button> : <span className="waiting-label"><span className="pulse-dot" /> Waiting for host to start</span>}</div></section><div className="lobby-footnote"><Shield size={15} /> The server will privately deal five cards to each player when the host starts.</div></>
 }
 
@@ -627,6 +627,13 @@ const shapes = ['circle', 'triangle', 'cross', 'square', 'star']
 const shapeGlyph: Record<string, string> = { circle: '●', triangle: '▲', cross: '✚', square: '■', star: '★', whot: 'W' }
 const shapeTone: Record<string, string> = { circle: 'blue', triangle: 'red', cross: 'green', square: 'gold', star: 'coral', whot: 'dark' }
 const avatarGlyph = (name: string, avatar?: string) => avatar === 'crown' ? '♛' : avatar === 'star' ? '★' : name.slice(0, 1).toUpperCase()
+const avatarAssets = new Set(['initial', 'crown', 'star'])
+const avatarNames: Record<string, string> = { initial: 'Arena Original', crown: 'Table Royalty', star: 'Star Player' }
+export function Avatar({ name, avatar, className = '' }: { name: string; avatar?: string; className?: string }) {
+  return <span className={`avatar ${className}`} role="img" aria-label={`${name} avatar`}>
+    {avatar && avatarAssets.has(avatar) ? <img src={`/avatars/${avatar}.svg`} alt="" /> : avatarGlyph(name, avatar)}
+  </span>
+}
 function CardFace({ card, large = false, back = false, selected = false, playable = false, onClick, index = 0 }: { card?: Card | null; large?: boolean; back?: boolean; selected?: boolean; playable?: boolean; onClick?: () => void; index?: number }) {
   if (back) return <div className={`whot-card card-back-face ${large ? 'card-large' : ''}`}><span className="back-mark mark-one"><strong>WHOT</strong><small>ARENA</small></span><span className="back-mark mark-two"><strong>WHOT</strong><small>ARENA</small></span><span className="back-mark mark-three"><strong>WHOT</strong><small>ARENA</small></span><span className="back-seal">W</span></div>
   if (!card) return <div className={`empty-card ${large ? 'card-large' : ''}`}><span>?</span></div>
@@ -717,7 +724,7 @@ function GameTable() {
         <div className="opponents-row">
           {opponents.map((player, index) => (
             <div className={`opponent ${!player.connected ? 'player-away' : ''} ${view.turn === player.id ? 'opponent-turn' : ''}`} key={player.id}>
-              <div className={`opponent-avatar-wrap ${player.voice_speaking ? 'voice-speaking' : ''}`}>{reactionVisible(player) && <span className="player-reaction" aria-label={`${player.name} reacted ${player.reaction}`}>{player.reaction}</span>}<div className={`avatar opponent-avatar avatar-${index}`}>{avatarGlyph(player.name, player.avatar)}</div><span className={`status-dot ${player.connected ? 'online' : ''}`} /></div>
+              <div className={`opponent-avatar-wrap ${player.voice_speaking ? 'voice-speaking' : ''}`}>{reactionVisible(player) && <span className="player-reaction" aria-label={`${player.name} reacted ${player.reaction}`}>{player.reaction}</span>}<Avatar name={player.name} avatar={player.avatar} className={`opponent-avatar avatar-${index}`} /><span className={`status-dot ${player.connected ? 'online' : ''}`} /></div>
               <strong>{player.name}{player.is_bot ? ' · CPU' : ''}</strong><span className={player.count === 1 ? 'last-card-label' : ''}>{player.count === 1 ? 'LAST CARD' : `${player.count} cards`}</span>{view.wager > 0 && !player.is_bot && <span className="player-wallet">₦{(player.coin_balance ?? 0).toLocaleString()}</span>}{view.turn === player.id && <span className="opponent-turn-label">{player.is_bot ? 'THINKING' : 'THEIR TURN'}</span>}
               <div className="opponent-card-fan">{Array.from({ length: Math.min(player.count, 3) }, (_, cardIndex) => <CardFace key={cardIndex} back />)}</div>
             </div>
@@ -733,7 +740,7 @@ function GameTable() {
         <div className="table-message" aria-live="polite">{toast || view.last_action}</div>
         {missedLastCard && view.status === 'playing' && !view.is_paused && <button type="button" className="button button-outline" onClick={() => send('call_last', { target_id: missedLastCard.id })} aria-label={`Call ${missedLastCard.name} for missing LAST CARD; they draw two cards`}>CALL LAST CARD · +2</button>}
         <div className="reaction-picker" aria-label="Quick reactions">{['😂', '🔥', '😭', '👏'].map(reaction => <button type="button" key={reaction} onClick={() => send('reaction', { reaction })} aria-label={`React ${reaction}`}>{reaction}</button>)}</div>
-        <div className="you-at-table"><div className={`you-avatar-wrap ${me?.voice_speaking ? 'voice-speaking' : ''}`}>{reactionVisible(me) && <span className="player-reaction" aria-label={`You reacted ${me?.reaction}`}>{me?.reaction}</span>}<div className="avatar you-avatar">{avatarGlyph(me?.name || 'You', me?.avatar)}</div></div><div><strong>{me?.name || 'You'} <span>(you)</span></strong><small>{myTurn ? 'Your move' : view.status === 'finished' ? 'Round over' : 'Waiting for your turn'}{view.wager > 0 ? ` · ₦${(me?.coin_balance ?? 0).toLocaleString()}` : ''}</small></div>{myTurn && <span className="turn-clock"><Clock3 size={15} /> PLAY NOW</span>}</div>
+        <div className="you-at-table"><div className={`you-avatar-wrap ${me?.voice_speaking ? 'voice-speaking' : ''}`}>{reactionVisible(me) && <span className="player-reaction" aria-label={`You reacted ${me?.reaction}`}>{me?.reaction}</span>}<Avatar name={me?.name || 'You'} avatar={me?.avatar} className="you-avatar" /></div><div><strong>{me?.name || 'You'} <span>(you)</span></strong><small>{myTurn ? 'Your move' : view.status === 'finished' ? 'Round over' : 'Waiting for your turn'}{view.wager > 0 ? ` · ₦${(me?.coin_balance ?? 0).toLocaleString()}` : ''}</small></div>{myTurn && <span className="turn-clock"><Clock3 size={15} /> PLAY NOW</span>}</div>
       </section>
       {view.status === 'finished' ? (
         <section className="round-result">
@@ -763,6 +770,7 @@ function LiveVoicePanel({ players, playerId, enabled }: { players: Player[]; pla
   const [status, setStatus] = useState<'idle' | 'starting' | 'live' | 'blocked' | 'unsupported' | 'failed'>('idle')
   const [connectedPeers, setConnectedPeers] = useState<string[]>([])
   const [directAudioPeers, setDirectAudioPeers] = useState<string[]>([])
+  const [fallbackPeerIds, setFallbackPeerIds] = useState<string[]>([])
   const [playbackBlocked, setPlaybackBlocked] = useState(false)
   const [connectionSlow, setConnectionSlow] = useState(false)
   const [voiceError, setVoiceError] = useState('')
@@ -775,6 +783,8 @@ function LiveVoicePanel({ players, playerId, enabled }: { players: Player[]; pla
   const localStreamRef = useRef<MediaStream | null>(null)
   const startPromiseRef = useRef<Promise<MediaStream | null> | null>(null)
   const peersRef = useRef(new Map<string, RTCPeerConnection>())
+  const fallbackPeersRef = useRef(new Set<string>())
+  const disconnectedTimersRef = useRef(new Map<string, number>())
   const audioRef = useRef(new Map<string, HTMLAudioElement>())
   const offeredRef = useRef(new Set<string>())
   const handledSignalsRef = useRef(new Set<string>())
@@ -806,7 +816,7 @@ function LiveVoicePanel({ players, playerId, enabled }: { players: Player[]; pla
     const silent = context.createGain()
     silent.gain.value = 0
     processor.onaudioprocess = event => {
-      if (mutedRef.current) return
+      if (mutedRef.current || !fallbackPeersRef.current.size) return
       const input = event.inputBuffer.getChannelData(0)
       const ratio = context.sampleRate / 24000
       const samples = new Int16Array(Math.floor(input.length / ratio))
@@ -821,7 +831,7 @@ function LiveVoicePanel({ players, playerId, enabled }: { players: Player[]; pla
       const bytes = new Uint8Array(samples.buffer)
       let binary = ''
       for (let index = 0; index < bytes.length; index += 1) binary += String.fromCharCode(bytes[index])
-      send('rtc_audio', { audio: btoa(binary) })
+      send('rtc_audio', { audio: btoa(binary), target_ids: [...fallbackPeersRef.current] })
     }
     source.connect(processor)
     processor.connect(silent)
@@ -829,6 +839,24 @@ function LiveVoicePanel({ players, playerId, enabled }: { players: Player[]; pla
     relayContextRef.current = context
     relayProcessorRef.current = processor
     void context.resume().catch(() => setVoiceError('Tap the mic again to allow live audio.'))
+  }
+
+  function setRelayFallback(remoteId: string, enabled: boolean) {
+    const alreadyFallback = fallbackPeersRef.current.has(remoteId)
+    if (alreadyFallback === enabled) return
+    if (enabled) {
+      fallbackPeersRef.current.add(remoteId)
+      if (localStreamRef.current) startRelayCapture(localStreamRef.current)
+    } else {
+      fallbackPeersRef.current.delete(remoteId)
+      if (!fallbackPeersRef.current.size) {
+        relayProcessorRef.current?.disconnect()
+        relayProcessorRef.current = null
+        void relayContextRef.current?.close()
+        relayContextRef.current = null
+      }
+    }
+    setFallbackPeerIds([...fallbackPeersRef.current])
   }
 
   async function startMicrophone() {
@@ -854,7 +882,7 @@ function LiveVoicePanel({ players, playerId, enabled }: { players: Player[]; pla
       setMuted(false)
       setStatus('live')
       send('rtc_speaking', { speaking: true })
-      startRelayCapture(stream)
+      if (fallbackPeersRef.current.size) startRelayCapture(stream)
       return stream
     }).catch(() => {
       send('rtc_speaking', { speaking: false })
@@ -890,6 +918,7 @@ function LiveVoicePanel({ players, playerId, enabled }: { players: Player[]; pla
     }
     peer.ontrack = event => {
       directAudioPeersRef.current.add(remoteId)
+      setRelayFallback(remoteId, false)
       relaySourcesRef.current.get(remoteId)?.forEach(source => { try { source.stop() } catch { /* already stopped */ } })
       relaySourcesRef.current.delete(remoteId)
       relayPlaybackTimesRef.current.delete(remoteId)
@@ -901,11 +930,34 @@ function LiveVoicePanel({ players, playerId, enabled }: { players: Player[]; pla
       void audio.play().then(() => setPlaybackBlocked(false)).catch(() => setPlaybackBlocked(true))
     }
     peer.onconnectionstatechange = () => {
+      const disconnectedTimer = disconnectedTimersRef.current.get(remoteId)
+      if (disconnectedTimer !== undefined) {
+        window.clearTimeout(disconnectedTimer)
+        disconnectedTimersRef.current.delete(remoteId)
+      }
       if (peer.connectionState === 'connected') {
+        setRelayFallback(remoteId, false)
         setConnectedPeers(previous => previous.includes(remoteId) ? previous : [...previous, remoteId])
         setConnectionSlow(false)
         playGameSound('join')
-      } else if (['failed', 'closed', 'disconnected'].includes(peer.connectionState)) {
+      } else if (peer.connectionState === 'failed') {
+        setRelayFallback(remoteId, true)
+        setConnectedPeers(previous => previous.filter(id => id !== remoteId))
+        setDirectAudioPeers(previous => previous.filter(id => id !== remoteId))
+        directAudioPeersRef.current.delete(remoteId)
+      } else if (peer.connectionState === 'disconnected') {
+        const timer = window.setTimeout(() => {
+          disconnectedTimersRef.current.delete(remoteId)
+          if (peer.connectionState === 'disconnected') {
+            setRelayFallback(remoteId, true)
+            setConnectedPeers(previous => previous.filter(id => id !== remoteId))
+            setDirectAudioPeers(previous => previous.filter(id => id !== remoteId))
+            directAudioPeersRef.current.delete(remoteId)
+          }
+        }, 5000)
+        disconnectedTimersRef.current.set(remoteId, timer)
+      } else if (peer.connectionState === 'closed') {
+        setRelayFallback(remoteId, false)
         setConnectedPeers(previous => previous.filter(id => id !== remoteId))
         setDirectAudioPeers(previous => previous.filter(id => id !== remoteId))
         directAudioPeersRef.current.delete(remoteId)
@@ -920,7 +972,14 @@ function LiveVoicePanel({ players, playerId, enabled }: { players: Player[]; pla
     return () => {
       send('rtc_speaking', { speaking: false })
       localStreamRef.current?.getTracks().forEach(track => track.stop())
-      peersRef.current.forEach(peer => peer.close())
+      peersRef.current.forEach(peer => {
+        peer.onconnectionstatechange = null
+        peer.ontrack = null
+        peer.close()
+      })
+      disconnectedTimersRef.current.forEach(timer => window.clearTimeout(timer))
+      disconnectedTimersRef.current.clear()
+      fallbackPeersRef.current.clear()
       audioRef.current.forEach(audio => { audio.pause(); audio.srcObject = null })
       relayProcessorRef.current?.disconnect()
       relayProcessorRef.current = null
@@ -947,6 +1006,10 @@ function LiveVoicePanel({ players, playerId, enabled }: { players: Player[]; pla
         peer.close()
         peersRef.current.delete(remoteId)
         offeredRef.current.delete(remoteId)
+        const timer = disconnectedTimersRef.current.get(remoteId)
+        if (timer !== undefined) window.clearTimeout(timer)
+        disconnectedTimersRef.current.delete(remoteId)
+        setRelayFallback(remoteId, false)
         setConnectedPeers(previous => previous.filter(id => id !== remoteId))
         setDirectAudioPeers(previous => previous.filter(id => id !== remoteId))
         directAudioPeersRef.current.delete(remoteId)
@@ -1054,10 +1117,13 @@ function LiveVoicePanel({ players, playerId, enabled }: { players: Player[]; pla
 
   useEffect(() => {
     const waitingFor = players.some(player => player.id !== playerId && player.connected && player.voice_ready)
-    if (!waitingFor || connectedPeers.length) { setConnectionSlow(false); return }
+    if (!waitingFor || connectedPeers.length || fallbackPeerIds.length) {
+      setConnectionSlow(false)
+      return
+    }
     const timer = window.setTimeout(() => setConnectionSlow(true), 12000)
     return () => window.clearTimeout(timer)
-  }, [players, playerId, connectedPeers.length])
+  }, [players, playerId, connectedPeers.length, fallbackPeerIds.length])
 
   function toggleMute() {
     unlockLivePlayback()
@@ -1303,8 +1369,8 @@ function Profile() {
   const xpInLevel = (profile?.xp || 0) % 500
   const achievementNames: Record<string, string> = { first_win: 'First Victory', hot_streak: 'Hot Streak', arena_regular: 'Arena Regular', level_five: 'Level Five' }
   return <><PageTitle eyebrow="PLAYER PROGRESSION" title={profile?.username || 'Your player card'} detail="Play matches, earn XP, build streaks, and unlock your Arena style." />
-    <section className="profile-panel content-panel"><div className={`profile-avatar avatar-cosmetic-${profile?.selected_avatar || 'initial'}`}>{profile ? avatarGlyph(profile.username, profile.selected_avatar) : <UserRound size={34} />}</div><div className="profile-main"><span className="small-label">LEVEL {profile?.level || 1} ARENA PLAYER</span><h2>{profile?.username || 'Guest player'}</h2><p>{profile?.email || 'Sign in to save progression and unlock cosmetics.'}</p><div className="xp-track"><span style={{ width: `${xpInLevel / 5}%` }} /><small>{xpInLevel} / 500 XP to next level</small></div><div className="profile-stats"><div><strong>{profile?.wins ?? '—'}</strong><span>Wins</span></div><div><strong>{profile?.win_streak ?? '—'}</strong><span>Current streak</span></div><div><strong>{profile?.best_win_streak ?? '—'}</strong><span>Best streak</span></div><div><strong>{profile?.xp ?? '—'}</strong><span>Total XP</span></div></div></div>{!profile && <Link className="button button-green" to="/login">Sign in <ArrowRight size={15} /></Link>}</section>
-    {profile && <div className="progression-grid"><section className="content-panel achievement-panel"><span className="small-label">ACHIEVEMENTS</span><h2>Your trophy shelf</h2><div className="achievement-list">{Object.entries(achievementNames).map(([id, label]) => <span className={profile.achievements.includes(id) ? 'achievement-earned' : ''} key={id}><Trophy size={16} /><strong>{label}</strong><small>{profile.achievements.includes(id) ? 'Earned' : 'Locked'}</small></span>)}</div></section><section className="content-panel cosmetic-panel"><span className="small-label">UNLOCKABLE STYLE</span><h2>Equip your rewards</h2><label>Table theme<select value={profile.selected_theme} onChange={event => void saveCosmetics('theme', event.target.value)}>{profile.unlocked_themes.map(item => <option key={item}>{item}</option>)}</select></label><label>Card back<select value={profile.selected_card_back} onChange={event => void saveCosmetics('card_back', event.target.value)}>{profile.unlocked_card_backs.map(item => <option key={item}>{item}</option>)}</select></label><label>Avatar<select value={profile.selected_avatar} onChange={event => void saveCosmetics('avatar', event.target.value)}>{profile.unlocked_avatars.map(item => <option key={item}>{item}</option>)}</select></label><p>New rewards unlock at levels 2, 3, 4, and 5.</p></section></div>}
+    <section className="profile-panel content-panel"><Avatar name={profile?.username || 'Guest player'} avatar={profile?.selected_avatar} className={`profile-avatar avatar-cosmetic-${profile?.selected_avatar || 'initial'}`} /><div className="profile-main"><span className="small-label">LEVEL {profile?.level || 1} ARENA PLAYER</span><h2>{profile?.username || 'Guest player'}</h2><p>{profile?.email || 'Sign in to save progression and unlock cosmetics.'}</p><div className="xp-track"><span style={{ width: `${xpInLevel / 5}%` }} /><small>{xpInLevel} / 500 XP to next level</small></div><div className="profile-stats"><div><strong>{profile?.wins ?? '—'}</strong><span>Wins</span></div><div><strong>{profile?.win_streak ?? '—'}</strong><span>Current streak</span></div><div><strong>{profile?.best_win_streak ?? '—'}</strong><span>Best streak</span></div><div><strong>{profile?.xp ?? '—'}</strong><span>Total XP</span></div></div></div>{!profile && <Link className="button button-green" to="/login">Sign in <ArrowRight size={15} /></Link>}</section>
+    {profile && <div className="progression-grid"><section className="content-panel achievement-panel"><span className="small-label">ACHIEVEMENTS</span><h2>Your trophy shelf</h2><div className="achievement-list">{Object.entries(achievementNames).map(([id, label]) => <span className={profile.achievements.includes(id) ? 'achievement-earned' : ''} key={id}><Trophy size={16} /><strong>{label}</strong><small>{profile.achievements.includes(id) ? 'Earned' : 'Locked'}</small></span>)}</div></section><section className="content-panel cosmetic-panel"><span className="small-label">UNLOCKABLE STYLE</span><h2>Equip your rewards</h2><label>Table theme<select value={profile.selected_theme} onChange={event => void saveCosmetics('theme', event.target.value)}>{profile.unlocked_themes.map(item => <option key={item}>{item}</option>)}</select></label><label>Card back<select value={profile.selected_card_back} onChange={event => void saveCosmetics('card_back', event.target.value)}>{profile.unlocked_card_backs.map(item => <option key={item}>{item}</option>)}</select></label><fieldset className="avatar-picker"><legend>Avatar</legend><div className="avatar-choices">{profile.unlocked_avatars.map(item => <button type="button" key={item} className="avatar-choice" aria-label={avatarNames[item] || item} aria-pressed={profile.selected_avatar === item} onClick={() => void saveCosmetics('avatar', item)}><Avatar name={profile.username} avatar={item} className="avatar-choice-image" /><span>{avatarNames[item] || item}</span></button>)}</div></fieldset><p>New rewards unlock at levels 2, 3, 4, and 5.</p></section></div>}
     {status && <div className="info-banner"><Shield size={16} />{status}</div>}</>
 }
 

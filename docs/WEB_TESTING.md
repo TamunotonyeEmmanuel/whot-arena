@@ -28,6 +28,7 @@ The test suites use the existing backend's FastAPI/pytest and WebSocket tests, p
 - Deal size, turn order, draw, legal-card enforcement, WHOT shape validation, Pick Two, Pick Three, Hold On, skip, General Market, immediate win, and host-only rematch reset.
 - LAST CARD declaration and opponent-call behavior, including no automatic penalty when the opponent acts and rejection of calls after that action.
 - Untrusted browser WebSocket origins are closed with policy code 1008.
+- Live audio fallback targets only explicitly requested, connected room members; normal voice remains on direct WebRTC instead of relaying PCM over WebSockets.
 - Room voice upload rejects unsupported media, empty/oversized clips, lobby sends, and rapid repeats; state contains metadata only, while room members retrieve audio through their own socket.
 - Browser landing-to-rules navigation and accessible WHOT card activation.
 - Production TypeScript compilation and Vite bundling.
