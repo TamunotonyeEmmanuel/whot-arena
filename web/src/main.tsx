@@ -455,11 +455,10 @@ function ArenaBackgroundMusic() {
 }
 
 function AppFrame() {
-  const { user, session, savedSession, view, connected, error, clearError, resumeSavedRoom, signOut } = useArena()
+  const { user, session, view, connected, error, clearError, signOut } = useArena()
   const [menuOpen, setMenuOpen] = useState(false)
   const [theme, setTheme] = useState<ColorTheme>(preferredTheme)
   const location = useLocation()
-  const navigate = useNavigate()
   const isTable = location.pathname.startsWith('/game/')
   useEffect(() => {
     if (!isTable) return
@@ -487,11 +486,6 @@ function AppFrame() {
     document.addEventListener('pointerdown', tap)
     return () => document.removeEventListener('pointerdown', tap)
   }, [])
-  async function resumePreviousTable() {
-    if (!savedSession) return
-    try { const restored = await resumeSavedRoom(); if (restored) navigate(`/lobby/${restored.code}`) }
-    catch { /* The provider displays the reconnect error. */ }
-  }
   return <div className={`app-frame ${isTable ? 'table-frame' : ''}`}>
     <aside className={`sidebar ${menuOpen ? 'sidebar-open' : ''}`}>
       <Link to="/" className="brand"><span className="brand-mark">W</span><span>WHOT<span className="brand-light">ARENA</span></span></Link>
@@ -512,7 +506,6 @@ function AppFrame() {
     {menuOpen && <button className="mobile-scrim" aria-label="Close navigation" onClick={() => setMenuOpen(false)} />}
     <div className="main-column">
       <header className="topbar"><button className="icon-button mobile-menu" onClick={() => setMenuOpen(!menuOpen)} aria-label="Open menu">{menuOpen ? <X size={20} /> : <Menu size={20} />}</button><div className="crumb">{location.pathname === '/' ? 'Welcome to the arena' : location.pathname.split('/')[1]?.replace('-', ' ')}</div><div className="top-actions">{user && <Link to="/profile" className="top-coin-balance" aria-label={`${user.arena_coins} Virtual Naira`}>₦ <strong>{user.arena_coins.toLocaleString()}</strong></Link>}<span className="server-pill"><span className={`status-dot ${connected ? 'online' : ''}`} />{connected ? 'LIVE' : 'READY'}</span><button type="button" className="icon-button theme-toggle" onClick={() => applyColorTheme(theme === 'dark' ? 'light' : 'dark')} aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`} title={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}>{theme === 'dark' ? <Sun size={17} /> : <Moon size={17} />}</button><Link className="top-avatar" to={user ? '/profile' : '/login'} aria-label="Open profile">{user ? <Avatar name={user.username} avatar={user.selected_avatar} /> : <UserRound size={17} />}</Link></div></header>
-      {!session && savedSession && <div className="saved-room-bar"><span><Radio size={15} /><strong>Unfinished table {savedSession.code}</strong></span><button type="button" className="button button-lime" onClick={() => void resumePreviousTable()}>Resume table <ArrowRight size={15} /></button></div>}
       {error && <div role="alert" className="toast-error"><span>{error}</span><button aria-label="Dismiss" onClick={clearError}><X size={16} /></button></div>}
       <main className="page-content"><Routes>
         <Route path="/" element={<Landing />} />
@@ -532,7 +525,6 @@ function AppFrame() {
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes></main>
       {(user || (session && view)) && <VoicePanel messages={view?.voice_messages || []} chatMessages={view?.chat_messages || []} playerId={session?.player_id || ''} enabled={view?.status === 'playing'} players={view?.players || (user ? [{ id: 'account', name: user.username, count: 0, connected: true }] : [])} balance={view?.players.find(player => player.id === session?.player_id)?.coin_balance || user?.arena_coins || 0} wager={view?.wager || 0} pot={view?.wager_pot || 0} username={user?.username} roomCode={session?.code} />}
-      {session && <Link to={view?.status === 'lobby' ? `/lobby/${session.code}` : `/game/${session.code}`} className="room-chip" title="Continue your open table"><Radio size={14} /> Continue room {session.code}<span className={`status-dot ${connected ? 'online' : ''}`} /></Link>}
     </div>
   </div>
 }
@@ -543,23 +535,18 @@ function PageTitle({ eyebrow, title, detail, action }: { eyebrow: string; title:
 }
 
 function Landing() {
-  const { user, session, view } = useArena()
-  const resumePath = session && view?.status !== 'lobby' ? `/game/${session.code}` : session ? `/lobby/${session.code}` : '/create'
+  const { user } = useArena()
   return <div className="landing-page">
-    {session && <div className="continue-table-banner"><span><Radio size={16} /><strong>Unfinished table {session.code}</strong></span><Link className="button button-lime" to={resumePath}>Continue table <ArrowRight size={16} /></Link></div>}
     <section className="landing-hero"><div className="hero-copy"><Eyebrow>NIGERIAN WHOT · REAL-TIME MULTIPLAYER</Eyebrow><h1>One table.<br /><span>Every move counts.</span></h1><p>Bring your people together for a quick round of WHOT. The cards stay hidden, the competition stays friendly, and every move is verified on the server.</p><div className="hero-actions"><Link className="button button-lime" to="/create"><Gamepad2 size={17} /> Play now <ArrowRight size={17} /></Link><Link className="button button-quiet" to="/help">How to play</Link></div><div className="hero-proof"><span><Shield size={15} /> Server-validated play</span><span><Users size={15} /> 2–4 players</span><span><Radio size={15} /> Live rooms</span></div></div><div className="hero-scene" aria-label="A WHOT card on a green game table"><div className="scene-ring ring-one" /><div className="scene-ring ring-two" /><div className="scene-card card-back"><span>WHOT</span><small>ARENA</small></div><div className="scene-card card-front"><span className="scene-number">20</span><span className="shape-symbol">✦</span><span className="shape-name">WILD CARD</span></div><div className="scene-note"><span className="note-dot" /> YOUR NEXT MOVE</div><div className="scene-score"><span>TABLE<br />OPEN</span><strong>04</strong></div></div></section>
     <section className="landing-lower"><div className="lower-heading"><div><span className="small-label">START HERE</span><h2>{user ? `Welcome back, ${user.username}.` : 'Your next round is one click away.'}</h2></div><span className="house-rule-tag"><Sparkles size={14} /> The Arena house rules</span></div><div className="quick-grid"><Link to="/create" className="quick-action"><span className="quick-icon lime"><Plus size={20} /></span><span><strong>Create a private room</strong><small>Invite friends with a room code</small></span><ArrowRight size={17} /></Link><Link to="/join" className="quick-action"><span className="quick-icon coral"><DoorOpen size={20} /></span><span><strong>Join a room</strong><small>Enter a code from your host</small></span><ArrowRight size={17} /></Link><Link to="/leaderboard" className="quick-action"><span className="quick-icon gold"><Trophy size={20} /></span><span><strong>See the standings</strong><small>Check the player leaderboard</small></span><ArrowRight size={17} /></Link></div></section>
   </div>
 }
 
 function Dashboard() {
-  const { user, session, view, connected, leaveRoom } = useArena()
-  const navigate = useNavigate()
+  const { user } = useArena()
   const hour = new Date().getHours()
   const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening'
-  const resumePath = session && view?.status !== 'lobby' ? `/game/${session.code}` : session ? `/lobby/${session.code}` : '/create'
   return <><PageTitle eyebrow="PLAYER DASHBOARD" title={`${greeting}${user ? `, ${user.username}` : ''}.`} detail="Pick up a game or see how you stack up." action={<Link className="button button-lime" to="/create"><Plus size={17} /> New game</Link>} />
-    {session && <section className="open-table-banner content-panel"><div className="open-table-icon"><Radio size={19} /></div><div><span className="small-label">OPEN TABLE · {session.code}</span><h2>{connected && view ? 'Your table is ready to resume.' : 'Reconnecting to your table…'}</h2><p>{connected && view ? 'Continue from where you left off.' : 'Wait for the connection, or close this saved table session.'}</p></div><div className="open-table-actions"><Link className="button button-green" to={resumePath}><Gamepad2 size={16} /> Resume table</Link><button type="button" className="button button-outline" onClick={() => { leaveRoom(); navigate('/create') }}>Close open table</button></div></section>}
     <div className="dashboard-grid"><section className="content-panel feature-panel"><div className="panel-topline"><span className="small-label">YOUR NEXT GAME</span><span className="status-tag"><span className="status-dot online" /> OPEN</span></div><h2>Make the first move.</h2><p>Create a private table, invite up to three friends, and let the cards decide.</p><div className="panel-actions"><Link className="button button-green" to="/create"><Plus size={17} /> Create a room</Link><Link className="text-link" to="/join">Join with a code <ArrowRight size={15} /></Link></div><div className="panel-mark">W</div></section><section className="content-panel rank-panel"><div className="panel-topline"><span className="small-label">THE ARENA</span><Trophy size={18} /></div><h3>Play. Win. Climb.</h3><p>Rankings update after completed matches with registered players.</p><Link className="text-link" to="/leaderboard">View leaderboard <ArrowRight size={15} /></Link><div className="rank-decoration"><span /><span /><span /><span /><span /></div></section></div>
     <div className="section-heading"><div><span className="small-label">KEEP EXPLORING</span><h2>Make yourself at home</h2></div></div><div className="quick-grid"><Link to="/help" className="quick-action"><span className="quick-icon green"><BookOpen size={19} /></span><span><strong>Rules at a glance</strong><small>Learn the Arena's house rules</small></span><ArrowRight size={17} /></Link><Link to="/profile" className="quick-action"><span className="quick-icon coral"><UserRound size={19} /></span><span><strong>Your player profile</strong><small>Account and match statistics</small></span><ArrowRight size={17} /></Link><Link to="/settings" className="quick-action"><span className="quick-icon gold"><Settings size={19} /></span><span><strong>Game settings</strong><small>Set your name and preferences</small></span><ArrowRight size={17} /></Link></div>
   </>
@@ -673,7 +660,7 @@ export function Avatar({ name, avatar, className = '' }: { name: string; avatar?
 function CardFace({ card, large = false, back = false, selected = false, playable = false, onClick, index = 0 }: { card?: Card | null; large?: boolean; back?: boolean; selected?: boolean; playable?: boolean; onClick?: () => void; index?: number }) {
   if (back) return <div className={`whot-card card-back-face ${large ? 'card-large' : ''}`}><span className="back-mark mark-one"><strong>WHOT</strong><small>ARENA</small></span><span className="back-mark mark-two"><strong>WHOT</strong><small>ARENA</small></span><span className="back-mark mark-three"><strong>WHOT</strong><small>ARENA</small></span><span className="back-seal">W</span></div>
   if (!card) return <div className={`empty-card ${large ? 'card-large' : ''}`}><span>?</span></div>
-  return <button type="button" className={`whot-card ${large ? 'card-large' : ''} tone-${shapeTone[card.shape]} ${selected ? 'card-selected' : ''} ${playable ? 'card-playable' : ''}`} onClick={onClick} disabled={!playable} style={{ '--card-index': index } as React.CSSProperties} aria-label={`Play ${card.number} ${card.shape}`}><span className="card-corner top-corner"><span>{card.number}</span><small>{shapeGlyph[card.shape]}</small></span><span className="card-glyph">{shapeGlyph[card.shape]}</span><span className="card-corner bottom-corner"><span>{card.number}</span><small>{shapeGlyph[card.shape]}</small></span></button>
+  return <button type="button" className={`whot-card ${large ? 'card-large' : ''} tone-${shapeTone[card.shape]} ${selected ? 'card-selected' : ''} ${playable ? 'card-playable' : ''}`} onClick={onClick} disabled={!playable} style={{ '--card-index': index } as React.CSSProperties} aria-label={`Play ${card.number} ${card.shape}`}><span className={`card-glyph ${card.shape === 'whot' ? 'card-glyph-whot' : ''}`}>{card.shape === 'whot' ? card.number : shapeGlyph[card.shape]}</span>{card.shape === 'whot' && <span className="card-whot-label">WHOT</span>}<span className="card-corner top-corner"><span>{card.number}</span><small>{shapeGlyph[card.shape]}</small></span><span className="card-corner bottom-corner"><span>{card.number}</span><small>{shapeGlyph[card.shape]}</small></span></button>
 }
 
 function WinnerCelebration({ name, champion = false }: { name: string; champion?: boolean }) {

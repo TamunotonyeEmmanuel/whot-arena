@@ -19,7 +19,11 @@ describe('WHOT Arena web client', () => {
     const user = userEvent.setup()
     render(<CardFace card={{ id: 'wild', shape: 'whot', number: 20 }} playable onClick={onClick} />)
 
-    await user.click(screen.getByRole('button', { name: 'Play 20 whot' }))
+    const card = screen.getByRole('button', { name: 'Play 20 whot' })
+    expect(card.querySelector('.card-glyph')).toHaveTextContent('20')
+    expect(card.querySelector('.card-whot-label')).toHaveTextContent('WHOT')
+
+    await user.click(card)
 
     expect(onClick).toHaveBeenCalledOnce()
   })

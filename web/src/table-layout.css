@@ -18,6 +18,15 @@
   font-size: 38px;
 }
 
+.table-frame .hand-cards .whot-card .card-glyph-whot {
+  font-size: 22px;
+}
+
+.table-frame .hand-cards .whot-card .card-whot-label {
+  margin-top: 2px;
+  font-size: 5px;
+}
+
 @media (max-height: 720px) and (min-width: 761px) {
   .table-frame .hand-cards .whot-card {
     width: 58px;

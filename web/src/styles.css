@@ -317,3 +317,10 @@ html[data-theme="dark"] .team-mode-banner{color:#c6e1c4;border-color:#3e6240;bac
 html[data-theme="dark"] .team-mode-banner small{color:#adc4ae}
 html[data-theme="dark"] .team-tag{color:#c4e1c5;border-color:#456b48;background:#29432d}
 html[data-theme="dark"] .team-tag-2{color:#d1d7f0;border-color:#515d84;background:#303a5b}
+/* Keep the WHOT card face compact: the card value replaces the oversized W. */
+.whot-card .card-glyph-whot{font-size:24px;font-weight:800;letter-spacing:-1px;line-height:1}
+.whot-card.card-large .card-glyph-whot{font-size:39px}
+.hand-cards .whot-card .card-glyph-whot{font-size:22px}
+.whot-card .card-whot-label{margin-top:3px;color:#fffef3;font-size:6px;font-weight:700;letter-spacing:.8px;line-height:1}
+.whot-card.card-large .card-whot-label{font-size:8px}
+.hand-cards .whot-card .card-whot-label{margin-top:2px;font-size:5px}
