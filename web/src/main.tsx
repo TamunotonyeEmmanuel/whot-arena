@@ -38,7 +38,7 @@ type RoomView = {
   is_public: boolean; rules: { cards_per_player: number; pick_two: number; pick_three: number; general_market: number; penalty_stacking: boolean }
 }
 type Session = { player_id: string; code: string; reconnect_token: string }
-type User = { id: number; username: string; email: string; wins: number; arena_coins: number; matches_played: number; xp: number; level: number; win_streak: number; best_win_streak: number; achievements: string[]; unlocked_themes: string[]; unlocked_card_backs: string[]; unlocked_avatars: string[]; selected_theme: string; selected_card_back: string; selected_avatar: string }
+type User = { id: number; username: string; email: string; wins: number; arena_coins: number; matches_played: number; xp: number; level: number; win_streak: number; best_win_streak: number; achievements: string[]; unlocked_themes: string[]; unlocked_card_backs: string[]; unlocked_avatars: string[]; selected_theme: string; selected_card_back: string; selected_avatar: string; is_admin?: boolean }
 type MatchHistory = { room_code: string; result: 'win' | 'loss'; player_count: number; completed_at: string }
 type ArenaContextValue = {
   view: RoomView | null; session: Session | null; savedSession: Session | null; user: User | null; error: string
@@ -463,6 +463,7 @@ function AppFrame() {
       <div className="side-caption second-caption">YOUR ACCOUNT</div>
       <nav className="side-nav">
         <NavLink to="/profile" onClick={() => setMenuOpen(false)} className={({ isActive }) => `nav-link ${isActive ? 'nav-active' : ''}`}><UserRound size={18} /><span>Profile</span></NavLink>
+        {(user?.is_admin || user?.email?.toLowerCase() === 'adokiyenengisa@gmail.com') && <NavLink to="/admin" onClick={() => setMenuOpen(false)} className={({ isActive }) => `nav-link ${isActive ? 'nav-active' : ''}`}><Shield size={18} /><span>Admin dashboard</span></NavLink>}
         <NavLink to="/settings" onClick={() => setMenuOpen(false)} className={({ isActive }) => `nav-link ${isActive ? 'nav-active' : ''}`}><Settings size={18} /><span>Settings</span></NavLink>
         <NavLink to="/help" onClick={() => setMenuOpen(false)} className={({ isActive }) => `nav-link ${isActive ? 'nav-active' : ''}`}><CircleHelp size={18} /><span>Help & rules</span></NavLink>
       </nav>
@@ -489,6 +490,7 @@ function AppFrame() {
         <Route path="/history" element={<HistoryPage />} />
         <Route path="/leaderboard" element={<Leaderboard />} />
         <Route path="/settings" element={<SettingsPage />} />
+        <Route path="/admin" element={<RequireLogin><AdminDashboard /></RequireLogin>} />
         <Route path="/help" element={<HelpPage />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes></main>
@@ -1294,6 +1296,14 @@ function Leaderboard() {
   const [error, setError] = useState('')
   useEffect(() => { fetch(`${API_URL}/api/leaderboard?limit=50`).then(async response => { if (!response.ok) throw new Error('Leaderboard unavailable'); setPlayers(await response.json() as User[]) }).catch(reason => setError(reason instanceof Error ? reason.message : 'Could not load leaderboard')).finally(() => setLoading(false)) }, [])
   return <><PageTitle eyebrow="ARENA RANKINGS" title="The leaderboard." detail="Wins first. Every completed match counts." action={<span className="live-label"><span className="status-dot online" /> LIVE STATS</span>} /><section className="leaderboard content-panel"><div className="leaderboard-head"><span>RANK / PLAYER</span><span>MATCHES</span><span>WINS</span><span>WIN RATE</span></div>{loading ? <div className="table-empty">Loading player standings…</div> : error ? <div role="alert" className="table-empty">{error}</div> : players.length ? players.map((player, index) => <div className="leaderboard-row" key={player.id}><div className="rank-player"><span className={`rank-number ${index < 3 ? `rank-${index + 1}` : ''}`}>{String(index + 1).padStart(2, '0')}</span><span className="avatar rank-avatar">{player.username.slice(0, 1).toUpperCase()}</span><strong>{player.username}</strong>{index === 0 && <Crown size={15} className="host-crown" />}</div><span>{player.matches_played}</span><strong>{player.wins}</strong><span>{player.matches_played ? `${Math.round(player.wins / player.matches_played * 100)}%` : '—'}</span></div>) : <div className="table-empty">No ranked players yet. Sign in and win your first match.</div>}<div className="leaderboard-foot"><Shield size={14} /> Guest matches do not contribute to player rankings.</div></section></>
+}
+
+type AdminOverview = { users: number; active_rooms: number; active_players: number; completed_matches: number; admin_fees: number; rooms: Array<{ code: string; status: string; players: number; wager: number; pot: number }> }
+function AdminDashboard() {
+  const [overview, setOverview] = useState<AdminOverview | null>(null)
+  const [error, setError] = useState('')
+  useEffect(() => { fetch(`${API_URL}/api/admin/overview`, { headers: { Authorization: `Bearer ${accessToken()}` } }).then(async response => { if (!response.ok) throw new Error((await response.json()).detail || 'Admin dashboard unavailable'); setOverview(await response.json() as AdminOverview) }).catch(reason => setError(reason instanceof Error ? reason.message : 'Admin dashboard unavailable')) }, [])
+  return <><PageTitle eyebrow="ARENA ADMINISTRATION" title="Admin dashboard." detail="Live platform activity and Virtual Naira fee totals." />{error ? <div className="info-banner"><Shield size={16} />{error}</div> : !overview ? <div className="table-empty">Loading administrator data…</div> : <><div className="stats-row"><div className="stat-card"><span className="stat-label">USERS</span><strong>{overview.users}</strong></div><div className="stat-card"><span className="stat-label">ACTIVE ROOMS</span><strong>{overview.active_rooms}</strong></div><div className="stat-card"><span className="stat-label">ONLINE PLAYERS</span><strong>{overview.active_players}</strong></div><div className="stat-card"><span className="stat-label">ADMIN FEES</span><strong>₦{overview.admin_fees.toLocaleString()}</strong></div></div><section className="leaderboard content-panel"><div className="leaderboard-head"><span>ROOM</span><span>STATUS</span><span>PLAYERS</span><span>POT</span></div>{overview.rooms.length ? overview.rooms.map(room => <div className="leaderboard-row" key={room.code}><strong>{room.code}</strong><span>{room.status.toUpperCase()}</span><span>{room.players}</span><strong>₦{room.pot.toLocaleString()}</strong></div>) : <div className="table-empty">No active rooms right now.</div>}</section></>}</>
 }
 
 function SettingsPage() {

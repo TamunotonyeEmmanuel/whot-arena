@@ -50,6 +50,11 @@ class User(Base):
         return self.xp // 500 + 1
 
     @property
+    def is_admin(self):
+        configured = os.getenv("ADMIN_EMAILS", "adokiyenengisa@gmail.com")
+        return self.email.lower() in {email.strip().lower() for email in configured.split(",") if email.strip()}
+
+    @property
     def achievement_list(self):
         return [item for item in self.achievements.split(",") if item]
 

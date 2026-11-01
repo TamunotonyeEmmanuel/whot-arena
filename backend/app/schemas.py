@@ -38,6 +38,7 @@ class UserResponse(BaseModel):
     selected_theme: str
     selected_card_back: str
     selected_avatar: str
+    is_admin: bool
 
 
 class CosmeticsRequest(BaseModel):

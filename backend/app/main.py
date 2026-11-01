@@ -5,12 +5,14 @@ import secrets
 import time
 import os
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import Depends, FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from .game import TURN_SECONDS, VOICE_MAX_BYTES, Room, Player
 from .accounts import router as accounts_router
-from .auth import token_user_id
+from .auth import current_user, get_db, token_user_id
 from .database import ArenaTreasury, MatchParticipant, MatchResult, User, database_session, init_database
+from sqlalchemy import func, select
+from sqlalchemy.orm import Session
 
 rooms = {}
 connections = {}  # player id -> websocket
@@ -231,6 +233,20 @@ app.include_router(accounts_router)
 @app.get("/health")
 def health():
     return {"ok": True, "rooms": len(rooms)}
+
+@app.get("/api/admin/overview")
+def admin_overview(user: User = Depends(current_user), db: Session = Depends(get_db)):
+    if not user.is_admin:
+        raise HTTPException(status_code=403, detail="Administrator access required")
+    treasury = db.get(ArenaTreasury, 1)
+    return {
+        "users": db.scalar(select(func.count(User.id))) or 0,
+        "active_rooms": len(rooms),
+        "active_players": len([player for room in rooms.values() for player in room.players if player.connected and not player.is_bot]),
+        "completed_matches": db.scalar(select(func.count(MatchResult.id))) or 0,
+        "admin_fees": treasury.virtual_naira_balance if treasury else 0,
+        "rooms": [{"code": room.code, "status": room.status, "players": len(room.players), "wager": room.wager, "pot": room.wager * len([p for p in room.players if not p.is_bot])} for room in rooms.values()],
+    }
 
 @app.websocket("/ws")
 async def ws_endpoint(ws: WebSocket):
