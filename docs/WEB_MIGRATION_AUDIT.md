@@ -67,8 +67,8 @@ There is no room-list endpoint, match-history endpoint, user preference API, rem
 
 - CORS currently defaults to `*`, and the repository's compose defaults contain development credentials. These are unsafe production defaults.
 - JWT has a development fallback secret. Deployment must set a long random secret and fail closed when production configuration is missing.
-- WebSocket room state is ephemeral and not safe across multiple workers or replicas. A process restart loses active matches.
-- Reconnect tokens are long-lived bearer secrets returned at session creation and have no expiry/rotation. They are intentionally omitted from room views.
+- Active room snapshots are persisted and restored after a backend restart, but live WebSocket connections and room coordination remain process-local; multiple workers or replicas are not safe.
+- Reconnect tokens are long-lived bearer secrets returned at session creation and have no expiry; they rotate on successful reconnection and are omitted from room views.
 - The socket accepts guest connections, and there is no rate limiting, heartbeat policy, or comprehensive abuse protection.
 - HTTP match history cannot be associated with all participants using the current `MatchResult` model.
 - WebSocket `ValueError` responses are handled, but other unexpected exceptions and persistence failures need monitoring and careful production error handling.

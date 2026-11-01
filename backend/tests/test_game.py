@@ -285,6 +285,28 @@ def test_view_does_not_expose_reconnect_token():
     assert r.players[0].reconnect_token not in rendered
     assert r.players[1].reconnect_token not in rendered
 
+
+def test_room_snapshot_preserves_game_state_without_storing_raw_reconnect_tokens():
+    r = setup()
+    token = r.players[0].reconnect_token
+    r.players[0].connected = False
+    r.players[0].disconnected_at = time.time()
+    snapshot = r.snapshot()
+
+    assert token not in repr(snapshot)
+    restored = Room.from_snapshot(snapshot)
+
+    assert restored.code == r.code
+    assert restored.status == r.status
+    assert restored.view("a")["hand"] == r.view("a")["hand"]
+    assert restored.players[0].connected is False
+    assert Room.reconnect_token_matches(restored.players[0], token)
+    rotated = Room.rotate_reconnect_token(restored.players[0])
+    assert rotated != token
+    assert Room.reconnect_token_matches(restored.players[0], rotated)
+    assert not Room.reconnect_token_matches(restored.players[0], token)
+
+
 def test_table_chat_is_room_scoped_and_limited():
     r = setup()
     message = r.add_chat_message("a", "  Good game!  ")
@@ -318,6 +340,23 @@ def test_house_rules_can_configure_deal_and_penalties():
     assert r.pending_draw == 4
     r.draw("b")
     assert len(r.players[1].hand) == before + 4
+
+def test_penalty_stacking_can_be_disabled():
+    r = setup()
+    r.rules = HouseRules(penalty_stacking=False)
+    r.discard = [{"shape": "circle", "number": 7, "id": "top"}]
+    r.players[0].hand = [{"shape": "circle", "number": 2, "id": "two"},
+                         {"shape": "star", "number": 3, "id": "keep"}]
+    r.players[1].hand = [{"shape": "square", "number": 2, "id": "block"},
+                         {"shape": "star", "number": 4, "id": "other"}]
+
+    r.play("a", "two")
+
+    assert not r.legal(r.players[1].hand[0])
+    r.draw("b")
+    assert len(r.players[1].hand) == 4
+    assert r.pending_draw == 0
+    assert r.current().id == "a"
 
 def test_hold_on_keeps_the_current_turn():
     r = setup()

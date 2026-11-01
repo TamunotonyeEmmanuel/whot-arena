@@ -4,7 +4,7 @@ from contextlib import contextmanager
 
 from datetime import datetime, timezone
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, UniqueConstraint, create_engine, inspect, text
+from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, UniqueConstraint, create_engine, inspect, text
 
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship, sessionmaker
 
@@ -17,6 +17,10 @@ if DATABASE_URL.startswith("postgres://"):
 elif DATABASE_URL.startswith("postgresql://"):
 
     DATABASE_URL = DATABASE_URL.replace("postgresql://", "postgresql+psycopg://", 1)
+
+if os.getenv("ENVIRONMENT", "development").lower() == "production" and not DATABASE_URL.startswith("postgresql+"):
+
+    raise RuntimeError("Production requires a PostgreSQL DATABASE_URL")
 
 engine_options = {"pool_pre_ping": True}
 
@@ -88,7 +92,7 @@ class User(Base):
 
     def is_admin(self):
 
-        configured = os.getenv("ADMIN_EMAILS", "adokiyenengisa@gmail.com")
+        configured = os.getenv("ADMIN_EMAILS", "")
 
         return self.email.lower() in {email.strip().lower() for email in configured.split(",") if email.strip()}
 
@@ -123,6 +127,8 @@ class MatchResult(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
 
     room_code: Mapped[str] = mapped_column(String(12), index=True)
+
+    match_key: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
     winner_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
 
@@ -234,77 +240,109 @@ class DataMigration(Base):
 
     applied_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
+
+class ActiveRoomSnapshot(Base):
+
+    __tablename__ = "active_room_snapshots"
+
+    room_code: Mapped[str] = mapped_column(String(12), primary_key=True)
+
+    snapshot_json: Mapped[str] = mapped_column(Text)
+
+    saved_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+def _add_missing_columns(connection, table, additions):
+    existing = {column["name"] for column in inspect(connection).get_columns(table)}
+    for name, (column_type, default) in additions.items():
+        if name in existing:
+            continue
+        definition = column_type.compile(dialect=connection.dialect)
+        if default is not None:
+            definition += f" NOT NULL DEFAULT {default}"
+        connection.execute(
+            text(f"ALTER TABLE {table} ADD COLUMN {name} {definition}")
+        )
+
+
+def _add_user_account_fields_v1(connection):
+    _add_missing_columns(connection, "users", {
+        "xp": (Integer(), "0"),
+        "arena_coins": (Integer(), "10000"),
+        "win_streak": (Integer(), "0"),
+        "best_win_streak": (Integer(), "0"),
+        "achievements": (String(500), "''"),
+        "selected_theme": (String(32), "'classic'"),
+        "selected_card_back": (String(32), "'classic'"),
+        "selected_avatar": (String(32), "'initial'"),
+        "last_seen_at": (DateTime(timezone=True), None),
+        "typing_to_id": (Integer(), None),
+        "typing_at": (DateTime(timezone=True), None),
+        "message_privacy": (String(16), "'everyone'"),
+    })
+
+
+def _add_message_delivery_fields_v1(connection):
+    _add_missing_columns(connection, "direct_messages", {
+        "delivered_at": (DateTime(timezone=True), None),
+        "read_at": (DateTime(timezone=True), None),
+    })
+
+
+def _add_match_idempotency_key_v1(connection):
+    _add_missing_columns(connection, "match_results", {
+        "match_key": (String(64), None),
+    })
+    connection.execute(text(
+        "CREATE UNIQUE INDEX IF NOT EXISTS uq_match_results_match_key "
+        "ON match_results (match_key)"
+    ))
+
+
+def _ensure_arena_treasury_v1(connection):
+    connection.execute(text(
+        "INSERT INTO arena_treasury (id, virtual_naira_balance) "
+        "VALUES (1, 0) ON CONFLICT (id) DO NOTHING"
+    ))
+
+
+def _apply_migration(connection, name, upgrade):
+    applied = connection.execute(
+        text("SELECT name FROM data_migrations WHERE name = :name"),
+        {"name": name},
+    ).first()
+    if applied:
+        return
+    upgrade(connection)
+    connection.execute(
+        text("INSERT INTO data_migrations (name, applied_at) VALUES (:name, :applied_at)"),
+        {"name": name, "applied_at": utcnow()},
+    )
+
+
 def init_database():
-
     Base.metadata.create_all(bind=engine)
-
-    existing = {column["name"] for column in inspect(engine).get_columns("users")}
-
-    additions = {
-
-        "xp": "INTEGER NOT NULL DEFAULT 0",
-
-        "arena_coins": "INTEGER NOT NULL DEFAULT 10000",
-
-        "win_streak": "INTEGER NOT NULL DEFAULT 0",
-
-        "best_win_streak": "INTEGER NOT NULL DEFAULT 0",
-
-        "achievements": "VARCHAR(500) NOT NULL DEFAULT ''",
-
-        "selected_theme": "VARCHAR(32) NOT NULL DEFAULT 'classic'",
-
-        "selected_card_back": "VARCHAR(32) NOT NULL DEFAULT 'classic'",
-
-        "selected_avatar": "VARCHAR(32) NOT NULL DEFAULT 'initial'",
-
-        "last_seen_at": "TIMESTAMP",
-
-        "typing_to_id": "INTEGER",
-
-        "typing_at": "TIMESTAMP",
-
-        "message_privacy": "VARCHAR(16) NOT NULL DEFAULT 'everyone'",
-
-    }
-
     with engine.begin() as connection:
-
-        for name, definition in additions.items():
-
-            if name not in existing:
-
-                connection.execute(text(f"ALTER TABLE users ADD COLUMN {name} {definition}"))
-
-        message_columns = {column["name"] for column in inspect(engine).get_columns("direct_messages")}
-
-        for name in ("delivered_at", "read_at"):
-
-            if name not in message_columns:
-
-                connection.execute(text(f"ALTER TABLE direct_messages ADD COLUMN {name} TIMESTAMP"))
-
-        starting_balance_migration = "set_existing_users_starting_balance_10000"
-
-        already_applied = connection.execute(
-
-            text("SELECT name FROM data_migrations WHERE name = :name"),
-
-            {"name": starting_balance_migration},
-
-        ).first()
-
-        if not already_applied:
-
-            connection.execute(text("UPDATE users SET arena_coins = 10000"))
-
-            connection.execute(
-
-                text("INSERT INTO data_migrations (name, applied_at) VALUES (:name, :applied_at)"),
-
-                {"name": starting_balance_migration, "applied_at": utcnow()},
-
-            )
+        _apply_migration(
+            connection,
+            "001_add_user_account_fields",
+            _add_user_account_fields_v1,
+        )
+        _apply_migration(
+            connection,
+            "002_add_message_delivery_fields",
+            _add_message_delivery_fields_v1,
+        )
+        _apply_migration(
+            connection,
+            "003_add_match_idempotency_key",
+            _add_match_idempotency_key_v1,
+        )
+        _apply_migration(
+            connection,
+            "004_ensure_arena_treasury",
+            _ensure_arena_treasury_v1,
+        )
 
 @contextmanager
 
@@ -327,3 +365,36 @@ def database_session():
     finally:
 
         session.close()
+
+
+def upsert_active_room_snapshot(session, room_code, snapshot_json):
+    snapshot = session.get(ActiveRoomSnapshot, room_code)
+    if snapshot is None:
+        snapshot = ActiveRoomSnapshot(
+            room_code=room_code,
+            snapshot_json=snapshot_json,
+        )
+        session.add(snapshot)
+    else:
+        snapshot.snapshot_json = snapshot_json
+        snapshot.saved_at = utcnow()
+
+
+def save_active_room_snapshot(room_code, snapshot_json):
+    with database_session() as session:
+        upsert_active_room_snapshot(session, room_code, snapshot_json)
+
+
+def load_active_room_snapshots():
+    with SessionLocal() as session:
+        return [
+            (snapshot.room_code, snapshot.snapshot_json, snapshot.saved_at)
+            for snapshot in session.query(ActiveRoomSnapshot).all()
+        ]
+
+
+def delete_active_room_snapshot(room_code):
+    with database_session() as session:
+        snapshot = session.get(ActiveRoomSnapshot, room_code)
+        if snapshot is not None:
+            session.delete(snapshot)

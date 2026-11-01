@@ -32,3 +32,5 @@ services:
         value: 1440
       - key: CORS_ORIGINS
         sync: false
+      - key: ADMIN_EMAILS
+        sync: false

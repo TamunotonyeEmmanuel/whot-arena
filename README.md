@@ -1,18 +1,21 @@
 # WHOT Arena — browser and mobile Nigerian WHOT
 
 Responsive React/TypeScript browser client, Flutter mobile client, and FastAPI
-WebSocket server. Supports **2–4 human players**, private room codes, guest
-nicknames, public quick match, server-side dealing/validation, special cards,
+WebSocket server. Supports **2–4 human players**, private room codes, display
+nicknames for signed-in accounts, public quick match, server-side dealing/validation, special cards,
 private hands, room-only voice notes, reconnect, registered-player match history, rematches, a
-leaderboard, optional synthesized game cues, 10-minute lobby reconnection, 30-second disconnect autopilot, and 45-second turn timeout.
+leaderboard, optional synthesized game cues, 10-minute lobby reconnection, 30-second disconnect autopilot, and 30-second turn timeout.
 
 ## Important scope
-This is a development release, not a fully operated public service. The server
-keeps active rooms in memory and must run as a **single process**; a restart
-erases active rooms. Reconnect credentials are bearer secrets. Match history is
+This is a development release, not a fully operated public service. Active room
+snapshots are persisted to the configured database and restored after a backend
+restart; active games pause until players reconnect. Live connections and room
+coordination remain process-local, so the server must run as a **single process**.
+Reconnect credentials are bearer secrets. Match history is
 recorded for new matches played by registered users; earlier match rows cannot
-be associated with participants. The UI uses CSS card faces and symbols; no
-licensed deck artwork or sound assets are included; game cues are generated with the browser Web Audio API. Rate limiting, distributed
+be associated with participants. The UI uses CSS card faces and symbols. The
+repository contains a background MP3 whose licensing/provenance needs review;
+game cues are generated with the browser Web Audio API. Rate limiting, distributed
 room state, observability, and production abuse controls still need work.
 
 ## Browser client
@@ -87,6 +90,7 @@ The phone must be able to reach your backend and firewall must permit port 8000.
 For production, use `https://` and `wss://` with TLS and a hosted server.
 
 ## 4. Play
+Register or sign in before creating, matchmaking, or joining a room.
 Player 1: Create private room. Share the code. Players 2–4: Join.
 Host starts with at least two players. Only your own cards are visible.
 Tap a card to play it, or Draw Card & Pass. WHOT 20 prompts for a shape.
@@ -119,8 +123,8 @@ not persisted.
 Set `ENVIRONMENT=production`, a random `JWT_SECRET` of at least 32 characters,
 and exact `CORS_ORIGINS` before deployment. Production rejects the development
 secret and wildcard CORS. Keep TLS/WSS at the edge. The backend still requires
-one worker while room state is in memory; rate limiting, distributed room
-persistence, reconnect token expiry/rotation, and production observability are
-not included. See [docs/WEB_ARCHITECTURE.md](docs/WEB_ARCHITECTURE.md),
+one worker because room coordination and active WebSocket connections are
+process-local; multi-instance room sharing, rate limiting, reconnect token
+expiry, and production observability are not included. See [docs/WEB_ARCHITECTURE.md](docs/WEB_ARCHITECTURE.md),
 [docs/WEB_TESTING.md](docs/WEB_TESTING.md), and
 [docs/WEB_DEPLOYMENT.md](docs/WEB_DEPLOYMENT.md).

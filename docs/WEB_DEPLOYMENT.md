@@ -2,7 +2,7 @@
 
 ## Deploy to Vercel and Render
 
-This repository is prepared for a Vercel static frontend and free Render API/database resources. Free Render is a demo tier, not suitable for production: the API sleeps after 15 minutes without inbound traffic (including WebSocket traffic), wake-up may take about a minute, and the free PostgreSQL database expires after 30 days with a 14-day recovery window before deletion. Free databases also have no backups and a 1 GB limit. Active rooms are in process memory, so rooms disappear on sleep/restart and the API must remain a single instance.
+This repository is prepared for a Vercel static frontend and free Render API/database resources. Free Render is a demo tier, not suitable for production: the API sleeps after 15 minutes without inbound traffic (including WebSocket traffic), wake-up may take about a minute, and the free PostgreSQL database expires after 30 days with a 14-day recovery window before deletion. Free databases also have no backups and a 1 GB limit. The backend persists active-room snapshots in the configured database and restores games after a restart, pausing active matches until players reconnect. Room coordination and WebSocket connections remain process-local, so the API must remain a single instance.
 
 1. In Render, create a Blueprint from this repository and select `render.yaml`. The Blueprint provisions a free PostgreSQL database and one free API instance. Set the prompted `CORS_ORIGINS` value to the exact production Vercel origin, `https://whot-arena.vercel.app` (no trailing slash). Keep `ENVIRONMENT=production`; the Blueprint generates `JWT_SECRET` and uses the database's internal connection string. Wait for `/health` to pass and note the API URL, normally `https://whot-arena-api.onrender.com`.
 2. In Vercel, import the same repository and set the project Root Directory to `web`. The included `web/vercel.json` builds the Vite app and rewrites client routes to `index.html`.
@@ -30,6 +30,7 @@ JWT_SECRET=<at-least-32-random-characters>
 POSTGRES_PASSWORD=<unique-database-password>
 DATABASE_URL=postgresql+psycopg://whot:<url-encoded-password>@postgres:5432/whot_arena
 ACCESS_TOKEN_MINUTES=1440
+ADMIN_EMAILS=admin@example.com
 CORS_ORIGINS=https://play.example.com
 VITE_API_URL=https://api.example.com
 VITE_WS_URL=wss://api.example.com/ws
@@ -54,9 +55,9 @@ Voice recording requires microphone permission and a secure browser context; use
 
 ## Backend and database operations
 
-The backend container is deliberately configured for one worker. Do not increase Uvicorn workers or run multiple replicas: room/session state is held in memory. Configure persistent PostgreSQL storage, backups, TLS for database connections where supported, monitoring, log collection, and a health check against `/health`. Database startup uses SQLAlchemy `create_all`: it creates missing tables, including the new `match_participants` table, but is not a versioned migration system. Back up the database before upgrades; prior match rows cannot gain historical participant associations.
+The backend container is deliberately configured for one worker. Do not increase Uvicorn workers or run multiple replicas: active WebSocket connections and room coordination are held in memory. Configure persistent PostgreSQL storage, backups, TLS for database connections where supported, monitoring, and log collection. `/health` checks database readiness; `/health/live` is the process liveness check.
 
-For production scaling, first move rooms, player connections/presence, reconnect state, and broadcasts to a shared system, then add a versioned migration tool such as Alembic and load/abuse controls. Do not scale the current in-memory backend horizontally.
+Startup creates missing tables and runs the numbered, additive schema compatibility migrations in `data_migrations`; the migrations preserve existing user balances and statistics and compile date types for the active database dialect. The runner is intentionally limited to safe additive upgrades; use a standard migration tool for complex transformations and run migrations as a controlled deployment step before enabling multiple backend instances. Back up the database before upgrades; prior match rows cannot gain historical participant associations. `/health` checks the database and is the Render readiness endpoint; `/health/live` only checks process liveness. Production startup requires PostgreSQL and explicit exact HTTPS `CORS_ORIGINS`. Active room snapshots are restored after process restart and playing matches wait for human reconnection; Virtual Naira stakes remain disabled in production pending end-to-end interrupted-match/refund validation. For production scaling, first move rooms, player connections/presence, reconnect state, and broadcasts to a shared system, then add load/abuse controls. Do not scale the current in-memory backend horizontally.
 
 ## Verification
 

@@ -1,7 +1,10 @@
+import base64
 import random
 import secrets
 import time
-from dataclasses import dataclass, field
+import hashlib
+import hmac
+from dataclasses import asdict, dataclass, field
 from typing import Optional
 
 SHAPES = {"circle": [1, 2, 3, 4, 5, 7, 8, 10, 11, 12, 13, 14],
@@ -20,7 +23,8 @@ TURN_SECONDS = 30
 RECONNECT_PAUSE_SECONDS = 30
 LAST_CARD_REQUIRES_REPLACEMENT = {1, 2, 5, 8, 14, 20}
 # Explicit house rules: 1 extra turn, 2 +2, 5 +3, 8 skip, 14 market (+1 each opponent),
-# 20 wild request shape. Special actions do not stack. Penalty draws end the target turn.
+# 20 wild request shape. Pick penalties stack only when enabled and on the same card.
+# Penalty draws end the target turn.
 @dataclass(frozen=True)
 class HouseRules:
     cards_per_player: int = 5
@@ -41,6 +45,7 @@ class Player:
     reaction_at: Optional[float] = None
     disconnected_at: Optional[float] = None
     reconnect_token: str = field(default_factory=lambda: secrets.token_urlsafe(32), repr=False)
+    reconnect_token_hashed: bool = field(default=False, repr=False)
     user_id: Optional[int] = None
     coin_balance: int = 0
     is_bot: bool = False
@@ -84,9 +89,45 @@ class Room:
     wager: int = 0
     wager_locked: bool = False
     wager_paid: bool = False
+    match_id: str = field(default_factory=lambda: secrets.token_urlsafe(32))
 
     def player(self, pid):
         return next((p for p in self.players if p.id == pid), None)
+
+    def snapshot(self):
+        state = asdict(self)
+        for player in state["players"]:
+            raw_token = player["reconnect_token"]
+            if not player["reconnect_token_hashed"]:
+                player["reconnect_token"] = hashlib.sha256(
+                    raw_token.encode("utf-8")
+                ).hexdigest()
+                player["reconnect_token_hashed"] = True
+        for message in state["voice_messages"]:
+            message["audio"] = base64.b64encode(message["audio"]).decode("ascii")
+        return state
+
+    @classmethod
+    def from_snapshot(cls, state):
+        restored = dict(state)
+        restored["players"] = [Player(**player) for player in restored["players"]]
+        restored["rules"] = HouseRules(**restored.get("rules", {}))
+        for message in restored.get("voice_messages", []):
+            message["audio"] = base64.b64decode(message["audio"], validate=True)
+        return cls(**restored)
+
+    @staticmethod
+    def reconnect_token_matches(player, token):
+        candidate = token
+        if player.reconnect_token_hashed:
+            candidate = hashlib.sha256(token.encode("utf-8")).hexdigest()
+        return hmac.compare_digest(player.reconnect_token, candidate)
+
+    @staticmethod
+    def rotate_reconnect_token(player):
+        player.reconnect_token = secrets.token_urlsafe(32)
+        player.reconnect_token_hashed = False
+        return player.reconnect_token
 
     def current(self):
         if not self.players:
@@ -215,6 +256,7 @@ class Room:
             self.round_wins = {player.id: 0 for player in self.players}
             self.match_points = {player.id: 0 for player in self.players}
             self.match_winner = None
+            self.match_id = secrets.token_urlsafe(32)
         self.deck = [{"shape": shape, "number": n, "id": secrets.token_hex(5)}
                      for shape, numbers in SHAPES.items() for n in numbers]
         self.deck += [{"shape": "whot", "number": 20, "id": secrets.token_hex(5)}
@@ -254,7 +296,8 @@ class Room:
         self.voice_messages.clear()
         self.voice_sent_at.clear()
         self.chat_messages.clear()
-        if self.match_winner:
+        starts_new_match = self.match_winner is not None
+        if starts_new_match:
             self.round_number = 1
             self.round_wins = {player.id: 0 for player in self.players}
             self.match_points = {player.id: 0 for player in self.players}
@@ -262,7 +305,7 @@ class Room:
         else:
             self.round_number += 1
         self.status = "lobby"
-        self.start(pid, continue_match=True)
+        self.start(pid, continue_match=not starts_new_match)
         self.last_action = "New match started" if self.round_number == 1 else f"Round {self.round_number} started"
 
     def add_voice_message(self, pid, content_type, audio):
@@ -325,7 +368,8 @@ class Room:
 
     def legal(self, card):
         if self.pending_draw:
-            return card["number"] == self.pending_penalty
+            return (self.rules.penalty_stacking and
+                    card["number"] == self.pending_penalty)
         top = self.discard[-1]
         return (card["number"] == 20 or
                 card["number"] == top["number"] or

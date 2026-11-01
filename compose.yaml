@@ -20,6 +20,7 @@ services:
       DATABASE_URL: postgresql+psycopg://whot:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@postgres:5432/whot_arena
       JWT_SECRET: ${JWT_SECRET:-development-only-change-before-public-use}
       ACCESS_TOKEN_MINUTES: ${ACCESS_TOKEN_MINUTES:-1440}
+      ADMIN_EMAILS: ${ADMIN_EMAILS:-}
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:8080}
     ports:
       - "8000:8000"

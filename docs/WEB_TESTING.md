@@ -24,6 +24,7 @@ The test suites use the existing backend's FastAPI/pytest and WebSocket tests, p
 
 - Account registration/login validation, authenticated profile, leaderboard, and participant-specific history authorization.
 - Room creation/joining, host start authorization, room capacity, quick match, private hands, disconnect/reconnect, and wrong reconnect credentials.
+- Active game recovery after terminating and restarting a backend process against the same database, including preserved private hands, pause-until-reconnected behavior, and reconnect-token validation.
 - Deal size, turn order, draw, legal-card enforcement, WHOT shape validation, Pick Two, Pick Three, Hold On, skip, General Market, immediate win, and host-only rematch reset.
 - Untrusted browser WebSocket origins are closed with policy code 1008.
 - Room voice upload rejects unsupported media, empty/oversized clips, lobby sends, and rapid repeats; state contains metadata only, while room members retrieve audio through their own socket.
@@ -36,4 +37,4 @@ The frontend test environment is jsdom; it does not model real browser layout, l
 
 The frontend tests currently do not mock the HTTP/WebSocket server end-to-end or capture a physical microphone in jsdom. Backend protocol tests cover room upload/retrieval independently. Manually verify microphone permission, a 15-second auto-stop, playback on a second room member's browser, and error handling when permission is denied. Add full browser-driven multiplayer tests when a stable CI browser runner and test server lifecycle are configured.
 
-The last verified run for this migration: backend **28 passed** (one upstream Starlette/httpx deprecation warning); frontend **3 passed**; frontend production build passed; `npm audit` reported **0 vulnerabilities** after upgrading Vitest.
+Most recent local verification (2026-11-01): backend, frontend, and Flutter results are recorded in `docs/DEVELOPMENT_STATUS.md` for the latest source changes. jsdom logs that HTML media playback is not implemented while the audio component attempts autoplay. These checks do not verify a live PostgreSQL server or deployment.

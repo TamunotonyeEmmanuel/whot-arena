@@ -1,17 +1,26 @@
 import base64
 import binascii
 import asyncio
+import json
 import secrets
 import time
 import os
 from contextlib import asynccontextmanager
+from datetime import timezone
+from urllib.parse import urlsplit
 from fastapi import Depends, FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from .game import TURN_SECONDS, VOICE_MAX_BYTES, Room, Player
 from .accounts import router as accounts_router
 from .auth import current_user, get_db, token_user_id
-from .database import ArenaTreasury, MatchParticipant, MatchResult, User, database_session, init_database
-from sqlalchemy import func, select
+from .database import (
+    ActiveRoomSnapshot, ArenaTreasury, DATABASE_URL, MatchParticipant,
+    MatchResult, User, database_session, delete_active_room_snapshot,
+    init_database, load_active_room_snapshots, save_active_room_snapshot,
+    upsert_active_room_snapshot,
+)
+from sqlalchemy import func, select, text, update
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session
 
 rooms = {}
@@ -26,6 +35,37 @@ COMPUTER_MOVE_DELAY_SECONDS = 4
 WAGER_ADMIN_PERCENT = 10
 MINIMUM_WAGER = 10
 MAXIMUM_WAGER = 1_000_000
+
+
+def validate_production_config(environment, cors_origins, database_url):
+    if environment != "production":
+        return
+    if not cors_origins:
+        raise RuntimeError("Production requires explicit CORS_ORIGINS")
+    if not database_url.startswith("postgresql+"):
+        raise RuntimeError("Production requires a PostgreSQL DATABASE_URL")
+    origins = [origin.strip() for origin in cors_origins.split(",") if origin.strip()]
+    if not origins or "*" in origins:
+        raise RuntimeError("Production CORS_ORIGINS must contain exact HTTPS origins")
+    for origin in origins:
+        parsed = urlsplit(origin)
+        if (parsed.scheme != "https" or not parsed.netloc or parsed.path
+                or parsed.query or parsed.fragment or parsed.username or parsed.password):
+            raise RuntimeError("Production CORS_ORIGINS must contain exact HTTPS origins")
+
+
+def ensure_wager_available(environment, wager):
+    if wager and environment == "production":
+        raise ValueError(
+            "Virtual Naira stakes are disabled until interrupted matches can be recovered"
+        )
+
+
+validate_production_config(
+    os.getenv("ENVIRONMENT", "development").lower(),
+    os.getenv("CORS_ORIGINS"),
+    DATABASE_URL,
+)
 
 def message_user_id(msg):
     token = msg.get("access_token")
@@ -49,19 +89,42 @@ def make_player(pid, name, user_id=None):
 def lock_room_wager(room):
     if not room.wager or room.wager_locked:
         return
+    if any(not player.connected for player in room.players):
+        raise ValueError("All players must reconnect before a wager is locked")
     humans = [player for player in room.players if not player.is_bot]
     if any(not player.user_id for player in humans):
         raise ValueError("All players must sign in for a Virtual Naira match")
-    with database_session() as db:
-        users = {player.id: db.get(User, player.user_id) for player in humans}
-        if any(not user or user.arena_coins < room.wager for user in users.values()):
-            raise ValueError("A player does not have enough Virtual Naira for this stake")
-        for player in humans:
-            user = users[player.id]
-            user.arena_coins -= room.wager
-            player.coin_balance = user.arena_coins
+    updated_balances = {}
+    previous_locked = room.wager_locked
+    previous_balances = {player.id: player.coin_balance for player in humans}
     room.wager_locked = True
     room.wager_paid = False
+    try:
+        with database_session() as db:
+            for player in humans:
+                result = db.execute(
+                    update(User)
+                    .where(User.id == player.user_id, User.arena_coins >= room.wager)
+                    .values(arena_coins=User.arena_coins - room.wager)
+                )
+                if result.rowcount != 1:
+                    raise ValueError("A player does not have enough Virtual Naira for this stake")
+                updated_balances[player.id] = db.scalar(
+                    select(User.arena_coins).where(User.id == player.user_id)
+                )
+            for player in humans:
+                player.coin_balance = updated_balances[player.id]
+            upsert_active_room_snapshot(
+                db,
+                room.code,
+                json.dumps(room.snapshot(), separators=(",", ":")),
+            )
+    except Exception:
+        room.wager_locked = previous_locked
+        room.wager_paid = False
+        for player in humans:
+            player.coin_balance = previous_balances[player.id]
+        raise
 
 def new_room_code():
     """Return a short room code that is unique in this server process."""
@@ -71,10 +134,74 @@ def new_room_code():
             return code
     raise RuntimeError("Could not allocate a room code")
 
+
+def save_room_snapshot(room):
+    save_active_room_snapshot(
+        room.code,
+        json.dumps(room.snapshot(), separators=(",", ":")),
+    )
+
+
+def restore_rooms():
+    now = time.time()
+    for code, snapshot_json, saved_at in load_active_room_snapshots():
+        room = Room.from_snapshot(json.loads(snapshot_json))
+        saved_time = saved_at.replace(tzinfo=saved_at.tzinfo or timezone.utc).timestamp()
+        if room.status == "lobby":
+            for player in room.players:
+                if not player.is_bot:
+                    if player.connected:
+                        player.disconnected_at = saved_time
+                    player.connected = False
+                    player.voice_ready = False
+                    player.voice_speaking = False
+            expired = [
+                player for player in room.players
+                if not player.is_bot and player.disconnected_at is not None
+                and now - player.disconnected_at >= LOBBY_RECONNECT_SECONDS
+            ]
+            room.players = [player for player in room.players if player not in expired]
+            if not room.players:
+                delete_active_room_snapshot(code)
+                continue
+            if room.player(room.host) is None:
+                room.host = room.players[0].id
+        elif room.status == "playing":
+            for player in room.players:
+                if not player.is_bot:
+                    player.connected = False
+                    player.disconnected_at = now
+                    player.voice_ready = False
+                    player.voice_speaking = False
+            elapsed = max(0, saved_time - room.turn_started)
+            room.paused_turn_seconds = max(
+                0, min(TURN_SECONDS, int(TURN_SECONDS - elapsed + 0.999))
+            )
+            room.pause_started = now
+            room.pause_reason = "disconnect"
+            room.paused_by = "server restart"
+            room.last_action = "Game paused while players reconnect after a server restart"
+        elif room.status == "finished":
+            room.updated_at = now
+            for player in room.players:
+                if not player.is_bot:
+                    player.connected = False
+                    player.disconnected_at = now
+        else:
+            delete_active_room_snapshot(code)
+            continue
+        room.updated_at = now
+        rooms[code] = room
+        if room.status == "finished" and not room.result_recorded:
+            record_match(room)
+        save_room_snapshot(room)
+
+
 async def send(ws, data):
     await ws.send_json(data)
 
 async def broadcast(room):
+    save_room_snapshot(room)
     for p in room.players:
         ws = connections.get(p.id)
         if ws:
@@ -111,55 +238,94 @@ def queue_computer_turn(room):
 def record_match(room):
     if room.status != "finished" or not room.match_winner or room.result_recorded:
         return
-    with database_session() as db:
-        winner = room.player(room.match_winner)
-        for player in room.players:
-            if player.user_id:
-                user = db.get(User, player.user_id)
-                if user:
-                    user.matches_played += 1
-                    user.xp += 100 + room.match_points.get(player.id, 0)
-                    if winner is player:
-                        user.wins += 1
-                        user.xp += 150
-                        user.win_streak += 1
-                        user.best_win_streak = max(user.best_win_streak, user.win_streak)
-                    else:
-                        user.win_streak = 0
-                    achievements = set(user.achievement_list)
-                    if user.wins >= 1:
-                        achievements.add("first_win")
-                    if user.win_streak >= 3:
-                        achievements.add("hot_streak")
-                    if user.matches_played >= 10:
-                        achievements.add("arena_regular")
-                    if user.level >= 5:
-                        achievements.add("level_five")
-                    user.achievements = ",".join(sorted(achievements))
-        if room.wager_locked and not room.wager_paid and winner and winner.user_id:
-            winner_user = db.get(User, winner.user_id)
-            if winner_user:
-                pot = room.wager * len([player for player in room.players if not player.is_bot])
+    payout_balance = None
+    wager_was_paid = False
+    save_room_snapshot(room)
+    try:
+        with database_session() as db:
+            winner = room.player(room.match_winner)
+            if winner is None:
+                raise RuntimeError("Finished match has no registered winner")
+            match = MatchResult(
+                match_key=room.match_id,
+                room_code=room.code,
+                winner_user_id=winner.user_id,
+                player_count=len(room.players),
+            )
+            db.add(match)
+            db.flush()
+            for player in room.players:
+                if player.user_id:
+                    user = db.get(User, player.user_id)
+                    if user:
+                        user.matches_played += 1
+                        user.xp += 100 + room.match_points.get(player.id, 0)
+                        if winner is player:
+                            user.wins += 1
+                            user.xp += 150
+                            user.win_streak += 1
+                            user.best_win_streak = max(
+                                user.best_win_streak, user.win_streak
+                            )
+                        else:
+                            user.win_streak = 0
+                        achievements = set(user.achievement_list)
+                        if user.wins >= 1:
+                            achievements.add("first_win")
+                        if user.win_streak >= 3:
+                            achievements.add("hot_streak")
+                        if user.matches_played >= 10:
+                            achievements.add("arena_regular")
+                        if user.level >= 5:
+                            achievements.add("level_five")
+                        user.achievements = ",".join(sorted(achievements))
+                        db.add(MatchParticipant(
+                            match_result_id=match.id,
+                            user_id=player.user_id,
+                            did_win=player is winner,
+                        ))
+            if room.wager_locked and not room.wager_paid and winner.user_id:
+                pot = room.wager * len([p for p in room.players if not p.is_bot])
                 admin_fee = pot * WAGER_ADMIN_PERCENT // 100
-                winner_user.arena_coins += pot - admin_fee
-                winner.coin_balance = winner_user.arena_coins
-                treasury = db.get(ArenaTreasury, 1)
-                if treasury is None:
-                    treasury = ArenaTreasury(id=1, virtual_naira_balance=0)
-                    db.add(treasury)
-                treasury.virtual_naira_balance += admin_fee
-                room.wager_paid = True
+                db.execute(
+                    update(User)
+                    .where(User.id == winner.user_id)
+                    .values(arena_coins=User.arena_coins + pot - admin_fee)
+                )
+                payout_balance = db.scalar(
+                    select(User.arena_coins).where(User.id == winner.user_id)
+                )
+                treasury_update = db.execute(
+                    update(ArenaTreasury)
+                    .where(ArenaTreasury.id == 1)
+                    .values(
+                        virtual_naira_balance=(
+                            ArenaTreasury.virtual_naira_balance + admin_fee
+                        )
+                    )
+                )
+                if treasury_update.rowcount != 1:
+                    raise RuntimeError("Arena treasury is not initialized")
+                wager_was_paid = True
+    except IntegrityError:
+        with database_session() as db:
+            already_recorded = db.scalar(
+                select(MatchResult).where(MatchResult.match_key == room.match_id)
+            )
+            if already_recorded and room.wager_locked:
                 room.wager_locked = False
-        match = MatchResult(room_code=room.code,
-                            winner_user_id=winner.user_id if winner else None,
-                            player_count=len(room.players))
-        db.add(match)
-        db.flush()
-        for player in room.players:
-            if player.user_id:
-                db.add(MatchParticipant(match_result_id=match.id,
-                                        user_id=player.user_id,
-                                        did_win=player is winner))
+                room.wager_paid = True
+                winner = room.player(room.match_winner)
+                if winner and winner.user_id:
+                    winner.coin_balance = db.scalar(
+                        select(User.arena_coins).where(User.id == winner.user_id)
+                    )
+        if already_recorded is None:
+            raise
+    if wager_was_paid:
+        winner.coin_balance = payout_balance
+        room.wager_paid = True
+        room.wager_locked = False
     room.result_recorded = True
 
 async def monitor():
@@ -167,6 +333,7 @@ async def monitor():
         await asyncio.sleep(1)
         now = time.time()
         changed = []
+        expired_codes = []
         async with state_lock:
             for code, room in list(rooms.items()):
                 if room.status == "playing":
@@ -197,12 +364,17 @@ async def monitor():
                         changed.append(room)
                     if not room.players or now - room.updated_at >= LOBBY_IDLE_SECONDS:
                         rooms.pop(code, None)
+                        expired_codes.append(code)
                         continue
                 if room.status == "finished" and (
-                    not any(p.connected for p in room.players) or
+                    (not any(p.connected for p in room.players)
+                     and now - room.updated_at >= RECONNECT_SECONDS) or
                     now - room.updated_at >= FINISHED_IDLE_SECONDS
                 ):
                     rooms.pop(code, None)
+                    expired_codes.append(code)
+        for code in expired_codes:
+            delete_active_room_snapshot(code)
         for room in changed:
             if rooms.get(room.code) is room:
                 await broadcast(room)
@@ -211,6 +383,7 @@ async def monitor():
 @asynccontextmanager
 async def lifespan(app):
     init_database()
+    restore_rooms()
     task = asyncio.create_task(monitor())
     try:
         yield
@@ -226,13 +399,21 @@ allowed_origins = [origin.strip() for origin in os.getenv(
 if os.getenv("ENVIRONMENT", "development").lower() == "production" and "*" in allowed_origins:
     raise RuntimeError("Production CORS_ORIGINS must not contain '*'")
 app.add_middleware(CORSMiddleware, allow_origins=allowed_origins,
-                   allow_methods=["GET", "POST"],
+                   allow_methods=["GET", "POST", "PUT", "DELETE"],
                    allow_headers=["Authorization", "Content-Type"])
 app.include_router(accounts_router)
 
 @app.get("/health")
-def health():
-    return {"ok": True, "rooms": len(rooms)}
+def health(db: Session = Depends(get_db)):
+    try:
+        db.execute(text("SELECT 1"))
+    except SQLAlchemyError as error:
+        raise HTTPException(status_code=503, detail="Database is unavailable") from error
+    return {"ok": True, "database": "ok", "rooms": len(rooms)}
+
+@app.get("/health/live")
+def liveness():
+    return {"ok": True}
 
 @app.get("/api/admin/overview")
 def admin_overview(user: User = Depends(current_user), db: Session = Depends(get_db)):
@@ -272,6 +453,9 @@ async def ws_endpoint(ws: WebSocket):
                     wager = int(msg.get("wager", 0) or 0) if action == "create" else 0
                     if wager < 0 or wager > MAXIMUM_WAGER or (wager and wager < MINIMUM_WAGER):
                         raise ValueError(f"Stake must be free or between ₦{MINIMUM_WAGER:,} and ₦{MAXIMUM_WAGER:,}")
+                    ensure_wager_available(
+                        os.getenv("ENVIRONMENT", "development").lower(), wager
+                    )
                     if wager and not user_id:
                         raise ValueError("Sign in to create a Virtual Naira table")
                     pid = secrets.token_urlsafe(18)
@@ -287,6 +471,7 @@ async def ws_endpoint(ws: WebSocket):
                             room.start(pid)
                         rooms[code] = room
                         connections[pid] = ws
+                        save_room_snapshot(room)
                     await send(ws, {"type": "session", "player_id": pid, "code": code,
                                     "reconnect_token": player.reconnect_token})
                     await broadcast(room)
@@ -313,6 +498,7 @@ async def ws_endpoint(ws: WebSocket):
                             room = Room(code=code, host=pid, players=[player], is_public=True)
                             rooms[code] = room
                         connections[pid] = ws
+                        save_room_snapshot(room)
                     await send(ws, {"type": "session", "player_id": pid, "code": code,
                                     "reconnect_token": player.reconnect_token})
                     await broadcast(room)
@@ -334,6 +520,7 @@ async def ws_endpoint(ws: WebSocket):
                             raise ValueError("Sign in with enough Virtual Naira to join this table")
                         room.add_player(player)
                         connections[pid] = ws
+                        save_room_snapshot(room)
                     await send(ws, {"type": "session", "player_id": pid, "code": code,
                                     "reconnect_token": player.reconnect_token})
                     await broadcast(room)
@@ -347,21 +534,23 @@ async def ws_endpoint(ws: WebSocket):
                     async with state_lock:
                         room = rooms.get(requested)
                         p = room.player(candidate) if room else None
-                        if not p or not token or not secrets.compare_digest(p.reconnect_token, token):
+                        if not p or not token or not Room.reconnect_token_matches(p, token):
                             raise ValueError("Session not found")
                         previous_ws = connections.get(candidate)
                         pid, code = candidate, requested
                         p.connected, p.disconnected_at = True, None
                         room.resume_after_disconnect()
+                        reconnect_token = Room.rotate_reconnect_token(p)
                         room.updated_at = time.time()
                         connections[pid] = ws
+                        save_room_snapshot(room)
                     if previous_ws and previous_ws is not ws:
                         try:
                             await previous_ws.close(code=4000, reason="Session resumed after refresh")
                         except Exception:
                             pass
                     await send(ws, {"type": "session", "player_id": pid, "code": code,
-                                    "reconnect_token": p.reconnect_token})
+                                    "reconnect_token": reconnect_token})
                     await broadcast(room)
                     queue_computer_turn(room)
                 elif action == "leave":
@@ -375,6 +564,7 @@ async def ws_endpoint(ws: WebSocket):
                             room.players.remove(player)
                             if not room.players:
                                 rooms.pop(room.code, None)
+                                delete_active_room_snapshot(room.code)
                             else:
                                 if room.host == pid:
                                     room.host = room.players[0].id
