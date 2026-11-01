@@ -526,7 +526,7 @@ class _ArenaHomeState extends State<ArenaHome> {
                   child: Text(
                     '${card['number']}',
                     style: const TextStyle(
-                      fontSize: 16,
+                      fontSize: 25,
                       fontWeight: FontWeight.bold,
                       color: Color(0xFF1049A0),
                     ),
@@ -538,7 +538,7 @@ class _ArenaHomeState extends State<ArenaHome> {
                     child: Text(
                       'WHOT',
                       style: const TextStyle(
-                        fontSize: 25,
+                        fontSize: 12,
                         fontWeight: FontWeight.bold,
                         letterSpacing: 0.5,
                         color: Color(0xFF1049A0),
