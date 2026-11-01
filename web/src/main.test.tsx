@@ -1,7 +1,7 @@
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
-import { App, Avatar, CardFace, relayPlaybackStartAt, shouldUseRelayFallback } from './main'
+import { App, Avatar, CardFace, normalizeTurnUrl, relayPlaybackStartAt, shouldUseRelayFallback } from './main'
 
 describe('WHOT Arena web client', () => {
   it('navigates from the landing screen to the rules page', async () => {
@@ -47,5 +47,12 @@ describe('WHOT Arena web client', () => {
     expect(relayPlaybackStartAt(9.9, 10)).toBeCloseTo(10.025)
     expect(relayPlaybackStartAt(10.2, 10)).toBeCloseTo(10.2)
     expect(relayPlaybackStartAt(12, 10)).toBeCloseTo(10.18)
+  })
+
+  it('normalizes TURN URLs to WebRTC ICE server syntax', () => {
+    expect(normalizeTurnUrl('turns://global.relay.metered.ca:443?transport=tcp'))
+      .toBe('turns:global.relay.metered.ca:443?transport=tcp')
+    expect(normalizeTurnUrl('turn:relay.example:3478?transport=udp'))
+      .toBe('turn:relay.example:3478?transport=udp')
   })
 })

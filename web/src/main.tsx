@@ -58,7 +58,10 @@ type ArenaContextValue = {
 
 const API_URL = (import.meta.env.VITE_API_URL || 'http://localhost:8000').replace(/\/$/, '')
 const WS_URL = import.meta.env.VITE_WS_URL || `${API_URL.replace(/^http/, 'ws')}/ws`
-const TURN_URLS = (import.meta.env.VITE_TURN_URL || '').split(',').map((value: string) => value.trim()).filter((value: string) => /^(stun|turn|turns):/.test(value))
+export function normalizeTurnUrl(value: string) {
+  return value.trim().replace(/^(stuns?|turns?):\/\//i, '$1:')
+}
+const TURN_URLS = (import.meta.env.VITE_TURN_URL || '').split(',').map(normalizeTurnUrl).filter((value: string) => /^(stuns?|turns?):[^/]/i.test(value))
 const TURN_USERNAME = import.meta.env.VITE_TURN_USERNAME || ''
 const TURN_CREDENTIAL = import.meta.env.VITE_TURN_CREDENTIAL || ''
 const CONFIGURED_TURN_URLS = TURN_USERNAME && TURN_CREDENTIAL ? TURN_URLS : []
