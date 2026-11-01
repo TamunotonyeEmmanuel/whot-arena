@@ -615,6 +615,18 @@ def test_team_mates_cannot_call_each_other_for_missed_last_card():
     room.call_last_card("b", "c")
     assert len(room.players[2].hand) == 3
 
+def test_room_view_hides_other_players_virtual_currency_balances():
+    room = Room("BALANCE", "a", [
+        Player("a", "Ada", coin_balance=120),
+        Player("b", "Ben", coin_balance=80),
+    ])
+
+    ada_view = room.view("a")
+    ben_view = room.view("b")
+
+    assert [player["coin_balance"] for player in ada_view["players"]] == [120, None]
+    assert [player["coin_balance"] for player in ben_view["players"]] == [None, 80]
+
     def test_voice_message_is_room_scoped_and_state_contains_metadata_only():
         r = Room("VOICE1", "a", [Player("a", "Ada"), Player("b", "Ben")],
                  status="playing")

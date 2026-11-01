@@ -22,6 +22,14 @@
   font-size: 22px;
 }
 
+.table-frame .hand-cards .whot-card.whot-value-card .top-corner {
+  top: 3px;
+  left: 3px;
+  min-width: 13px;
+  min-height: 13px;
+  font-size: 7px;
+}
+
 .table-frame .hand-cards .whot-card .card-whot-label {
   margin-top: 2px;
   font-size: 5px;

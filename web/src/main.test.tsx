@@ -1,7 +1,7 @@
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
-import { App, Avatar, CardFace, normalizeTurnUrl, relayPlaybackStartAt, shouldUseRelayFallback } from './main'
+import { App, Avatar, CardFace, RematchAction, normalizeTurnUrl, relayPlaybackStartAt, shouldUseRelayFallback } from './main'
 
 describe('WHOT Arena web client', () => {
   it('navigates from the landing screen to the rules page', async () => {
@@ -20,12 +20,35 @@ describe('WHOT Arena web client', () => {
     render(<CardFace card={{ id: 'wild', shape: 'whot', number: 20 }} playable onClick={onClick} />)
 
     const card = screen.getByRole('button', { name: 'Play 20 whot' })
-    expect(card.querySelector('.card-glyph')).toHaveTextContent('20')
+    expect(card.querySelector('.card-glyph')).toHaveTextContent('✦')
     expect(card.querySelector('.card-whot-label')).toHaveTextContent('WHOT')
+    expect(card.querySelector('.top-corner')).toHaveTextContent('20')
 
     await user.click(card)
 
     expect(onClick).toHaveBeenCalledOnce()
+  })
+
+  it('keeps new-match action in the room for any connected player', async () => {
+    const onRematch = vi.fn()
+    const user = userEvent.setup()
+    render(<RematchAction players={[
+      { id: 'host', name: 'Host', count: 0, connected: true },
+      { id: 'guest', name: 'Guest', count: 0, connected: true },
+    ]} isNewMatch onRematch={onRematch} />)
+
+    await user.click(screen.getByRole('button', { name: /new match/i }))
+
+    expect(onRematch).toHaveBeenCalledOnce()
+  })
+
+  it('waits in the room until every player reconnects before rematch', () => {
+    render(<RematchAction players={[
+      { id: 'host', name: 'Host', count: 0, connected: true },
+      { id: 'guest', name: 'Guest', count: 0, connected: false },
+    ]} isNewMatch onRematch={vi.fn()} />)
+
+    expect(screen.getByRole('button', { name: 'Waiting for players to reconnect' })).toBeDisabled()
   })
 
   it('disables a card when it is not marked playable', () => {

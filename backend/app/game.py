@@ -603,7 +603,7 @@ class Room:
                          "voice_speaking": p.voice_speaking,
                          "reaction": p.reaction, "reaction_at": p.reaction_at,
                          "is_bot": p.is_bot, "last_card_required": p.last_card_required,
-                         "coin_balance": p.coin_balance,
+                         "coin_balance": p.coin_balance if p.id == pid else None,
                          "table_theme": p.table_theme, "card_back": p.card_back,
                          "avatar": p.avatar}
                         for p in self.players],
