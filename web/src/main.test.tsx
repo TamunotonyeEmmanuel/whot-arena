@@ -23,6 +23,8 @@ describe('WHOT Arena web client', () => {
     expect(card.querySelector('.card-glyph')).toHaveTextContent('WHOT')
     expect(card.querySelector('.whot-number-top')).toHaveTextContent('20')
     expect(card.querySelector('.whot-number-bottom')).toHaveTextContent('20')
+    expect(card.querySelector('.whot-number-top small')).toHaveTextContent('W')
+    expect(card.querySelector('.whot-number-bottom small')).toHaveTextContent('W')
     expect(card.querySelector('.card-whot-label')).not.toBeInTheDocument()
 
     await user.click(card)

@@ -675,7 +675,28 @@ function CardFace({ card, large = false, back = false, selected = false, playabl
   if (back) return <div className={`whot-card card-back-face ${large ? 'card-large' : ''}`}><span className="back-mark mark-one"><strong>WHOT</strong><small>ARENA</small></span><span className="back-mark mark-two"><strong>WHOT</strong><small>ARENA</small></span><span className="back-mark mark-three"><strong>WHOT</strong><small>ARENA</small></span><span className="back-seal">W</span></div>
   if (!card) return <div className={`empty-card ${large ? 'card-large' : ''}`}><span>?</span></div>
   const isWhot = card.shape === 'whot'
-  return <button type="button" className={`whot-card ${large ? 'card-large' : ''} tone-${shapeTone[card.shape]} ${isWhot ? 'whot-value-card' : ''} ${selected ? 'card-selected' : ''} ${playable ? 'card-playable' : ''}`} onClick={onClick} disabled={!playable} style={{ '--card-index': index } as React.CSSProperties} aria-label={`Play ${card.number} ${card.shape}`}><span className={`card-glyph ${isWhot ? 'card-glyph-whot' : ''}`}>{isWhot ? 'WHOT' : shapeGlyph[card.shape]}</span><span className={`card-corner top-corner ${isWhot ? 'whot-number-top' : ''}`}><span>{card.number}</span>{!isWhot && <small>{shapeGlyph[card.shape]}</small>}</span><span className={`card-corner bottom-corner ${isWhot ? 'whot-number-bottom' : ''}`}><span>{card.number}</span>{!isWhot && <small>{shapeGlyph[card.shape]}</small>}</span></button>
+  return (
+    <button
+      type="button"
+      className={`whot-card ${large ? 'card-large' : ''} tone-${shapeTone[card.shape]} ${isWhot ? 'whot-value-card' : ''} ${selected ? 'card-selected' : ''} ${playable ? 'card-playable' : ''}`}
+      onClick={onClick}
+      disabled={!playable}
+      style={{ '--card-index': index } as React.CSSProperties}
+      aria-label={`Play ${card.number} ${card.shape}`}
+    >
+      <span className={`card-glyph ${isWhot ? 'card-glyph-whot' : ''}`}>
+        {isWhot ? 'WHOT' : shapeGlyph[card.shape]}
+      </span>
+      <span className={`card-corner top-corner ${isWhot ? 'whot-number-top' : ''}`}>
+        <span>{card.number}</span>
+        <small>{isWhot ? 'W' : shapeGlyph[card.shape]}</small>
+      </span>
+      <span className={`card-corner bottom-corner ${isWhot ? 'whot-number-bottom' : ''}`}>
+        <span>{card.number}</span>
+        <small>{isWhot ? 'W' : shapeGlyph[card.shape]}</small>
+      </span>
+    </button>
+  )
 }
 
 export function RematchAction({ players, isNewMatch, onRematch }: { players: Player[]; isNewMatch: boolean; onRematch: () => void }) {

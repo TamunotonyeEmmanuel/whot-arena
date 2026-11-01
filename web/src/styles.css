@@ -322,5 +322,31 @@ html[data-theme="dark"] .team-tag-2{color:#d1d7f0;border-color:#515d84;backgroun
 .whot-card .card-glyph-whot{color:#612b32;font-size:12px;font-weight:800;letter-spacing:.5px;line-height:1;text-shadow:none}
 .whot-card.whot-value-card .card-corner{color:#612b32}
 .whot-card .card-glyph.card-glyph-whot{font-size:12px;font-size:clamp(8px,19.35cqi,25px)}
-.whot-card.whot-value-card .whot-number-top{top:9.68cqi;right:auto;left:9.68cqi;display:block;font-size:clamp(8px,16.13cqi,25px);line-height:1}
-.whot-card.whot-value-card .whot-number-bottom{right:9.68cqi;bottom:9.68cqi;left:auto;display:block;font-size:clamp(8px,16.13cqi,25px);line-height:1;transform:rotate(180deg)}
+.whot-card.whot-value-card.tone-dark .card-glyph-whot::after{font-size:clamp(8px,19.35cqi,25px);font-weight:900;letter-spacing:.5px}
+.whot-card.whot-value-card .whot-number-top{top:9.68cqi;right:auto;left:9.68cqi;display:grid;justify-items:start;gap:1px;font-size:clamp(8px,16.13cqi,25px);line-height:1}
+.whot-card.whot-value-card .whot-number-bottom{right:9.68cqi;bottom:9.68cqi;left:auto;display:grid;justify-items:end;gap:1px;font-size:clamp(8px,16.13cqi,25px);line-height:1;transform:rotate(180deg)}
+.whot-card.whot-value-card .card-corner small{font-size:clamp(5px,8cqi,10px);font-weight:800;line-height:.9;letter-spacing:0}
+/* WHOT Arena: WHOT 20 typography refinement.
+   Append to the END of web/src/styles.css so these rules take precedence. */
+
+/* Preserve the existing responsive font sizing, but make WHOT extra bold. */
+.whot-card.whot-value-card .card-glyph.card-glyph-whot,
+.whot-card.whot-value-card.tone-dark .card-glyph-whot::after {
+  font-weight: 900;
+}
+
+/* Make both 20s bold without changing their existing responsive sizes. */
+.whot-card.whot-value-card .whot-number-top,
+.whot-card.whot-value-card .whot-number-bottom {
+  font-weight: 900;
+}
+
+/* Keep the small W markers bold and visibly smaller than the 20s. */
+.whot-card.whot-value-card .card-corner small {
+  font-weight: 900;
+}
+
+/* The entire lower-right corner group remains upside down. */
+.whot-card.whot-value-card .whot-number-bottom {
+  transform: rotate(180deg);
+}
