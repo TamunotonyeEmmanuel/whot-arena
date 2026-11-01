@@ -5,6 +5,7 @@ import { BrowserRouter, Link, NavLink, Navigate, Route, Routes, useLocation, use
 import { ArrowLeft, ArrowRight, BatteryFull, BookOpen, Check, ChevronDown, CircleHelp, Clock3, Crown, DoorOpen, Gamepad2, History, Home, LogIn, LogOut, Menu, MessageCircle, Mic, MicOff, Moon, Pause, Play, Plus, Radio, Settings, Share2, Shield, Signal, Smartphone, Sparkles, Sun, Trophy, UserRound, Users, Volume2, Wallet, Wifi, X } from 'lucide-react'
 import './styles.css'
 import './live-voice-control.css'
+import './table-layout.css'
 import { gameSoundsEnabled, playGameSound, primeGameAudio, setGameSoundsEnabled } from './audio'
 import lagosPhoneWallpaper from './assets/lagos-phone-wallpaper.png'
 
@@ -454,6 +455,17 @@ function AppFrame() {
   const location = useLocation()
   const navigate = useNavigate()
   const isTable = location.pathname.startsWith('/game/')
+  useEffect(() => {
+    if (!isTable) return
+    const rootOverflow = document.documentElement.style.overflow
+    const bodyOverflow = document.body.style.overflow
+    document.documentElement.style.overflow = 'hidden'
+    document.body.style.overflow = 'hidden'
+    return () => {
+      document.documentElement.style.overflow = rootOverflow
+      document.body.style.overflow = bodyOverflow
+    }
+  }, [isTable])
   useEffect(() => {
     applyColorTheme(theme)
     const syncTheme = (event: Event) => setTheme((event as CustomEvent<ColorTheme>).detail)
