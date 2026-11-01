@@ -1,7 +1,8 @@
 # WHOT Arena — browser and mobile Nigerian WHOT
 
 Responsive React/TypeScript browser client, Flutter mobile client, and FastAPI
-WebSocket server. Supports **2–4 human players**, private room codes, display
+WebSocket server. The browser's in-game phone includes a local two-player
+snooker frame. WHOT supports **2–4 human players**, private room codes, display
 nicknames for signed-in accounts, public quick match, server-side dealing/validation, special cards,
 private hands, room-only voice notes, reconnect, registered-player match history, rematches, a
 leaderboard, optional synthesized game cues, 10-minute lobby reconnection, 30-second disconnect autopilot, and 30-second turn timeout.

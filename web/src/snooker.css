@@ -1,0 +1,30 @@
+.snooker-app{min-height:0;display:flex;overflow-y:auto;flex:1;flex-direction:column;gap:7px;padding:8px 10px 10px;color:#203a2b;background:#f4f4ec}
+.snooker-scoreboard{display:grid;grid-template-columns:1fr 1fr auto;align-items:center;gap:5px}
+.snooker-scoreboard>div{display:grid;gap:2px;padding:5px 7px;border:1px solid #dfe5da;border-radius:8px;background:#fff}
+.snooker-scoreboard>div.snooker-active-player{border-color:#5d956b;background:#e6f3e5;box-shadow:0 0 0 1px #5d956b30}
+.snooker-scoreboard>div span,.snooker-target>span{color:#718076;font-size:7px;font-weight:900;letter-spacing:.55px}
+.snooker-scoreboard>div strong{font-size:17px;line-height:1}
+.snooker-reset{padding:7px 8px;border:1px solid #d6dfd3;border-radius:7px;color:#395841;background:#fff;font-size:8px;font-weight:800;cursor:pointer}
+.snooker-reset:disabled{opacity:.5;cursor:default}
+.snooker-target{display:flex;align-items:center;justify-content:space-between;gap:5px;padding:6px 8px;border-radius:8px;color:#eaf4e8;background:#155a39}
+.snooker-target>span{color:#bfe1c5;font-size:6px}
+.snooker-target>strong{font-size:9px}
+.snooker-target>small{color:#c8dfcc;font-size:7px;white-space:nowrap}
+.snooker-table{width:100%;height:auto;max-height:180px;flex:0 0 auto;overflow:visible;border-radius:10px;box-shadow:0 4px 10px #13291e26;touch-action:pan-y}
+.snooker-message{min-height:25px;display:grid;place-items:center;margin:0;padding:4px 7px;border:1px solid #e3e7dd;border-radius:7px;color:#55685a;background:#fff;text-align:center;font-size:8px;line-height:1.35}
+.snooker-control{display:grid;gap:2px;color:#526455;font-size:8px}
+.snooker-control>span{display:flex;justify-content:space-between;font-weight:700}
+.snooker-control b{color:#21482d}
+.snooker-control input{width:100%;height:13px;margin:0;accent-color:#27804b}
+.snooker-shoot{min-height:36px;border:0;border-radius:9px;color:#fff;background:linear-gradient(135deg,#237847,#125332);box-shadow:0 3px 8px #123b2533;font-size:10px;font-weight:900;cursor:pointer}
+.snooker-shoot:disabled{opacity:.55;cursor:default}
+.snooker-help{color:#7b887e;text-align:center;font-size:7px;line-height:1.35}
+@media(max-height:700px){.snooker-app{gap:5px;padding-block:6px}.snooker-table{max-height:150px}.snooker-message{min-height:22px}}
+html[data-theme="dark"] .snooker-app{color:#e4eee6;background:#13231b}
+html[data-theme="dark"] .snooker-scoreboard>div,html[data-theme="dark"] .snooker-reset,html[data-theme="dark"] .snooker-message{color:#dce9df;border-color:#34483c;background:#1a2e22}
+html[data-theme="dark"] .snooker-scoreboard>div.snooker-active-player{border-color:#75a777;background:#27442c}
+html[data-theme="dark"] .snooker-scoreboard>div span,html[data-theme="dark"] .snooker-target>span{color:#a9bfad}
+html[data-theme="dark"] .snooker-target{background:#1b6240}
+html[data-theme="dark"] .snooker-control{color:#bdcbbf}
+html[data-theme="dark"] .snooker-control b{color:#bce2be}
+html[data-theme="dark"] .snooker-help{color:#98a99c}

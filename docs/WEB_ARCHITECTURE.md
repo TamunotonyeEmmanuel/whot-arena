@@ -6,6 +6,8 @@ The browser app in `web/` is a React 19 + TypeScript SPA built by Vite, styled w
 
 The browser uses `VITE_API_URL` for HTTP and `VITE_WS_URL` for the WebSocket. The defaults target local FastAPI on port 8000. In production these values are embedded at frontend build time and must use the public HTTPS and WSS API origins. Live voice uses peer-to-peer WebRTC by default; optional TURN URLs and credentials can be supplied with `VITE_TURN_URL`, `VITE_TURN_USERNAME`, and `VITE_TURN_CREDENTIAL`. Since all `VITE_*` values are public in the built client, never use long-lived TURN credentials. TURN configuration is currently build-time only; automatic short-lived credential refresh needs a runtime credential endpoint and is not implemented.
 
+The in-game phone also contains a standalone, local two-player snooker frame. Open the phone during an Arena session, tap **Snooker**, then use the aim and power controls to take shots. Snooker state is client-only and does not use the WHOT WebSocket or account match history.
+
 ## Browser routes
 
 | Route | Purpose | Backend contract |
