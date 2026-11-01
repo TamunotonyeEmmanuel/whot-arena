@@ -26,6 +26,25 @@
   display: none;
 }
 
+.table-frame .live-voice-panel .live-voice-room > .live-mic-error {
+  display: block;
+  position: fixed;
+  z-index: 49;
+  bottom: calc(max(14px, env(safe-area-inset-bottom)) + 68px);
+  left: calc(50% + 123px);
+  width: min(340px, calc(100vw - 24px));
+  padding: 9px 12px;
+  transform: translateX(-50%);
+  border: 1px solid #d59a68;
+  border-radius: 10px;
+  background: #261b17;
+  color: #ffe4cd;
+  font-size: 12px;
+  line-height: 1.4;
+  text-align: center;
+  pointer-events: none;
+}
+
 .table-frame .live-voice-panel .live-mic-orbit {
   width: 58px;
   height: 58px;
@@ -42,10 +61,18 @@
   .table-frame .live-voice-panel .live-mic-orbit {
     left: 50%;
   }
+
+  .table-frame .live-voice-panel .live-voice-room > .live-mic-error {
+    left: 50%;
+  }
 }
 
 @media (min-width: 761px) and (max-width: 1050px) {
   .table-frame .live-voice-panel .live-mic-orbit {
+    left: calc(50% + 109px);
+  }
+
+  .table-frame .live-voice-panel .live-voice-room > .live-mic-error {
     left: calc(50% + 109px);
   }
 }

@@ -1,7 +1,7 @@
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
-import { App, Avatar, CardFace, RematchAction, normalizeTurnUrl, relayPlaybackStartAt, shouldUseRelayFallback } from './main'
+import { App, Avatar, CardFace, RematchAction, microphoneFailureMessage, normalizeTurnUrl, relayPlaybackStartAt, shouldUseRelayFallback } from './main'
 
 describe('WHOT Arena web client', () => {
   it('navigates from the landing screen to the rules page', async () => {
@@ -28,6 +28,13 @@ describe('WHOT Arena web client', () => {
     await user.click(card)
 
     expect(onClick).toHaveBeenCalledOnce()
+  })
+
+  it('explains why microphone capture failed and how to retry', () => {
+    expect(microphoneFailureMessage(new DOMException('', 'NotAllowedError')))
+      .toContain('Allow microphone access')
+    expect(microphoneFailureMessage(new DOMException('', 'NotFoundError')))
+      .toContain('No microphone was found')
   })
 
   it('keeps new-match action in the room for any connected player', async () => {

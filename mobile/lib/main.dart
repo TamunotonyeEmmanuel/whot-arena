@@ -517,15 +517,56 @@ class _ArenaHomeState extends State<ArenaHome> {
         border: Border.all(color: gold, width: 2),
         boxShadow: const [BoxShadow(color: Colors.black38, blurRadius: 6)],
       ),
-      child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-        Text('${card['number']}',
-            style: const TextStyle(
-                fontSize: 25,
-                fontWeight: FontWeight.bold,
-                color: Color(0xFF1049A0))),
-        Text(icons[card['shape']] ?? '?',
-            style: const TextStyle(fontSize: 28, color: Color(0xFF1049A0))),
-      ]),
+      child: card['shape'] == 'whot'
+          ? Stack(
+              children: [
+                Positioned(
+                  top: 7,
+                  left: 8,
+                  child: Text(
+                    '${card['number']}',
+                    style: const TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold,
+                      color: Color(0xFF1049A0),
+                    ),
+                  ),
+                ),
+                Center(
+                  child: Text(
+                    'WHOT',
+                    style: TextStyle(
+                      fontSize: selected ? 18 : 15,
+                      fontWeight: FontWeight.bold,
+                      letterSpacing: 0.5,
+                      color: const Color(0xFF1049A0),
+                    ),
+                  ),
+                ),
+                Positioned(
+                  right: 8,
+                  bottom: 7,
+                  child: Text(
+                    '${card['number']}',
+                    style: const TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold,
+                      color: Color(0xFF1049A0),
+                    ),
+                  ),
+                ),
+              ],
+            )
+          : Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+              Text('${card['number']}',
+                  style: const TextStyle(
+                      fontSize: 25,
+                      fontWeight: FontWeight.bold,
+                      color: Color(0xFF1049A0))),
+              Text(icons[card['shape']] ?? '?',
+                  style:
+                      const TextStyle(fontSize: 28, color: Color(0xFF1049A0))),
+            ]),
     );
   }
 }

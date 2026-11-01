@@ -83,6 +83,20 @@ export function relayPlaybackStartAt(previousTime: number | undefined, now: numb
   if (previousTime === undefined || previousTime > now + 0.75) return now + 0.18
   return Math.max(previousTime, now + 0.025)
 }
+export function microphoneFailureMessage(error: unknown) {
+  const name = error && typeof error === 'object' && 'name' in error
+    && typeof error.name === 'string' ? error.name : ''
+  if (name === 'NotAllowedError' || name === 'PermissionDeniedError') {
+    return 'Microphone access was denied. Allow microphone access for this site in your browser settings, then tap the mic to retry.'
+  }
+  if (name === 'NotFoundError' || name === 'DevicesNotFoundError') {
+    return 'No microphone was found. Connect or enable a microphone, then tap the mic to retry.'
+  }
+  if (name === 'NotReadableError' || name === 'TrackStartError') {
+    return 'The microphone is busy or unavailable. Close other apps using it, then tap the mic to retry.'
+  }
+  return 'Could not start the microphone. Check browser permissions and microphone settings, then tap the mic to retry.'
+}
 const Context = createContext<ArenaContextValue | null>(null)
 const readStored = <T,>(key: string): T | null => {
   try { return JSON.parse(localStorage.getItem(key) || 'null') as T | null } catch { return null }
@@ -898,21 +912,43 @@ function LiveVoicePanel({ players, playerId, enabled }: { players: Player[]; pla
   async function startMicrophone() {
     if (localStreamRef.current) return localStreamRef.current
     if (startPromiseRef.current) return startPromiseRef.current
+    setVoiceError('')
+    if (!window.isSecureContext) {
+      setStatus('unsupported')
+      setVoiceError('Microphone access requires a secure HTTPS connection (or localhost).')
+      return null
+    }
     if (!navigator.mediaDevices?.getUserMedia || typeof RTCPeerConnection === 'undefined') {
       setStatus('unsupported')
+      setVoiceError('Live voice is not supported by this browser. Try a current browser on HTTPS.')
       return null
     }
     startPromiseRef.current = navigator.mediaDevices.getUserMedia({
       audio: {
-        // The project DOM types predate the browser's string echo-cancellation modes.
-        echoCancellation: { ideal: 'all' } as unknown as boolean,
+        echoCancellation: true,
         noiseSuppression: { ideal: true },
         autoGainControl: { ideal: true },
       },
       video: false,
     }).then(stream => {
+      const tracks = stream.getAudioTracks()
+      if (!tracks.length) {
+        stream.getTracks().forEach(track => track.stop())
+        throw new DOMException('No microphone audio track was returned.', 'NotFoundError')
+      }
       localStreamRef.current = stream
-      stream.getAudioTracks().forEach(track => { track.enabled = true })
+      tracks.forEach(track => {
+        track.enabled = true
+        track.addEventListener('ended', () => {
+          if (localStreamRef.current !== stream || !enabled) return
+          send('rtc_speaking', { speaking: false })
+          setMuted(true)
+          setStatus('blocked')
+          setVoiceError('The microphone stopped. Check the device or browser permission, then tap the mic to retry.')
+          localStreamRef.current = null
+          startPromiseRef.current = null
+        }, { once: true })
+      })
       for (const [remoteId, peer] of peersRef.current) {
         const senderTracks = peer.getSenders().map(sender => sender.track).filter(Boolean)
         stream.getAudioTracks().forEach(track => { if (!senderTracks.includes(track)) peer.addTrack(track, stream) })
@@ -922,12 +958,17 @@ function LiveVoicePanel({ players, playerId, enabled }: { players: Player[]; pla
       }
       setMuted(false)
       setStatus('live')
+      setVoiceError('')
       send('rtc_speaking', { speaking: true })
       if (fallbackPeersRef.current.size) startRelayCapture(stream)
       return stream
-    }).catch(() => {
+    }).catch(reason => {
       send('rtc_speaking', { speaking: false })
+      localStreamRef.current?.getTracks().forEach(track => track.stop())
+      localStreamRef.current = null
       setStatus('blocked')
+      setVoiceError(microphoneFailureMessage(reason))
+      startPromiseRef.current = null
       return null
     })
     return startPromiseRef.current
@@ -1012,7 +1053,9 @@ function LiveVoicePanel({ players, playerId, enabled }: { players: Player[]; pla
     if (enabled) send('rtc_ready')
     return () => {
       send('rtc_speaking', { speaking: false })
-      localStreamRef.current?.getTracks().forEach(track => track.stop())
+      const localStream = localStreamRef.current
+      localStreamRef.current = null
+      localStream?.getTracks().forEach(track => track.stop())
       peersRef.current.forEach(peer => {
         peer.onconnectionstatechange = null
         peer.ontrack = null
@@ -1215,7 +1258,7 @@ function LiveVoicePanel({ players, playerId, enabled }: { players: Player[]; pla
 
   const voiceCount = players.filter(player => player.connected && !player.is_bot).length
   const statusText = `${voiceCount} ${voiceCount === 1 ? 'player' : 'players'} connected`
-  return <aside className={`voice-panel live-voice-panel content-panel ${drawerOpen ? 'voice-drawer-open' : ''}`} style={drawerTop === null ? undefined : { top: drawerTop, bottom: 'auto' }} aria-label="Live table voice"><button type="button" className="voice-drawer-toggle" onPointerDown={startDrawerDrag} onPointerMove={moveDrawer} onPointerUp={finishDrawerDrag} onPointerCancel={finishDrawerDrag} onClick={toggleDrawer} aria-expanded={drawerOpen} aria-label={drawerOpen ? 'Close or move live voice controls' : 'Open or move live voice controls'}>{muted ? <Mic size={20} /> : <MicOff size={20} />}<ChevronDown size={14} /></button><div className="voice-heading"><span className={`voice-icon ${status === 'live' ? 'voice-live' : ''}`}><Volume2 size={17} /></span><div><strong>Live table voice</strong><small>{statusText}</small></div><span className="status-dot online" /></div><div className="live-voice-room"><button type="button" className={`live-mic-orbit ${status === 'live' && !muted ? 'mic-active' : ''}`} onClick={toggleMute} disabled={!enabled || status === 'starting' || status === 'unsupported' || status === 'failed'} aria-label={!localStreamRef.current ? 'Start live microphone' : muted ? 'Unmute live microphone' : 'Mute live microphone'}><span>{muted ? <MicOff size={27} /> : <Mic size={27} />}</span></button><strong>{status === 'starting' ? 'Opening microphone…' : muted ? 'Tap the mic to speak live' : 'You are speaking live'}</strong><small>{voiceError || (connectionSlow ? 'Direct voice connection failed. This network may require a TURN server.' : 'Nothing is recorded. Everyone at the table hears you live.')}</small></div><div className="voice-compose">{status === 'blocked' ? <button type="button" className="button button-green full-button" onClick={() => { startPromiseRef.current = null; setStatus('starting'); void startMicrophone() }}><Mic size={16} /> Allow microphone</button> : playbackBlocked ? <button type="button" className="button button-green full-button" onClick={enablePlayback}><Volume2 size={16} /> Enable speaker</button> : <button type="button" className={`button ${muted ? 'button-green' : 'button-outline'} full-button`} disabled={!enabled || status === 'starting'} onClick={toggleMute}>{muted ? <><Mic size={16} /> Tap to speak</> : <><MicOff size={16} /> Stop speaking</>}</button>}<span className="voice-hint">Live only · no recording is saved</span></div></aside>
+  return <aside className={`voice-panel live-voice-panel content-panel ${drawerOpen ? 'voice-drawer-open' : ''}`} style={drawerTop === null ? undefined : { top: drawerTop, bottom: 'auto' }} aria-label="Live table voice"><button type="button" className="voice-drawer-toggle" onPointerDown={startDrawerDrag} onPointerMove={moveDrawer} onPointerUp={finishDrawerDrag} onPointerCancel={finishDrawerDrag} onClick={toggleDrawer} aria-expanded={drawerOpen} aria-label={drawerOpen ? 'Close or move live voice controls' : 'Open or move live voice controls'}>{muted ? <Mic size={20} /> : <MicOff size={20} />}<ChevronDown size={14} /></button><div className="voice-heading"><span className={`voice-icon ${status === 'live' ? 'voice-live' : ''}`}><Volume2 size={17} /></span><div><strong>Live table voice</strong><small>{statusText}</small></div><span className="status-dot online" /></div><div className="live-voice-room"><button type="button" className={`live-mic-orbit ${status === 'live' && !muted ? 'mic-active' : ''}`} onClick={toggleMute} disabled={!enabled || status === 'starting' || status === 'unsupported' || status === 'failed'} aria-label={!localStreamRef.current ? 'Start live microphone' : muted ? 'Unmute live microphone' : 'Mute live microphone'}><span>{muted ? <MicOff size={27} /> : <Mic size={27} />}</span></button>{voiceError && <small className="live-mic-error" role="status">{voiceError}</small>}<strong>{status === 'starting' ? 'Opening microphone…' : muted ? 'Tap the mic to speak live' : 'You are speaking live'}</strong><small>{voiceError || (connectionSlow ? 'Direct voice connection failed. This network may require a TURN server.' : 'Nothing is recorded. Everyone at the table hears you live.')}</small></div><div className="voice-compose">{status === 'blocked' ? <button type="button" className="button button-green full-button" onClick={() => { startPromiseRef.current = null; setStatus('starting'); void startMicrophone() }}><Mic size={16} /> Allow microphone</button> : playbackBlocked ? <button type="button" className="button button-green full-button" onClick={enablePlayback}><Volume2 size={16} /> Enable speaker</button> : <button type="button" className={`button ${muted ? 'button-green' : 'button-outline'} full-button`} disabled={!enabled || status === 'starting'} onClick={toggleMute}>{muted ? <><Mic size={16} /> Tap to speak</> : <><MicOff size={16} /> Stop speaking</>}</button>}<span className="voice-hint">Live only · no recording is saved</span></div></aside>
 }
 
 function SocialOverlay({ recipient, roomCode }: { recipient: string; roomCode?: string }) {
