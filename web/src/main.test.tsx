@@ -1,7 +1,7 @@
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
-import { App, Avatar, CardFace, shouldUseRelayFallback } from './main'
+import { App, Avatar, CardFace, relayPlaybackStartAt, shouldUseRelayFallback } from './main'
 
 describe('WHOT Arena web client', () => {
   it('navigates from the landing screen to the rules page', async () => {
@@ -40,5 +40,12 @@ describe('WHOT Arena web client', () => {
     expect(shouldUseRelayFallback('connecting')).toBe(true)
     expect(shouldUseRelayFallback('connected')).toBe(false)
     expect(shouldUseRelayFallback('closed')).toBe(false)
+  })
+
+  it('keeps relay audio moving with a short jitter buffer', () => {
+    expect(relayPlaybackStartAt(undefined, 10)).toBeCloseTo(10.18)
+    expect(relayPlaybackStartAt(9.9, 10)).toBeCloseTo(10.025)
+    expect(relayPlaybackStartAt(10.2, 10)).toBeCloseTo(10.2)
+    expect(relayPlaybackStartAt(12, 10)).toBeCloseTo(10.18)
   })
 })

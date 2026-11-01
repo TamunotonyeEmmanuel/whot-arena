@@ -47,7 +47,7 @@ type ArenaContextValue = {
   connected: boolean; busy: boolean; clearError: () => void
   voiceUrls: Record<string, string>; requestVoice: (messageId: string) => void
   rtcSignals: RtcSignal[]; sendRtcSignal: (target: string, signal: RtcSignal['signal']) => void
-  liveAudioPackets: LiveAudioPacket[]
+  subscribeLiveAudio: (listener: (packet: LiveAudioPacket) => void) => () => void
   connectRoom: (action: string, values?: Record<string, unknown>) => Promise<Session>
   send: (action: string, values?: Record<string, unknown>) => void
   leaveRoom: () => void
@@ -72,6 +72,10 @@ const RTC_ICE_SERVERS: RTCIceServer[] = [
 ]
 export function shouldUseRelayFallback(connectionState?: RTCPeerConnectionState) {
   return connectionState !== 'connected' && connectionState !== 'closed'
+}
+export function relayPlaybackStartAt(previousTime: number | undefined, now: number) {
+  if (previousTime === undefined || previousTime > now + 0.75) return now + 0.18
+  return Math.max(previousTime, now + 0.025)
 }
 const Context = createContext<ArenaContextValue | null>(null)
 const readStored = <T,>(key: string): T | null => {
@@ -105,13 +109,13 @@ function ArenaProvider({ children }: { children: React.ReactNode }) {
   const [connected, setConnected] = useState(false)
   const [voiceUrls, setVoiceUrls] = useState<Record<string, string>>({})
   const [rtcSignals, setRtcSignals] = useState<RtcSignal[]>([])
-  const [liveAudioPackets, setLiveAudioPackets] = useState<LiveAudioPacket[]>([])
   const [busy, setBusy] = useState(false)
   const socketRef = useRef<WebSocket | null>(null)
   const sessionRef = useRef<Session | null>(session)
   const retryRef = useRef<number | null>(null)
   const activeRef = useRef(true)
   const voiceUrlsRef = useRef(new Set<string>())
+  const liveAudioListenersRef = useRef(new Set<(packet: LiveAudioPacket) => void>())
   const previousViewRef = useRef<RoomView | null>(null)
   sessionRef.current = session
 
@@ -173,7 +177,8 @@ function ArenaProvider({ children }: { children: React.ReactNode }) {
         } else if (message.type === 'rtc_relay' && message.id && message.from && message.signal) {
           setRtcSignals(previous => [...previous.slice(-99), { id: message.id!, from: message.from!, signal: message.signal! }])
         } else if (message.type === 'rtc_audio' && message.id && message.from && message.audio) {
-          setLiveAudioPackets(previous => [...previous.slice(-39), { id: message.id!, from: message.from!, audio: message.audio! }])
+          const packet = { id: message.id, from: message.from, audio: message.audio }
+          liveAudioListenersRef.current.forEach(listener => listener(packet))
         } else if (message.type === 'left') {
           socket.onclose = null
           socket.close()
@@ -321,6 +326,11 @@ function ArenaProvider({ children }: { children: React.ReactNode }) {
     send('rtc_signal', { target, signal })
   }
 
+  function subscribeLiveAudio(listener: (packet: LiveAudioPacket) => void) {
+    liveAudioListenersRef.current.add(listener)
+    return () => { liveAudioListenersRef.current.delete(listener) }
+  }
+
   async function authenticate(registering: boolean, values: Record<string, string>) {
     setBusy(true); setError('')
     try {
@@ -344,7 +354,7 @@ function ArenaProvider({ children }: { children: React.ReactNode }) {
     if (socketRef.current) { socketRef.current.onclose = null; socketRef.current.close() }
   }
 
-  return <Context.Provider value={{ view, session, savedSession, user, error, connected, busy, voiceUrls, requestVoice, rtcSignals, sendRtcSignal, liveAudioPackets, clearError: () => setError(''), connectRoom, send, leaveRoom, resumeSavedRoom, authenticate, signOut }}>{children}</Context.Provider>
+  return <Context.Provider value={{ view, session, savedSession, user, error, connected, busy, voiceUrls, requestVoice, rtcSignals, sendRtcSignal, subscribeLiveAudio, clearError: () => setError(''), connectRoom, send, leaveRoom, resumeSavedRoom, authenticate, signOut }}>{children}</Context.Provider>
 }
 
 function useArena() {
@@ -768,7 +778,7 @@ function GameTable() {
 }
 
 function LiveVoicePanel({ players, playerId, enabled }: { players: Player[]; playerId: string; enabled: boolean }) {
-  const { rtcSignals, sendRtcSignal, liveAudioPackets, send } = useArena()
+  const { rtcSignals, sendRtcSignal, subscribeLiveAudio, send } = useArena()
   const [muted, setMuted] = useState(true)
   const [status, setStatus] = useState<'idle' | 'starting' | 'live' | 'blocked' | 'unsupported' | 'failed'>('idle')
   const [connectedPeers, setConnectedPeers] = useState<string[]>([])
@@ -1056,18 +1066,12 @@ function LiveVoicePanel({ players, playerId, enabled }: { players: Player[]; pla
     }
   }, [rtcSignals, players])
 
-  useEffect(() => {
-    const pending = liveAudioPackets.filter(packet => {
-      if (handledAudioIdsRef.current.has(packet.id)) return false
-      handledAudioIdsRef.current.add(packet.id)
-      return packet.from !== playerId && !directAudioPeersRef.current.has(packet.from)
-    })
-    // Keep deduplication bounded across long sessions.
+  useEffect(() => subscribeLiveAudio(packet => {
+    if (handledAudioIdsRef.current.has(packet.id) || packet.from === playerId || directAudioPeersRef.current.has(packet.from)) return
+    handledAudioIdsRef.current.add(packet.id)
     if (handledAudioIdsRef.current.size > 500) {
-      const recent = [...handledAudioIdsRef.current].slice(-250)
-      handledAudioIdsRef.current = new Set(recent)
+      handledAudioIdsRef.current = new Set([...handledAudioIdsRef.current].slice(-250))
     }
-    if (!pending.length) return
 
     const context = relayPlaybackRef.current || new AudioContext({ latencyHint: 'playback' })
     relayPlaybackRef.current = context
@@ -1076,47 +1080,41 @@ function LiveVoicePanel({ players, playerId, enabled }: { players: Player[]; pla
       return
     }
 
-    for (const packet of pending) {
-      try {
-        const bytes = Uint8Array.from(atob(packet.audio), character => character.charCodeAt(0))
-        if (bytes.byteLength < 2 || bytes.byteLength % 2 !== 0) continue
-        const samples = new Int16Array(bytes.buffer, bytes.byteOffset, bytes.byteLength / 2)
-        const buffer = context.createBuffer(1, samples.length, 24000)
-        const channel = buffer.getChannelData(0)
-        for (let index = 0; index < samples.length; index += 1) {
-          channel[index] = samples[index] / 0x8000
-        }
-
-        const previousTime = relayPlaybackTimesRef.current.get(packet.from) || 0
-        // A small initial buffer smooths packet arrival; drop accumulated latency.
-        const now = context.currentTime
-        const startAt = previousTime < now || previousTime > now + 1.5
-          ? now + 0.28
-          : previousTime
-        const source = context.createBufferSource()
-        const smoothing = context.createGain()
-        const fade = Math.min(.004, buffer.duration / 4)
-        source.buffer = buffer
-        source.connect(smoothing)
-        smoothing.connect(context.destination)
-        smoothing.gain.setValueAtTime(0, startAt)
-        smoothing.gain.linearRampToValueAtTime(1, startAt + fade)
-        smoothing.gain.setValueAtTime(1, startAt + buffer.duration - fade)
-        smoothing.gain.linearRampToValueAtTime(0, startAt + buffer.duration)
-        const sources = relaySourcesRef.current.get(packet.from) || new Set<AudioBufferSourceNode>()
-        sources.add(source)
-        relaySourcesRef.current.set(packet.from, sources)
-        source.onended = () => {
-          sources.delete(source)
-          if (!sources.size) relaySourcesRef.current.delete(packet.from)
-        }
-        source.start(startAt)
-        relayPlaybackTimesRef.current.set(packet.from, startAt + buffer.duration)
-      } catch {
-        // A damaged packet should not stop playback of subsequent packets.
+    try {
+      const bytes = Uint8Array.from(atob(packet.audio), character => character.charCodeAt(0))
+      if (bytes.byteLength < 2 || bytes.byteLength % 2 !== 0) return
+      const samples = new Int16Array(bytes.buffer, bytes.byteOffset, bytes.byteLength / 2)
+      const buffer = context.createBuffer(1, samples.length, 24000)
+      const channel = buffer.getChannelData(0)
+      for (let index = 0; index < samples.length; index += 1) {
+        channel[index] = samples[index] / 0x8000
       }
+
+      const now = context.currentTime
+      const startAt = relayPlaybackStartAt(relayPlaybackTimesRef.current.get(packet.from), now)
+      const source = context.createBufferSource()
+      const smoothing = context.createGain()
+      const fade = Math.min(.004, buffer.duration / 4)
+      source.buffer = buffer
+      source.connect(smoothing)
+      smoothing.connect(context.destination)
+      smoothing.gain.setValueAtTime(0, startAt)
+      smoothing.gain.linearRampToValueAtTime(1, startAt + fade)
+      smoothing.gain.setValueAtTime(1, startAt + buffer.duration - fade)
+      smoothing.gain.linearRampToValueAtTime(0, startAt + buffer.duration)
+      const sources = relaySourcesRef.current.get(packet.from) || new Set<AudioBufferSourceNode>()
+      sources.add(source)
+      relaySourcesRef.current.set(packet.from, sources)
+      source.onended = () => {
+        sources.delete(source)
+        if (!sources.size) relaySourcesRef.current.delete(packet.from)
+      }
+      source.start(startAt)
+      relayPlaybackTimesRef.current.set(packet.from, startAt + buffer.duration)
+    } catch {
+      // A damaged packet should not stop playback of subsequent packets.
     }
-  }, [liveAudioPackets, playerId, directAudioPeers])
+  }), [playerId, subscribeLiveAudio])
 
   useEffect(() => {
     const waitingPlayers = players.filter(player => player.id !== playerId && player.connected && player.voice_ready
