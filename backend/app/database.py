@@ -169,7 +169,7 @@ def init_database():
         "selected_avatar": "VARCHAR(32) NOT NULL DEFAULT 'initial'",
         "last_seen_at": "TIMESTAMP",
         "typing_to_id": "INTEGER",
-        "typing_at": "DATETIME",
+        "typing_at": "TIMESTAMP",
         "message_privacy": "VARCHAR(16) NOT NULL DEFAULT 'everyone'",
     }
     with engine.begin() as connection:
