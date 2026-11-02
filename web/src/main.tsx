@@ -508,7 +508,16 @@ function AppFrame() {
       <div className="side-caption second-caption">YOUR ACCOUNT</div>
       <nav className="side-nav">
         <NavLink to="/profile" onClick={() => setMenuOpen(false)} className={({ isActive }) => `nav-link ${isActive ? 'nav-active' : ''}`}><UserRound size={18} /><span>Profile</span></NavLink>
-        {(user?.is_admin || user?.email?.toLowerCase() === 'adokiyenengisa@gmail.com') && <NavLink to="/admin" onClick={() => setMenuOpen(false)} className={({ isActive }) => `nav-link ${isActive ? 'nav-active' : ''}`}><Shield size={18} /><span>Admin dashboard</span></NavLink>}
+        {user?.is_admin === true && (
+          <NavLink
+            to="/admin"
+            onClick={() => setMenuOpen(false)}
+            className={({ isActive }) => `nav-link ${isActive ? 'nav-active' : ''}`}
+          >
+            <Shield size={18} />
+            <span>Admin dashboard</span>
+          </NavLink>
+        )}
         <NavLink to="/settings" onClick={() => setMenuOpen(false)} className={({ isActive }) => `nav-link ${isActive ? 'nav-active' : ''}`}><Settings size={18} /><span>Settings</span></NavLink>
         <NavLink to="/help" onClick={() => setMenuOpen(false)} className={({ isActive }) => `nav-link ${isActive ? 'nav-active' : ''}`}><CircleHelp size={18} /><span>Help & rules</span></NavLink>
       </nav>
