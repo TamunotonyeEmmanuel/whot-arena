@@ -1,3 +1,6 @@
+import os
+import re
+import secrets
 from datetime import timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -5,12 +8,18 @@ from sqlalchemy import and_, delete, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from google.auth.exceptions import GoogleAuthError
+from google.auth.transport.requests import Request
+from google.oauth2 import id_token
+
 from .auth import create_access_token, current_user, get_db, hash_password, verify_password
 from .database import DirectMessage, Friendship, MatchInvitation, MatchParticipant, MatchResult, User, UserBlock, utcnow
-from .schemas import (AuthResponse, CosmeticsRequest, DirectMessageCreate,
-                      DirectMessageResponse, LoginRequest, MatchHistoryResponse,
-                      MatchInvitationCreate, PublicPlayerResponse, RegisterRequest,
-                      TypingRequest, UserResponse)
+from .schemas import (
+    AuthResponse, CosmeticsRequest, DirectMessageCreate, DirectMessageResponse,
+    GoogleCredentialRequest, LoginRequest, MatchHistoryResponse,
+    MatchInvitationCreate, PublicPlayerResponse, RegisterRequest, TypingRequest,
+    UserResponse,
+)
 
 
 router = APIRouter(prefix="/api", tags=["accounts"])
@@ -30,6 +39,37 @@ def blocked_between(first_id: int, second_id: int, db: Session):
     return db.scalar(select(UserBlock).where(or_(
         and_(UserBlock.blocker_id == first_id, UserBlock.blocked_id == second_id),
         and_(UserBlock.blocker_id == second_id, UserBlock.blocked_id == first_id))))
+
+
+def verify_google_credential(credential: str):
+    client_id = os.getenv("GOOGLE_CLIENT_ID", "").strip()
+    if not client_id:
+        raise HTTPException(status_code=503, detail="Google sign-in is not configured")
+    try:
+        claims = id_token.verify_oauth2_token(
+            credential,
+            Request(),
+            audience=client_id,
+        )
+    except (ValueError, GoogleAuthError) as error:
+        raise HTTPException(status_code=401, detail="Invalid Google credential") from error
+    if (claims.get("iss") not in {"accounts.google.com", "https://accounts.google.com"}
+            or not claims.get("sub")
+            or not claims.get("email")
+            or claims.get("email_verified") is not True):
+        raise HTTPException(status_code=401, detail="Google account email is not verified")
+    return claims
+
+
+def google_username(email: str, db: Session):
+    local_part = email.split("@", 1)[0].lower()
+    base = re.sub(r"[^a-z0-9_]", "_", local_part).strip("_")[:13] or "player"
+    for _ in range(10):
+        username = f"{base}_{secrets.token_hex(4)}"
+        exists = db.scalar(select(User.id).where(User.username.ilike(username)))
+        if exists is None:
+            return username
+    raise HTTPException(status_code=503, detail="Could not allocate a player name")
 
 
 @router.post("/auth/register", response_model=AuthResponse, status_code=status.HTTP_201_CREATED)
@@ -56,6 +96,35 @@ def login(payload: LoginRequest, db: Session = Depends(get_db)):
     user = db.scalar(select(User).where(User.email == str(payload.email).lower()))
     if not user or not verify_password(payload.password, user.password_hash):
         raise HTTPException(status_code=401, detail="Invalid email or password")
+    return AuthResponse(access_token=create_access_token(user), user=user)
+
+
+@router.post("/auth/google", response_model=AuthResponse)
+def google_login(payload: GoogleCredentialRequest, db: Session = Depends(get_db)):
+    claims = verify_google_credential(payload.credential)
+    google_sub = str(claims["sub"])
+    email = str(claims["email"]).strip().lower()
+    user = db.scalar(select(User).where(User.google_sub == google_sub))
+    if user is None:
+        user = db.scalar(select(User).where(User.email == email))
+        if user is not None and user.google_sub not in {None, google_sub}:
+            raise HTTPException(status_code=409, detail="This email is linked to another Google account")
+        if user is None:
+            user = User(
+                username=google_username(email, db),
+                email=email,
+                password_hash=hash_password(secrets.token_urlsafe(48)),
+            )
+            db.add(user)
+        user.google_sub = google_sub
+    try:
+        db.commit()
+    except IntegrityError as error:
+        db.rollback()
+        user = db.scalar(select(User).where(User.google_sub == google_sub))
+        if user is None:
+            raise HTTPException(status_code=409, detail="Google account is already linked") from error
+    db.refresh(user)
     return AuthResponse(access_token=create_access_token(user), user=user)
 
 

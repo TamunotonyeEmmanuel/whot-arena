@@ -4,7 +4,7 @@
 
 The browser app in `web/` is a React 19 + TypeScript SPA built by Vite, styled with Tailwind CSS and a small set of custom CSS rules, and routed with React Router. Lucide icons are used for action/navigation controls. The app is a separate client; it does not replace or compile the Flutter project.
 
-The browser uses `VITE_API_URL` for HTTP and `VITE_WS_URL` for the WebSocket. The defaults target local FastAPI on port 8000. In production these values are embedded at frontend build time and must use the public HTTPS and WSS API origins. Live voice uses peer-to-peer WebRTC by default; optional TURN URLs and credentials can be supplied with `VITE_TURN_URL`, `VITE_TURN_USERNAME`, and `VITE_TURN_CREDENTIAL`. Since all `VITE_*` values are public in the built client, never use long-lived TURN credentials. TURN configuration is currently build-time only; automatic short-lived credential refresh needs a runtime credential endpoint and is not implemented.
+The browser uses `VITE_API_URL` for HTTP and `VITE_WS_URL` for the WebSocket. The defaults target local FastAPI on port 8000. In production these values are embedded at frontend build time and must use the public HTTPS and WSS API origins. Google sign-in uses the public `VITE_GOOGLE_CLIENT_ID` in the browser and the matching server-side `GOOGLE_CLIENT_ID` as the token audience. Google ID tokens are verified by the backend before account creation or linking; a verified Google email can link to an existing WHOT account. All `VITE_*` values are public and must not contain secrets. Live voice uses peer-to-peer WebRTC by default; optional TURN URLs and credentials can be supplied with `VITE_TURN_URL`, `VITE_TURN_USERNAME`, and `VITE_TURN_CREDENTIAL`. Since all `VITE_*` values are public in the built client, never use long-lived TURN credentials. TURN configuration is currently build-time only; automatic short-lived credential refresh needs a runtime credential endpoint and is not implemented.
 
 The in-game phone also contains a standalone, local two-player snooker frame. Open the phone during an Arena session, tap **Snooker**, then use the aim and power controls to take shots. Snooker state is client-only and does not use the WHOT WebSocket or account match history.
 
@@ -15,7 +15,7 @@ Private rooms can opt into 2v2 teams. Seat order pairs players 1 and 3 against p
 | Route | Purpose | Backend contract |
 | --- | --- | --- |
 | `/` | Landing and game entry | None |
-| `/login`, `/register` | Account authentication | `POST /api/auth/login`, `POST /api/auth/register` |
+| `/login`, `/register` | Password and Google account authentication | `POST /api/auth/login`, `POST /api/auth/register`, `POST /api/auth/google` |
 | `/dashboard` | Player stats and game actions | `/api/profile` data when signed in |
 | `/tables` | Authenticated saved-table list, resume, and leave | `/api/tables`, `/api/tables/{code}/resume`, `/api/tables/{code}` |
 | `/create` | Private room or quick match | WebSocket `create`, `quick_match` |

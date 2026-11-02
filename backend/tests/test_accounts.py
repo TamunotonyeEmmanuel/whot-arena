@@ -2,6 +2,7 @@ from uuid import uuid4
 
 from fastapi.testclient import TestClient
 
+from app import accounts
 from app.game import Player, Room
 from app.database import ArenaTreasury, SessionLocal, User
 from app.main import (
@@ -61,6 +62,118 @@ def test_registration_validates_input_and_login_rejects_bad_password():
             "email": payload["email"], "password": "wrong-password",
         })
         assert rejected.status_code == 401
+
+
+def test_google_sign_in_creates_and_reuses_account(monkeypatch):
+    claims = {
+        "sub": "google-sub-123",
+        "email": "google.player@gmail.com",
+        "email_verified": True,
+        "iss": "https://accounts.google.com",
+    }
+    monkeypatch.setattr(accounts, "verify_google_credential", lambda credential: claims)
+
+    with TestClient(app) as client:
+        first = client.post("/api/auth/google", json={"credential": "google-token"})
+        second = client.post("/api/auth/google", json={"credential": "google-token"})
+
+    assert first.status_code == 200, first.text
+    assert second.status_code == 200, second.text
+    first_user = first.json()["user"]
+    second_user = second.json()["user"]
+    assert first_user["id"] == second_user["id"]
+    assert first_user["email"] == "google.player@gmail.com"
+    assert first_user["arena_coins"] == 10_000
+    assert first.json()["access_token"]
+    with SessionLocal() as db:
+        assert db.query(User).filter_by(google_sub="google-sub-123").count() == 1
+
+
+def test_google_sign_in_links_verified_email_to_existing_account(monkeypatch):
+    payload = credentials()
+    claims = {
+        "sub": "google-sub-link",
+        "email": payload["email"].upper(),
+        "email_verified": True,
+        "iss": "accounts.google.com",
+    }
+    monkeypatch.setattr(accounts, "verify_google_credential", lambda credential: claims)
+
+    with TestClient(app) as client:
+        registered = client.post("/api/auth/register", json=payload).json()
+        signed_in = client.post("/api/auth/google", json={"credential": "google-token"})
+        password_login = client.post("/api/auth/login", json={
+            "email": payload["email"],
+            "password": payload["password"],
+        })
+
+    assert signed_in.status_code == 200, signed_in.text
+    assert signed_in.json()["user"]["id"] == registered["user"]["id"]
+    assert password_login.status_code == 200
+    with SessionLocal() as db:
+        user = db.get(User, registered["user"]["id"])
+        assert user.google_sub == "google-sub-link"
+        assert user.arena_coins == 10_000
+
+
+def test_google_sign_in_rejects_another_identity_for_linked_email(monkeypatch):
+    claims = {
+        "sub": "google-sub-original",
+        "email": "linked.player@gmail.com",
+        "email_verified": True,
+        "iss": "https://accounts.google.com",
+    }
+    monkeypatch.setattr(accounts, "verify_google_credential", lambda credential: claims)
+
+    with TestClient(app) as client:
+        first = client.post("/api/auth/google", json={"credential": "first-token"})
+        claims["sub"] = "google-sub-other"
+        second = client.post("/api/auth/google", json={"credential": "second-token"})
+
+    assert first.status_code == 200
+    assert second.status_code == 409
+
+
+def test_google_credential_requires_server_configuration_and_verified_email(monkeypatch):
+    monkeypatch.delenv("GOOGLE_CLIENT_ID", raising=False)
+    with TestClient(app) as client:
+        unavailable = client.post("/api/auth/google", json={"credential": "google-token"})
+    assert unavailable.status_code == 503
+
+    monkeypatch.setenv("GOOGLE_CLIENT_ID", "client-id.apps.googleusercontent.com")
+    monkeypatch.setattr(accounts.id_token, "verify_oauth2_token", lambda *args, **kwargs: {
+        "sub": "google-sub-unverified",
+        "email": "unverified@gmail.com",
+        "email_verified": False,
+        "iss": "https://accounts.google.com",
+    })
+    with TestClient(app) as client:
+        rejected = client.post("/api/auth/google", json={"credential": "google-token"})
+    assert rejected.status_code == 401
+
+
+def test_google_credential_verification_uses_configured_client_id(monkeypatch):
+    client_id = "arena-client.apps.googleusercontent.com"
+    claims = {
+        "sub": "verified-google-sub",
+        "email": "verified@gmail.com",
+        "email_verified": True,
+        "iss": "https://accounts.google.com",
+    }
+    monkeypatch.setenv("GOOGLE_CLIENT_ID", client_id)
+    verifier_arguments = {}
+
+    def verify_token(token, request, audience):
+        verifier_arguments.update(token=token, audience=audience)
+        return claims
+
+    monkeypatch.setattr(accounts.id_token, "verify_oauth2_token", verify_token)
+
+    assert accounts.verify_google_credential("signed-google-token") == claims
+    assert verifier_arguments == {
+        "token": "signed-google-token",
+        "audience": client_id,
+    }
 
 
 def test_completed_match_updates_registered_player_statistics():

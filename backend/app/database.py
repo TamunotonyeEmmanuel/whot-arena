@@ -52,6 +52,8 @@ class User(Base):
 
     password_hash: Mapped[str] = mapped_column(String(255))
 
+    google_sub: Mapped[str | None] = mapped_column(String(255), nullable=True, unique=True, index=True)
+
     matches_played: Mapped[int] = mapped_column(Integer, default=0)
 
     wins: Mapped[int] = mapped_column(Integer, default=0)
@@ -383,6 +385,16 @@ def _add_room_memberships_v1(connection):
     ))
 
 
+def _add_google_account_id_v1(connection):
+    _add_missing_columns(connection, "users", {
+        "google_sub": (String(255), None),
+    })
+    connection.execute(text(
+        "CREATE UNIQUE INDEX IF NOT EXISTS ix_users_google_sub "
+        "ON users (google_sub)"
+    ))
+
+
 def _apply_migration(connection, name, upgrade):
     applied = connection.execute(
         text("SELECT name FROM data_migrations WHERE name = :name"),
@@ -424,6 +436,11 @@ def init_database():
             connection,
             "005_add_room_memberships",
             _add_room_memberships_v1,
+        )
+        _apply_migration(
+            connection,
+            "006_add_google_account_id",
+            _add_google_account_id_v1,
         )
 
 @contextmanager

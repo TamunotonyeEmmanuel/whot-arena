@@ -21,6 +21,7 @@ services:
       JWT_SECRET: ${JWT_SECRET:-development-only-change-before-public-use}
       ACCESS_TOKEN_MINUTES: ${ACCESS_TOKEN_MINUTES:-1440}
       ADMIN_EMAILS: ${ADMIN_EMAILS:-}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:8080}
     ports:
       - "8000:8000"
@@ -35,6 +36,7 @@ services:
       args:
         VITE_API_URL: ${VITE_API_URL:-http://localhost:8000}
         VITE_WS_URL: ${VITE_WS_URL:-ws://localhost:8000/ws}
+        VITE_GOOGLE_CLIENT_ID: ${VITE_GOOGLE_CLIENT_ID:-}
     ports:
       - "8080:80"
     depends_on:

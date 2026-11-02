@@ -59,6 +59,29 @@ type SavedTable = {
   players: Array<{ id: string; name: string; count: number; connected: boolean; is_bot: boolean; is_you: boolean }>
 }
 type TurnNotification = { room_code: string; status: string; id: number }
+type GoogleCredentialResponse = { credential: string }
+type GoogleIdentityServices = {
+  accounts: {
+    id: {
+      initialize: (options: {
+        client_id: string
+        callback: (response: GoogleCredentialResponse) => void
+      }) => void
+      renderButton: (element: HTMLElement, options: {
+        theme: 'outline'
+        size: 'large'
+        text: 'signin_with' | 'signup_with'
+        shape: 'rectangular'
+        width: number
+      }) => void
+    }
+  }
+}
+declare global {
+  interface Window {
+    google?: GoogleIdentityServices
+  }
+}
 type ArenaContextValue = {
   view: RoomView | null; session: Session | null; savedSession: Session | null; user: User | null; error: string
   connected: boolean; busy: boolean; clearError: () => void
@@ -78,10 +101,12 @@ type ArenaContextValue = {
   refreshTables: () => Promise<void>
   leaveTable: (code: string) => Promise<void>
   authenticate: (registering: boolean, values: Record<string, string>) => Promise<void>
+  authenticateGoogle: (credential: string) => Promise<void>
   signOut: () => void
 }
 
 const API_URL = (import.meta.env.VITE_API_URL || 'http://localhost:8000').replace(/\/$/, '')
+const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID || ''
 const WS_URL = import.meta.env.VITE_WS_URL || `${API_URL.replace(/^http/, 'ws')}/ws`
 const NOTIFICATION_WS_URL = `${WS_URL.replace(/\/$/, '')}/notifications`
 export function normalizeTurnUrl(value: string) {
@@ -651,6 +676,25 @@ function ArenaProvider({ children }: { children: React.ReactNode }) {
     finally { setBusy(false) }
   }
 
+  async function authenticateGoogle(credential: string) {
+    setBusy(true); setError('')
+    try {
+      const response = await fetch(`${API_URL}/api/auth/google`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ credential }),
+      })
+      const body = await response.json()
+      if (!response.ok) throw new Error(body.detail || 'Google sign-in failed')
+      localStorage.setItem('whot.token', body.access_token)
+      sessionStorage.removeItem('whot.token')
+      localStorage.setItem('whot.user', JSON.stringify(body.user))
+      setUser(body.user)
+      void refreshTables()
+    } catch (reason) { throw reason instanceof Error ? reason : new Error('Google sign-in failed') }
+    finally { setBusy(false) }
+  }
+
   function signOut() {
     sessionStorage.removeItem('whot.token'); localStorage.removeItem('whot.token'); localStorage.removeItem('whot.user')
     localStorage.removeItem('whot.session'); sessionStorage.removeItem('whot.session'); sessionRef.current = null
@@ -664,7 +708,7 @@ function ArenaProvider({ children }: { children: React.ReactNode }) {
     }
   }
 
-  return <Context.Provider value={{ view, session, savedSession, user, error, connected, busy, voiceUrls, requestVoice, rtcSignals, sendRtcSignal, subscribeLiveAudio, clearError: () => setError(''), connectRoom, send, leaveRoom, switchAway, resumeSavedRoom, switchActiveTable, tables, activeTableCount: tables.filter(table => table.status !== 'finished').length, turnNotifications, dismissTurnNotification, refreshTables, leaveTable, authenticate, signOut }}>{children}</Context.Provider>
+  return <Context.Provider value={{ view, session, savedSession, user, error, connected, busy, voiceUrls, requestVoice, rtcSignals, sendRtcSignal, subscribeLiveAudio, clearError: () => setError(''), connectRoom, send, leaveRoom, switchAway, resumeSavedRoom, switchActiveTable, tables, activeTableCount: tables.filter(table => table.status !== 'finished').length, turnNotifications, dismissTurnNotification, refreshTables, leaveTable, authenticate, authenticateGoogle, signOut }}>{children}</Context.Provider>
 }
 
 function useArena() {
@@ -896,9 +940,61 @@ function TablesPreview() {
 }
 
 function AuthPage({ registering = false }: { registering?: boolean }) {
-  const { authenticate, user, busy } = useArena()
+  const { authenticate, authenticateGoogle, user, busy } = useArena()
   const navigate = useNavigate()
   const [formError, setFormError] = useState('')
+  const googleButton = useRef<HTMLDivElement>(null)
+  const authenticateGoogleRef = useRef(authenticateGoogle)
+  authenticateGoogleRef.current = authenticateGoogle
+  useEffect(() => {
+    if (!GOOGLE_CLIENT_ID || user || !googleButton.current) return
+    let active = true
+    const handleScriptError = () => setFormError('Google sign-in could not be loaded. Please use email and password.')
+    const renderGoogleButton = () => {
+      if (!active || !googleButton.current) return
+      if (!window.google) {
+        setFormError('Google sign-in could not be loaded. Please use email and password.')
+        return
+      }
+      window.google.accounts.id.initialize({
+        client_id: GOOGLE_CLIENT_ID,
+        callback: response => {
+          if (!response.credential) return
+          void authenticateGoogleRef.current(response.credential)
+            .then(() => navigate('/dashboard'))
+            .catch(error => setFormError(error instanceof Error ? error.message : 'Could not sign in with Google'))
+        },
+      })
+      window.google.accounts.id.renderButton(googleButton.current, {
+        theme: 'outline',
+        size: 'large',
+        text: registering ? 'signup_with' : 'signin_with',
+        shape: 'rectangular',
+        width: Math.min(360, Math.floor(googleButton.current.clientWidth)),
+      })
+    }
+    let script = document.getElementById('google-identity-services') as HTMLScriptElement | null
+    if (window.google) {
+      renderGoogleButton()
+    } else {
+      if (!script) {
+        script = document.createElement('script')
+        script.id = 'google-identity-services'
+        script.src = 'https://accounts.google.com/gsi/client'
+        script.async = true
+        script.defer = true
+        document.head.appendChild(script)
+      }
+      script.addEventListener('load', renderGoogleButton)
+      script.addEventListener('error', handleScriptError)
+    }
+    return () => {
+      active = false
+      script?.removeEventListener('load', renderGoogleButton)
+      script?.removeEventListener('error', handleScriptError)
+      if (googleButton.current) googleButton.current.replaceChildren()
+    }
+  }, [navigate, registering, user])
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault(); setFormError('')
     const values = Object.fromEntries(new FormData(event.currentTarget).entries()) as Record<string, string>
@@ -906,7 +1002,7 @@ function AuthPage({ registering = false }: { registering?: boolean }) {
     catch (error) { setFormError(error instanceof Error ? error.message : 'Could not sign in') }
   }
   if (user) return <div className="center-state"><Check size={28} /><h2>You are signed in</h2><Link to="/dashboard" className="button button-green">Go to dashboard</Link></div>
-  return <div className="auth-wrap"><Link to="/" className="back-link"><ArrowLeft size={15} /> Back to arena</Link><div className="auth-panel"><span className="auth-emblem">W</span><Eyebrow>{registering ? 'JOIN THE ARENA' : 'WELCOME BACK'}</Eyebrow><h1>{registering ? 'Create your player account.' : 'Good games start here.'}</h1><p>{registering ? 'Save your player stats and take your wins across sessions.' : 'Sign in to keep track of your wins and player profile.'}</p><form onSubmit={submit} className="form-stack">{registering && <Field label="Player name" name="username" placeholder="e.g. AdaPlays" minLength={3} maxLength={24} required />}<Field label="Email address" name="email" type="email" placeholder="you@example.com" required /><Field label="Password" name="password" type="password" placeholder="At least 8 characters" minLength={registering ? 8 : undefined} required />{formError && <p role="alert" className="form-error">{formError}</p>}<button disabled={busy} className="button button-lime full-button">{busy ? 'Please wait…' : registering ? 'Create account' : 'Sign in'} <ArrowRight size={16} /></button></form><div className="auth-switch">{registering ? 'Already have a player account?' : 'New to the Arena?'} <Link to={registering ? '/login' : '/register'}>{registering ? 'Sign in' : 'Create one'}</Link></div><div className="guest-note"><Shield size={15} /> Guest games are available without signing in.</div></div></div>
+  return <div className="auth-wrap"><Link to="/" className="back-link"><ArrowLeft size={15} /> Back to arena</Link><div className="auth-panel"><span className="auth-emblem">W</span><Eyebrow>{registering ? 'JOIN THE ARENA' : 'WELCOME BACK'}</Eyebrow><h1>{registering ? 'Create your player account.' : 'Good games start here.'}</h1><p>{registering ? 'Save your player stats and take your wins across sessions.' : 'Sign in to keep track of your wins and player profile.'}</p><form onSubmit={submit} className="form-stack">{registering && <Field label="Player name" name="username" placeholder="e.g. AdaPlays" minLength={3} maxLength={24} required />}<Field label="Email address" name="email" type="email" placeholder="you@example.com" required /><Field label="Password" name="password" type="password" placeholder="At least 8 characters" minLength={registering ? 8 : undefined} required />{formError && <p role="alert" className="form-error">{formError}</p>}<button disabled={busy} className="button button-lime full-button">{busy ? 'Please wait…' : registering ? 'Create account' : 'Sign in'} <ArrowRight size={16} /></button></form><div className="auth-switch">{registering ? 'Already have a player account?' : 'New to the Arena?'} <Link to={registering ? '/login' : '/register'}>{registering ? 'Sign in' : 'Create one'}</Link></div>{GOOGLE_CLIENT_ID ? <><div className="auth-divider"><span>OR</span></div><div className="google-signin" ref={googleButton} aria-label={registering ? 'Sign up with Google' : 'Sign in with Google'} /></> : <p className="google-unavailable">Google sign-in is not configured.</p>}<div className="guest-note"><Shield size={15} /> Guest games are available without signing in.</div></div></div>
 }
 
 function Field({ label, name, type = 'text', placeholder, required, minLength, maxLength, defaultValue }: { label: string; name: string; type?: string; placeholder?: string; required?: boolean; minLength?: number; maxLength?: number; defaultValue?: string }) { return <label className="field-label">{label}<input name={name} type={type} placeholder={placeholder} minLength={minLength} maxLength={maxLength} required={required} defaultValue={defaultValue} autoComplete={name === 'password' ? 'current-password' : name === 'email' ? 'email' : 'nickname'} /></label> }

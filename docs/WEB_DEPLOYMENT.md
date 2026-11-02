@@ -4,16 +4,18 @@
 
 This repository is prepared for a Vercel static frontend and free Render API/database resources. Free Render is a demo tier, not suitable for production: the API sleeps after 15 minutes without inbound traffic (including WebSocket traffic), wake-up may take about a minute, and the free PostgreSQL database expires after 30 days with a 14-day recovery window before deletion. Free databases also have no backups and a 1 GB limit. The backend persists active-room snapshots in the configured database and restores games after a restart, pausing active matches until players reconnect. Room coordination and WebSocket connections remain process-local, so the API must remain a single instance.
 
-1. In Render, create a Blueprint from this repository and select `render.yaml`. The Blueprint provisions a free PostgreSQL database and one free API instance. Set the prompted `CORS_ORIGINS` value to the exact production Vercel origin, `https://whot-arena.vercel.app` (no trailing slash). Keep `ENVIRONMENT=production`; the Blueprint generates `JWT_SECRET` and uses the database's internal connection string. Wait for `/health` to pass and note the API URL, normally `https://whot-arena-api.onrender.com`.
+1. In Render, create a Blueprint from this repository and select `render.yaml`. The Blueprint provisions a free PostgreSQL database and one free API instance. Set the prompted `CORS_ORIGINS` value to the exact production Vercel origin, `https://whot-arena.vercel.app` (no trailing slash), and set `GOOGLE_CLIENT_ID` to the Google OAuth Web client ID (or leave it blank until Google sign-in is configured). Keep `ENVIRONMENT=production`; the Blueprint generates `JWT_SECRET` and uses the database's internal connection string. Wait for `/health` to pass and note the API URL, normally `https://whot-arena-api.onrender.com`.
 2. In Vercel, import the same repository and set the project Root Directory to `web`. The included `web/vercel.json` builds the Vite app and rewrites client routes to `index.html`.
 3. Before deploying on Vercel, set these Production environment variables using the actual Render API hostname:
 
 	```dotenv
 	VITE_API_URL=https://whot-arena-api.onrender.com
 	VITE_WS_URL=wss://whot-arena-api.onrender.com/ws
+	VITE_GOOGLE_CLIENT_ID=<Google OAuth Web client ID>
 	```
 
-4. Deploy the Vercel project. If its production domain differs from the origin entered in Render, update Render's `CORS_ORIGINS` to the exact assigned domain and redeploy/restart the API.
+	Create a Google OAuth 2.0 **Web application** client in Google Cloud Console. Add the production frontend origin (for example `https://whot-arena.vercel.app`) and local development origin (`http://localhost:5173`) to its authorized JavaScript origins. Set the same client ID as the private Render backend environment variable `GOOGLE_CLIENT_ID`. The client ID is public; do not configure a client secret for this sign-in flow.
+4. Deploy the Vercel project. If its production domain differs from the origin entered in Render, update Render's `CORS_ORIGINS` and Google's authorized JavaScript origins to the exact assigned domain and redeploy/restart the API.
 5. Verify the Vercel site can register/login, create/join a room in two browsers, record/play a voice note, and reconnect. Use the `wss://` endpoint; microphone capture requires HTTPS. Expect the first request after idle to wait for the Render service to wake.
 
 Vercel Preview deployments have distinct origins. They are intentionally not wildcard-allowed; add an exact preview origin to Render `CORS_ORIGINS` only when needed. Never place `JWT_SECRET`, database credentials, or Render secrets in Vercel variables; `VITE_*` values are public and embedded in the browser bundle.
@@ -31,16 +33,18 @@ POSTGRES_PASSWORD=<unique-database-password>
 DATABASE_URL=postgresql+psycopg://whot:<url-encoded-password>@postgres:5432/whot_arena
 ACCESS_TOKEN_MINUTES=1440
 ADMIN_EMAILS=admin@example.com
+GOOGLE_CLIENT_ID=<Google OAuth Web client ID>
 CORS_ORIGINS=https://play.example.com
 VITE_API_URL=https://api.example.com
 VITE_WS_URL=wss://api.example.com/ws
+VITE_GOOGLE_CLIENT_ID=<same Google OAuth Web client ID>
 ```
 
 Generate a secret with a password manager or a cryptographically secure local generator. Do not commit `.env`, secrets, or production tokens. Production startup rejects the development JWT fallback/short secrets and wildcard CORS. Ensure `CORS_ORIGINS` is a comma-separated list of exact frontend origins, including scheme and port where relevant.
 
 ## Docker Compose deployment
 
-The repository Compose stack includes PostgreSQL, the single-process FastAPI service, and an Nginx-served static web build. The Vite API/WebSocket URLs are build arguments, so changing them requires rebuilding the frontend image.
+The repository Compose stack includes PostgreSQL, the single-process FastAPI service, and an Nginx-served static web build. The Vite API/WebSocket URLs and Google client ID are build arguments, so changing them requires rebuilding the frontend image.
 
 ```bash
 docker compose --env-file .env up --build -d
