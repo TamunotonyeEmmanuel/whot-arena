@@ -4,7 +4,7 @@ from contextlib import contextmanager
 
 from datetime import datetime, timezone
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, UniqueConstraint, create_engine, inspect, text
+from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, UniqueConstraint, create_engine, inspect, select, text
 
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship, sessionmaker
 
@@ -241,6 +241,58 @@ class DataMigration(Base):
     applied_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
+class RoomMembership(Base):
+    """Persistent association between an authenticated player and a game table.
+
+    A player can hold memberships in several rooms at once. Membership is
+    preserved across browser refreshes, network drops, and supported server
+    restarts. The active WebSocket session is tracked separately in memory.
+    """
+
+    __tablename__ = "room_memberships"
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "room_code", name="uq_room_membership_user_room"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+
+    room_code: Mapped[str] = mapped_column(
+        String(12),
+        nullable=False,
+        index=True,
+    )
+
+    status: Mapped[str] = mapped_column(
+        String(16),
+        default="active",
+        nullable=False,
+    )
+
+    joined_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utcnow,
+        nullable=False,
+    )
+
+    last_active_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utcnow,
+        nullable=False,
+    )
+
+    left_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+
+
 class ActiveRoomSnapshot(Base):
 
     __tablename__ = "active_room_snapshots"
@@ -306,6 +358,31 @@ def _ensure_arena_treasury_v1(connection):
     ))
 
 
+def _add_room_memberships_v1(connection):
+    connection.execute(text(
+        "CREATE TABLE IF NOT EXISTS room_memberships ("
+        "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+        "user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, "
+        "room_code VARCHAR(12) NOT NULL, "
+        "status VARCHAR(16) NOT NULL DEFAULT 'active', "
+        "joined_at DATETIME NOT NULL DEFAULT (CURRENT_TIMESTAMP), "
+        "last_active_at DATETIME NOT NULL DEFAULT (CURRENT_TIMESTAMP), "
+        "left_at DATETIME NULL)"
+    ))
+    connection.execute(text(
+        "CREATE UNIQUE INDEX IF NOT EXISTS uq_room_membership_user_room "
+        "ON room_memberships (user_id, room_code)"
+    ))
+    connection.execute(text(
+        "CREATE INDEX IF NOT EXISTS idx_room_memberships_room "
+        "ON room_memberships (room_code)"
+    ))
+    connection.execute(text(
+        "CREATE INDEX IF NOT EXISTS idx_room_memberships_user "
+        "ON room_memberships (user_id)"
+    ))
+
+
 def _apply_migration(connection, name, upgrade):
     applied = connection.execute(
         text("SELECT name FROM data_migrations WHERE name = :name"),
@@ -342,6 +419,11 @@ def init_database():
             connection,
             "004_ensure_arena_treasury",
             _ensure_arena_treasury_v1,
+        )
+        _apply_migration(
+            connection,
+            "005_add_room_memberships",
+            _add_room_memberships_v1,
         )
 
 @contextmanager
@@ -398,3 +480,76 @@ def delete_active_room_snapshot(room_code):
         snapshot = session.get(ActiveRoomSnapshot, room_code)
         if snapshot is not None:
             session.delete(snapshot)
+
+
+def upsert_room_membership(session, user_id, room_code, status="active"):
+    """Create or reactivate a membership row for a player in a room."""
+    membership = session.execute(
+        select(RoomMembership).where(
+            RoomMembership.user_id == user_id,
+            RoomMembership.room_code == room_code,
+        )
+    ).scalar_one_or_none()
+    now = utcnow()
+    if membership is None:
+        membership = RoomMembership(
+            user_id=user_id,
+            room_code=room_code,
+            status=status,
+            joined_at=now,
+            last_active_at=now,
+            left_at=None,
+        )
+        session.add(membership)
+    else:
+        membership.status = status
+        membership.last_active_at = now
+        if status != "left":
+            membership.left_at = None
+    return membership
+
+
+def touch_room_membership(session, user_id, room_code):
+    membership = session.execute(
+        select(RoomMembership).where(
+            RoomMembership.user_id == user_id,
+            RoomMembership.room_code == room_code,
+        )
+    ).scalar_one_or_none()
+    if membership is None:
+        return None
+    membership.last_active_at = utcnow()
+    return membership
+
+
+def mark_room_membership_left(session, user_id, room_code):
+    membership = session.execute(
+        select(RoomMembership).where(
+            RoomMembership.user_id == user_id,
+            RoomMembership.room_code == room_code,
+        )
+    ).scalar_one_or_none()
+    if membership is None:
+        return None
+    membership.status = "left"
+    membership.left_at = utcnow()
+    membership.last_active_at = membership.left_at
+    return membership
+
+
+def list_room_memberships(session, user_id, statuses=("active", "away")):
+    return list(session.execute(
+        select(RoomMembership).where(
+            RoomMembership.user_id == user_id,
+            RoomMembership.status.in_(tuple(statuses)),
+        ).order_by(RoomMembership.last_active_at.desc())
+    ).scalars().all())
+
+
+def get_room_membership(session, user_id, room_code):
+    return session.execute(
+        select(RoomMembership).where(
+            RoomMembership.user_id == user_id,
+            RoomMembership.room_code == room_code,
+        )
+    ).scalar_one_or_none()

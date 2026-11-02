@@ -12,12 +12,15 @@ from fastapi import Depends, FastAPI, HTTPException, WebSocket, WebSocketDisconn
 from fastapi.middleware.cors import CORSMiddleware
 from .game import TURN_SECONDS, VOICE_MAX_BYTES, Room, Player
 from .accounts import router as accounts_router
+from .admin import router as admin_router
 from .auth import current_user, get_db, token_user_id
 from .database import (
     ActiveRoomSnapshot, ArenaTreasury, DATABASE_URL, MatchParticipant,
-    MatchResult, User, database_session, delete_active_room_snapshot,
-    init_database, load_active_room_snapshots, save_active_room_snapshot,
-    upsert_active_room_snapshot,
+    MatchResult, RoomMembership, User, database_session, delete_active_room_snapshot,
+    get_room_membership, init_database, list_room_memberships,
+    load_active_room_snapshots, mark_room_membership_left,
+    save_active_room_snapshot, touch_room_membership,
+    upsert_active_room_snapshot, upsert_room_membership, utcnow,
 )
 from sqlalchemy import func, select, text, update
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
@@ -25,6 +28,11 @@ from sqlalchemy.orm import Session
 
 rooms = {}
 connections = {}  # player id -> websocket
+# Track which authenticated user owns each player session, and every
+# session a user holds across tables. This is what makes multi-table
+# membership safe: a stale connection cannot hijack a resumed session.
+pid_user = {}  # player id -> user id
+user_pids = {}  # user id -> set of player ids
 RECONNECT_SECONDS = 30
 LOBBY_RECONNECT_SECONDS = 10 * 60
 LOBBY_IDLE_SECONDS = 15 * 60
@@ -142,6 +150,27 @@ def save_room_snapshot(room):
     )
 
 
+def register_player_session(pid, user_id):
+    """Record that a player session belongs to an authenticated user."""
+    pid_user[pid] = user_id
+    user_pids.setdefault(user_id, set()).add(pid)
+
+
+def unregister_player_session(pid):
+    """Drop a player session from the user index."""
+    user_id = pid_user.pop(pid, None)
+    if user_id is not None and user_id in user_pids:
+        user_pids[user_id].discard(pid)
+        if not user_pids[user_id]:
+            user_pids.pop(user_id, None)
+
+
+def user_has_session(user_id, exclude_pid=None):
+    """True when the user has an active session in another room."""
+    pids = user_pids.get(user_id, set())
+    return any(pid != exclude_pid for pid in pids if pid in connections)
+
+
 def restore_rooms():
     now = time.time()
     for code, snapshot_json, saved_at in load_active_room_snapshots():
@@ -195,20 +224,63 @@ def restore_rooms():
         if room.status == "finished" and not room.result_recorded:
             record_match(room)
         save_room_snapshot(room)
+        # Recover persistent memberships for this room so players can see
+        # their unfinished tables after a server restart.
+        with database_session() as db:
+            for player in room.players:
+                if player.is_bot or not player.user_id:
+                    continue
+                membership = get_room_membership(db, player.user_id, code)
+                if membership is None:
+                    upsert_room_membership(db, player.user_id, code, status="active")
+                elif membership.status == "left":
+                    membership.status = "active"
+                    membership.left_at = None
+                    membership.last_active_at = utcnow()
 
 
 async def send(ws, data):
     await ws.send_json(data)
 
-async def broadcast(room):
+
+async def broadcast(room, exclude_ws=None):
     save_room_snapshot(room)
     for p in room.players:
         ws = connections.get(p.id)
-        if ws:
-            try:
-                await send(ws, {"type": "state", "data": room.view(p.id)})
-            except Exception:
-                pass
+        if not ws or ws is exclude_ws:
+            continue
+        try:
+            await send(ws, {"type": "state", "data": room.view(p.id)})
+        except Exception:
+            pass
+
+
+async def notify_turn(room, player):
+    """Tell the authenticated user it is their turn in another table.
+
+    Only fires when the user is not currently connected to this room.
+    """
+    if not player.user_id:
+        return
+    pids = user_pids.get(player.user_id, set())
+    for pid in pids:
+        if pid == player.id:
+            continue
+        ws = connections.get(pid)
+        if ws is None:
+            continue
+        try:
+            await send(ws, {
+                "type": "turn_notification",
+                "room_code": room.code,
+                "player_name": player.name,
+                "is_paused": room.is_paused,
+                "pause_reason": room.pause_reason,
+                "status": room.status,
+            })
+        except Exception:
+            pass
+
 
 async def run_computer_turns(room):
     """Play computer turns with a visible thinking pause before every move."""
@@ -403,6 +475,7 @@ app.add_middleware(CORSMiddleware, allow_origins=allowed_origins,
                    allow_methods=["GET", "POST", "PUT", "DELETE"],
                    allow_headers=["Authorization", "Content-Type"])
 app.include_router(accounts_router)
+app.include_router(admin_router)
 
 @app.get("/health")
 def health(db: Session = Depends(get_db)):
@@ -429,6 +502,77 @@ def admin_overview(user: User = Depends(current_user), db: Session = Depends(get
         "admin_fees": treasury.virtual_naira_balance if treasury else 0,
         "rooms": [{"code": room.code, "status": room.status, "players": len(room.players), "wager": room.wager, "pot": room.wager * len([p for p in room.players if not p.is_bot])} for room in rooms.values()],
     }
+
+
+@app.get("/api/tables")
+def my_tables(user: User = Depends(current_user), db: Session = Depends(get_db)):
+    """List every unfinished table the authenticated player belongs to.
+
+    Safe summaries only — never exposes other players' hidden cards.
+    """
+    memberships = list_room_memberships(db, user.id)
+    tables = []
+    for membership in memberships:
+        room = rooms.get(membership.room_code)
+        if room is not None:
+            tables.append(room.summary_for_user(user.id))
+        else:
+            # Room is not currently in memory (server restart, idle expiry,
+            # or finished). Return a lightweight membership card so the
+            # player can still see the table and attempt a resume.
+            tables.append({
+                "code": membership.room_code,
+                "status": "reconnecting",
+                "player_count": 0,
+                "total_seats": 0,
+                "is_public": False,
+                "team_mode": False,
+                "wager": 0,
+                "wager_locked": False,
+                "wager_pot": 0,
+                "last_action": "Table not currently live",
+                "round_number": 1,
+                "is_paused": False,
+                "pause_reason": None,
+                "current_turn_player_id": None,
+                "current_turn_name": None,
+                "is_your_turn": False,
+                "your_player_id": None,
+                "your_connected": False,
+                "your_balance": None,
+                "players": [],
+            })
+    return {"tables": tables}
+
+
+@app.post("/api/tables/{code}/resume")
+def resume_table(code: str, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    """Verify ownership and return a reconnect token for a stored table."""
+    membership = get_room_membership(db, user.id, code.upper())
+    if membership is None or membership.status == "left":
+        raise HTTPException(status_code=404, detail="You do not belong to that table")
+    room = rooms.get(code.upper())
+    if room is None:
+        raise HTTPException(status_code=404, detail="Table is not currently live")
+    player = next((p for p in room.players if p.user_id == user.id), None)
+    if player is None:
+        raise HTTPException(status_code=404, detail="Your identity is not in this room")
+    return {
+        "code": room.code,
+        "player_id": player.id,
+        "reconnect_token": player.reconnect_token,
+        "status": room.status,
+    }
+
+
+@app.delete("/api/tables/{code}")
+def leave_table(code: str, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    """Mark a membership as left. The room keeps playing for others."""
+    membership = get_room_membership(db, user.id, code.upper())
+    if membership is None:
+        raise HTTPException(status_code=404, detail="You do not belong to that table")
+    mark_room_membership_left(db, user.id, code.upper())
+    return {"ok": True, "code": code.upper()}
 
 @app.websocket("/ws")
 async def ws_endpoint(ws: WebSocket):
@@ -476,6 +620,9 @@ async def ws_endpoint(ws: WebSocket):
                             room.start(pid)
                         rooms[code] = room
                         connections[pid] = ws
+                        register_player_session(pid, user_id)
+                        with database_session() as db:
+                            upsert_room_membership(db, user_id, code, status="active")
                         save_room_snapshot(room)
                     await send(ws, {"type": "session", "player_id": pid, "code": code,
                                     "reconnect_token": player.reconnect_token})
@@ -503,6 +650,9 @@ async def ws_endpoint(ws: WebSocket):
                             room = Room(code=code, host=pid, players=[player], is_public=True)
                             rooms[code] = room
                         connections[pid] = ws
+                        register_player_session(pid, user_id)
+                        with database_session() as db:
+                            upsert_room_membership(db, user_id, code, status="active")
                         save_room_snapshot(room)
                     await send(ws, {"type": "session", "player_id": pid, "code": code,
                                     "reconnect_token": player.reconnect_token})
@@ -525,6 +675,9 @@ async def ws_endpoint(ws: WebSocket):
                             raise ValueError("Sign in with enough Virtual Naira to join this table")
                         room.add_player(player)
                         connections[pid] = ws
+                        register_player_session(pid, user_id)
+                        with database_session() as db:
+                            upsert_room_membership(db, user_id, code, status="active")
                         save_room_snapshot(room)
                     await send(ws, {"type": "session", "player_id": pid, "code": code,
                                     "reconnect_token": player.reconnect_token})
@@ -541,6 +694,11 @@ async def ws_endpoint(ws: WebSocket):
                         p = room.player(candidate) if room else None
                         if not p or not token or not Room.reconnect_token_matches(p, token):
                             raise ValueError("Session not found")
+                        # Only the authenticated owner of the player session may
+                        # reconnect to it. This prevents impersonation.
+                        token_user = message_user_id(msg)
+                        if not token_user or p.user_id != token_user:
+                            raise ValueError("You are not allowed to resume this session")
                         previous_ws = connections.get(candidate)
                         pid, code = candidate, requested
                         p.connected, p.disconnected_at = True, None
@@ -548,6 +706,9 @@ async def ws_endpoint(ws: WebSocket):
                         reconnect_token = Room.rotate_reconnect_token(p)
                         room.updated_at = time.time()
                         connections[pid] = ws
+                        register_player_session(pid, p.user_id)
+                        with database_session() as db:
+                            touch_room_membership(db, p.user_id, code)
                         save_room_snapshot(room)
                     if previous_ws and previous_ws is not ws:
                         try:
@@ -558,6 +719,35 @@ async def ws_endpoint(ws: WebSocket):
                                     "reconnect_token": reconnect_token})
                     await broadcast(room)
                     queue_computer_turn(room)
+                elif action == "switch":
+                    # Move the player back to the My Tables screen without
+                    # leaving the room. Membership, cards and game state are
+                    # preserved. The room keeps playing for everyone else.
+                    if not pid or not code or connections.get(pid) is not ws:
+                        raise ValueError("No active room to switch away from")
+                    requested = str(msg.get("code", "")).upper()
+                    if requested and requested != code:
+                        raise ValueError("Switch target does not match your active room")
+                    async with state_lock:
+                        room = rooms.get(code)
+                        player = room.player(pid) if room else None
+                        if not player:
+                            raise ValueError("No active room to switch away from")
+                        connections.pop(pid, None)
+                        unregister_player_session(pid)
+                        player.connected = False
+                        player.voice_ready = False
+                        player.voice_speaking = False
+                        player.disconnected_at = time.time()
+                        room.pause_for_disconnect(player)
+                        room.updated_at = time.time()
+                        with database_session() as db:
+                            touch_room_membership(db, player.user_id, code)
+                    await send(ws, {"type": "switched", "code": code})
+                    await broadcast(room)
+                    pid, code = None, None
+                    await ws.close()
+                    return
                 elif action == "leave":
                     async with state_lock:
                         room = rooms.get(code or "")
@@ -565,6 +755,7 @@ async def ws_endpoint(ws: WebSocket):
                         if not room or not player or connections.get(pid) is not ws:
                             raise ValueError("No active room to leave")
                         connections.pop(pid, None)
+                        unregister_player_session(pid)
                         if room.status == "lobby":
                             room.players.remove(player)
                             if not room.players:
@@ -581,6 +772,8 @@ async def ws_endpoint(ws: WebSocket):
                             player.disconnected_at = time.time()
                             room.pause_for_disconnect(player)
                             room.updated_at = time.time()
+                        with database_session() as db:
+                            mark_room_membership_left(db, player.user_id, room.code)
                     await send(ws, {"type": "left"})
                     if rooms.get(room.code) is room:
                         await broadcast(room)
@@ -725,6 +918,12 @@ async def ws_endpoint(ws: WebSocket):
                     else:
                         await broadcast(room)
                         queue_computer_turn(room)
+                        # Notify authenticated players who are sitting out this
+                        # table that it is now their turn.
+                        if room.status == "playing" and room.players:
+                            current = room.current()
+                            if current and not current.connected and current.user_id:
+                                await notify_turn(room, current)
             except ValueError as e:
                 await send(ws, {"type": "error", "message": str(e)})
     except WebSocketDisconnect:

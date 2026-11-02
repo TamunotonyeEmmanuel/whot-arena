@@ -653,3 +653,42 @@ class Room:
                       "general_market": self.rules.general_market,
                       "penalty_stacking": self.rules.penalty_stacking},
         }
+
+    def summary_for_user(self, user_id):
+        """Safe table summary shown in the My Tables panel.
+
+        Never exposes other players' hidden cards or private balance data.
+        """
+        player = next((p for p in self.players if p.user_id == user_id), None)
+        current = self.current() if self.status == "playing" and self.players else None
+        is_your_turn = bool(
+            player and current and current.id == player.id and self.status == "playing"
+            and not self.is_paused
+        )
+        return {
+            "code": self.code,
+            "status": self.status,
+            "player_count": len([p for p in self.players if not p.is_bot]),
+            "total_seats": len(self.players),
+            "is_public": self.is_public,
+            "team_mode": self.team_mode,
+            "wager": self.wager,
+            "wager_locked": self.wager_locked,
+            "wager_pot": self.wager * len([p for p in self.players if not p.is_bot]),
+            "last_action": self.last_action,
+            "round_number": self.round_number,
+            "is_paused": self.is_paused,
+            "pause_reason": self.pause_reason,
+            "current_turn_player_id": current.id if current else None,
+            "current_turn_name": current.name if current else None,
+            "is_your_turn": is_your_turn,
+            "your_player_id": player.id if player else None,
+            "your_connected": player.connected if player else False,
+            "your_balance": player.coin_balance if player and player.user_id == user_id else None,
+            "players": [{
+                "id": p.id, "name": p.name, "count": len(p.hand),
+                "connected": p.connected, "is_bot": p.is_bot,
+                "team": self.team_number(p.id),
+                "is_you": bool(player and p.id == player.id),
+            } for p in self.players],
+        }

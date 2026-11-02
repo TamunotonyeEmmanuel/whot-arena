@@ -66,6 +66,7 @@ def test_database_migrations_preserve_existing_account_data(tmp_path, monkeypatc
         "002_add_message_delivery_fields",
         "003_add_match_idempotency_key",
         "004_ensure_arena_treasury",
+        "005_add_room_memberships",
     }
 
 
