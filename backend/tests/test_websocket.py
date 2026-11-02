@@ -69,6 +69,28 @@ def account_token(server_url):
         return json.loads(response.read())["access_token"]
 
 
+def api_json(server_url, path, token, method="GET"):
+    endpoint = server_url.replace("ws://", "http://", 1).removesuffix("/ws")
+    request = urllib.request.Request(
+        f"{endpoint}{path}",
+        method=method,
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=5) as response:
+            return response.status, json.loads(response.read())
+    except urllib.error.HTTPError as error:
+        return error.code, json.loads(error.read())
+
+
+def notification_socket(server_url, token):
+    endpoint = server_url.removesuffix("/ws") + "/ws/notifications"
+    socket = connect(endpoint)
+    send(socket, {"access_token": token})
+    assert receive_type(socket, "ready")["type"] == "ready"
+    return socket
+
+
 def launch_restart_test_server(database_url):
     with socket.socket() as probe:
         probe.bind(("127.0.0.1", 0))
@@ -100,24 +122,24 @@ def launch_restart_test_server(database_url):
     pytest.fail(f"Restart test server did not start: {output}")
 
 
-def create(socket, server_url, name="Ada", team_mode=False):
+def create(socket, server_url, name="Ada", team_mode=False, access_token=None):
     send(socket, {
         "action": "create",
         "name": name,
         "team_mode": team_mode,
-        "access_token": account_token(server_url),
+        "access_token": access_token or account_token(server_url),
     })
     session = receive_type(socket, "session")
     state = receive_type(socket, "state")["data"]
     return session, state
 
 
-def join(socket, server_url, code, name):
+def join(socket, server_url, code, name, access_token=None):
     send(socket, {
         "action": "join",
         "code": code,
         "name": name,
-        "access_token": account_token(server_url),
+        "access_token": access_token or account_token(server_url),
     })
     session = receive_type(socket, "session")
     state = receive_type(socket, "state")["data"]
@@ -125,12 +147,15 @@ def join(socket, server_url, code, name):
 
 
 def test_match_authorization_privacy_and_reconnect(server_url):
+    guest_token = account_token(server_url)
     with connect(server_url) as host:
         host_session, lobby = create(host, server_url)
         assert lobby["status"] == "lobby"
         assert host_session["reconnect_token"] not in repr(lobby)
         with connect(server_url) as guest:
-            guest_session, _ = join(guest, server_url, host_session["code"], "Ben")
+            guest_session, _ = join(
+                guest, server_url, host_session["code"], "Ben", guest_token,
+            )
             receive_type(host, "state")
             send(guest, {"action": "start"})
             assert receive_type(guest, "error")["message"] == "Only the host can start a lobby"
@@ -153,7 +178,8 @@ def test_match_authorization_privacy_and_reconnect(server_url):
         with connect(server_url) as restored:
             send(restored, {"action": "reconnect", "code": guest_session["code"],
                             "player_id": guest_session["player_id"],
-                            "reconnect_token": guest_session["reconnect_token"]})
+                            "reconnect_token": guest_session["reconnect_token"],
+                            "access_token": guest_token})
             assert receive_type(restored, "session")["player_id"] == guest_session["player_id"]
             assert len(receive_type(restored, "state")["data"]["hand"]) == 5
 
@@ -186,17 +212,181 @@ def test_team_room_requires_four_players_and_assigns_alternating_seats(server_ur
 
 
 def test_refresh_reconnect_replaces_the_previous_socket(server_url):
+    token = account_token(server_url)
     with connect(server_url) as original:
-        session, _ = create(original, server_url)
+        session, _ = create(original, server_url, access_token=token)
         with connect(server_url) as refreshed:
             send(refreshed, {"action": "reconnect", "code": session["code"],
                              "player_id": session["player_id"],
-                             "reconnect_token": session["reconnect_token"]})
+                             "reconnect_token": session["reconnect_token"],
+                             "access_token": token})
             resumed = receive_type(refreshed, "session")
             assert resumed["player_id"] == session["player_id"]
             state = receive_type(refreshed, "state")["data"]
             assert state["code"] == session["code"]
             assert state["players"][0]["connected"] is True
+
+
+def test_account_can_join_multiple_tables_and_cannot_duplicate_room_membership(server_url):
+    token = account_token(server_url)
+    with connect(server_url) as first:
+        send(first, {"action": "create", "name": "Ada", "access_token": token})
+        first_session = receive_type(first, "session")
+        receive_type(first, "state")
+        with connect(server_url) as second:
+            send(second, {"action": "create", "name": "Ada", "access_token": token})
+            second_session = receive_type(second, "session")
+            receive_type(second, "state")
+            assert first_session["code"] != second_session["code"]
+
+            with connect(server_url) as duplicate:
+                send(duplicate, {
+                    "action": "join",
+                    "code": first_session["code"],
+                    "name": "Ada again",
+                    "access_token": token,
+                })
+                assert "already belong" in receive_type(duplicate, "error")["message"]
+
+            status, response = api_json(server_url, "/api/tables", token)
+            assert status == 200
+            assert {table["code"] for table in response["tables"]} == {
+                first_session["code"], second_session["code"],
+            }
+            assert all(table["player_count"] == 1 for table in response["tables"])
+            status, resume = api_json(
+                server_url, f"/api/tables/{first_session['code']}/resume", token,
+                method="POST",
+            )
+            assert status == 200
+            assert resume["player_id"] == first_session["player_id"]
+
+            other_token = account_token(server_url)
+            status, _ = api_json(
+                server_url, f"/api/tables/{first_session['code']}/resume", other_token,
+                method="POST",
+            )
+            assert status == 404
+            status, _ = api_json(
+                server_url, f"/api/tables/{first_session['code']}", token,
+                method="DELETE",
+            )
+            assert status == 200
+            status, response = api_json(server_url, "/api/tables", token)
+            assert status == 200
+            assert [table["code"] for table in response["tables"]] == [
+                second_session["code"],
+            ]
+
+
+def test_switch_keeps_membership_and_does_not_pause_or_recharge_wager(server_url):
+    host_token = account_token(server_url)
+    guest_token = account_token(server_url)
+    with connect(server_url) as host:
+        send(host, {
+            "action": "create", "name": "Host", "access_token": host_token, "wager": 10,
+        })
+        session = receive_type(host, "session")
+        receive_type(host, "state")
+        with connect(server_url) as guest:
+            send(guest, {
+                "action": "join", "code": session["code"], "name": "Guest",
+                "access_token": guest_token,
+            })
+            receive_type(guest, "session")
+            receive_type(host, "state")
+            receive_type(guest, "state")
+            send(host, {"action": "start"})
+            host_state = receive_type(host, "state")["data"]
+            receive_type(guest, "state")
+            before = api_json(
+                server_url, "/api/profile", host_token,
+            )[1]["arena_coins"]
+            assert before == 9_990
+
+            send(host, {"action": "switch", "code": session["code"]})
+            assert receive_type(host, "switched")["code"] == session["code"]
+            guest_state = receive_type(guest, "state")["data"]
+            assert guest_state["status"] == "playing"
+            assert guest_state["is_paused"] is False
+
+            status, resumed = api_json(
+                server_url, f"/api/tables/{session['code']}/resume", host_token,
+                method="POST",
+            )
+            assert status == 200
+            with connect(server_url) as restored:
+                send(restored, {
+                    "action": "reconnect",
+                    "code": resumed["code"],
+                    "player_id": resumed["player_id"],
+                    "reconnect_token": resumed["reconnect_token"],
+                    "access_token": host_token,
+                })
+                receive_type(restored, "session")
+                restored_state = receive_type(restored, "state")["data"]
+                assert restored_state["hand"] == host_state["hand"]
+                after = api_json(
+                    server_url, "/api/profile", host_token,
+                )[1]["arena_coins"]
+                assert after == before
+
+
+def test_notification_socket_authenticates_and_reports_turn_in_another_table(server_url):
+    target_token = account_token(server_url)
+    host_token = account_token(server_url)
+    with notification_socket(server_url, target_token) as notifications:
+        with connect(server_url) as first_table:
+            send(first_table, {
+                "action": "create", "name": "Target", "access_token": target_token,
+            })
+            first_session = receive_type(first_table, "session")
+            receive_type(first_table, "state")
+            send(first_table, {"action": "switch", "code": first_session["code"]})
+            receive_type(first_table, "switched")
+
+            with connect(server_url) as host:
+                send(host, {"action": "create", "name": "Host", "access_token": host_token})
+                host_session = receive_type(host, "session")
+                receive_type(host, "state")
+                with connect(server_url) as target:
+                    send(target, {
+                        "action": "join", "code": host_session["code"],
+                        "name": "Target", "access_token": target_token,
+                    })
+                    receive_type(target, "session")
+                    receive_type(host, "state")
+                    receive_type(target, "state")
+                    send(host, {"action": "start"})
+                    receive_type(host, "state")
+                    receive_type(target, "state")
+                    send(target, {"action": "switch", "code": host_session["code"]})
+                    receive_type(target, "switched")
+                    receive_type(host, "state")
+
+                    send(host, {"action": "draw"})
+                    receive_type(host, "state")
+                    alert = receive_type(notifications, "turn_notification")
+                    assert alert["room_code"] == host_session["code"]
+                    assert alert["status"] == "playing"
+                    assert "hand" not in alert
+                    send(host, {"action": "chat", "text": "Still waiting"})
+                    receive_type(host, "state")
+                    with pytest.raises(TimeoutError):
+                        notifications.recv(timeout=0.2)
+
+
+def test_notification_socket_rejects_missing_authentication():
+    from fastapi.testclient import TestClient
+    from app.main import app
+
+    with TestClient(app) as client:
+        with client.websocket_connect("/ws/notifications") as socket:
+            socket.send_json({})
+            assert socket.receive_json()["type"] == "error"
+            with pytest.raises(WebSocketDisconnect) as closed:
+                socket.receive_json()
+            assert closed.value.code == 1008
 
 
 def test_live_voice_signaling_is_relayed_only_to_target_player(server_url):
@@ -369,11 +559,13 @@ def test_active_room_survives_backend_process_restart(tmp_path):
     database_url = f"sqlite:///{tmp_path / 'restart.db'}"
     process, server_url = launch_restart_test_server(database_url)
     try:
+        host_token = account_token(server_url)
+        guest_token = account_token(server_url)
         with connect(server_url) as host:
-            host_session, _ = create(host, server_url)
+            host_session, _ = create(host, server_url, access_token=host_token)
             with connect(server_url) as guest:
                 guest_session, _ = join(
-                    guest, server_url, host_session["code"], "Ben"
+                    guest, server_url, host_session["code"], "Ben", guest_token,
                 )
                 receive_type(host, "state")
                 send(host, {"action": "start"})
@@ -392,6 +584,7 @@ def test_active_room_survives_backend_process_restart(tmp_path):
                         "code": host_session["code"],
                         "player_id": host_session["player_id"],
                         "reconnect_token": host_session["reconnect_token"],
+                        "access_token": host_token,
                     })
                     restored_session = receive_type(restored_host, "session")
                     restored_state = receive_type(restored_host, "state")["data"]
@@ -405,6 +598,7 @@ def test_active_room_survives_backend_process_restart(tmp_path):
                             "code": guest_session["code"],
                             "player_id": guest_session["player_id"],
                             "reconnect_token": guest_session["reconnect_token"],
+                            "access_token": guest_token,
                         })
                         receive_type(restored_guest, "session")
                         guest_state = receive_type(restored_guest, "state")["data"]

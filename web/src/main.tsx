@@ -2,7 +2,7 @@ import React, { createContext, useContext, useEffect, useRef, useState } from 'r
 import { createPortal } from 'react-dom'
 import { createRoot } from 'react-dom/client'
 import { BrowserRouter, Link, NavLink, Navigate, Route, Routes, useLocation, useNavigate, useParams } from 'react-router-dom'
-import { ArrowLeft, ArrowRight, BatteryFull, BookOpen, Check, ChevronDown, CircleHelp, Clock3, Crown, DoorOpen, Gamepad2, History, Home, LogIn, LogOut, Menu, MessageCircle, Mic, MicOff, Moon, Pause, Play, Plus, Radio, Settings, Share2, Shield, Signal, Smartphone, Sparkles, Sun, Trophy, UserRound, Users, Volume2, Wallet, Wifi, X } from 'lucide-react'
+import { ArrowLeft, ArrowRight, BatteryFull, BookOpen, Check, ChevronDown, CircleHelp, Clock3, Crown, DoorOpen, Gamepad2, History, Home, LogIn, LogOut, Menu, MessageCircle, Mic, MicOff, Moon, Pause, Play, Plus, Radio, Settings, Share2, Shield, Signal, Smartphone, Sparkles, Sun, Table2, Trophy, UserRound, Users, Volume2, Wallet, Wifi, X } from 'lucide-react'
 import './styles.css'
 import './live-voice-control.css'
 import './table-layout.css'
@@ -45,6 +45,20 @@ type RoomView = {
 type Session = { player_id: string; code: string; reconnect_token: string }
 type User = { id: number; username: string; email: string; wins: number; arena_coins: number; matches_played: number; xp: number; level: number; win_streak: number; best_win_streak: number; achievements: string[]; unlocked_themes: string[]; unlocked_card_backs: string[]; unlocked_avatars: string[]; selected_theme: string; selected_card_back: string; selected_avatar: string; is_admin?: boolean }
 type MatchHistory = { room_code: string; result: 'win' | 'loss'; player_count: number; completed_at: string }
+type SavedTable = {
+  code: string
+  status: 'lobby' | 'playing' | 'finished' | 'reconnecting'
+  player_count: number
+  total_seats: number
+  wager: number
+  wager_pot: number
+  current_turn_name: string | null
+  is_your_turn: boolean
+  your_connected: boolean
+  participation_status: 'active' | 'away' | 'left'
+  players: Array<{ id: string; name: string; count: number; connected: boolean; is_bot: boolean; is_you: boolean }>
+}
+type TurnNotification = { room_code: string; status: string; id: number }
 type ArenaContextValue = {
   view: RoomView | null; session: Session | null; savedSession: Session | null; user: User | null; error: string
   connected: boolean; busy: boolean; clearError: () => void
@@ -54,13 +68,22 @@ type ArenaContextValue = {
   connectRoom: (action: string, values?: Record<string, unknown>) => Promise<Session>
   send: (action: string, values?: Record<string, unknown>) => void
   leaveRoom: () => void
+  switchAway: () => Promise<void>
   resumeSavedRoom: () => Promise<Session | null>
+  switchActiveTable: (code: string) => Promise<Session | null>
+  tables: SavedTable[]
+  activeTableCount: number
+  turnNotifications: TurnNotification[]
+  dismissTurnNotification: (id: number) => void
+  refreshTables: () => Promise<void>
+  leaveTable: (code: string) => Promise<void>
   authenticate: (registering: boolean, values: Record<string, string>) => Promise<void>
   signOut: () => void
 }
 
 const API_URL = (import.meta.env.VITE_API_URL || 'http://localhost:8000').replace(/\/$/, '')
 const WS_URL = import.meta.env.VITE_WS_URL || `${API_URL.replace(/^http/, 'ws')}/ws`
+const NOTIFICATION_WS_URL = `${WS_URL.replace(/\/$/, '')}/notifications`
 export function normalizeTurnUrl(value: string) {
   return value.trim().replace(/^(stuns?|turns?):\/\//i, '$1:')
 }
@@ -124,6 +147,8 @@ function ArenaProvider({ children }: { children: React.ReactNode }) {
     catch { return null }
   })
   const [savedSession, setSavedSession] = useState<Session | null>(() => readStored<Session>('whot.session'))
+  const [tables, setTables] = useState<SavedTable[]>([])
+  const [turnNotifications, setTurnNotifications] = useState<TurnNotification[]>([])
   const [user, setUser] = useState<User | null>(() => accessToken() ? readStored<User>('whot.user') : null)
   const [error, setError] = useState('')
   const [connected, setConnected] = useState(false)
@@ -131,8 +156,11 @@ function ArenaProvider({ children }: { children: React.ReactNode }) {
   const [rtcSignals, setRtcSignals] = useState<RtcSignal[]>([])
   const [busy, setBusy] = useState(false)
   const socketRef = useRef<WebSocket | null>(null)
+  const notificationSocketRef = useRef<WebSocket | null>(null)
   const sessionRef = useRef<Session | null>(session)
   const retryRef = useRef<number | null>(null)
+  const pendingSwitchRef = useRef<{ resolve: () => void; reject: (error: Error) => void; timer: number } | null>(null)
+  const pendingLeaveRef = useRef<{ resolve: () => void; reject: (error: Error) => void; timer: number } | null>(null)
   const activeRef = useRef(true)
   const voiceUrlsRef = useRef(new Set<string>())
   const liveAudioListenersRef = useRef(new Set<(packet: LiveAudioPacket) => void>())
@@ -145,6 +173,105 @@ function ArenaProvider({ children }: { children: React.ReactNode }) {
     setSavedSession(next)
     localStorage.setItem('whot.session', JSON.stringify(next))
     sessionStorage.setItem('whot.session', JSON.stringify(next))
+  }
+
+  async function refreshTables() {
+    const token = accessToken()
+    if (!token) {
+      setTables([])
+      return
+    }
+    try {
+      const response = await fetch(`${API_URL}/api/tables`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      if (!response.ok) throw new Error('Could not load your tables')
+      const body = await response.json() as { tables: SavedTable[] }
+      setTables(body.tables)
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'Could not load your tables')
+    }
+  }
+
+  async function leaveTable(code: string) {
+    const token = accessToken()
+    if (!token) throw new Error('Sign in to leave a table')
+    try {
+      if (sessionRef.current?.code === code && socketRef.current?.readyState === WebSocket.OPEN) {
+        await new Promise<void>((resolve, reject) => {
+          const timer = window.setTimeout(() => {
+            pendingLeaveRef.current = null
+            reject(new Error('The server did not confirm leaving the table'))
+          }, 5000)
+          pendingLeaveRef.current = {
+            resolve: () => {
+              window.clearTimeout(timer)
+              pendingLeaveRef.current = null
+              resolve()
+            },
+            reject: error => {
+              window.clearTimeout(timer)
+              pendingLeaveRef.current = null
+              reject(error)
+            },
+            timer,
+          }
+          socketRef.current?.send(JSON.stringify({ action: 'leave' }))
+        })
+      } else {
+        const response = await fetch(`${API_URL}/api/tables/${code}`, {
+          method: 'DELETE',
+          headers: { Authorization: `Bearer ${token}` },
+        })
+        if (!response.ok) throw new Error('Could not leave this table')
+      }
+      await refreshTables()
+    } catch (reason) {
+      const error = reason instanceof Error ? reason : new Error('Could not leave this table')
+      setError(error.message)
+      throw error
+    }
+  }
+
+  function receiveTurnNotification(message: { room_code?: string; status?: string }) {
+    if (!message.room_code) return
+    setTurnNotifications(previous => [
+      ...previous.slice(-4),
+      { id: Date.now() + Math.floor(Math.random() * 1000), room_code: message.room_code!, status: message.status || 'playing' },
+    ])
+    if (!document.hasFocus()) playGameSound('turn')
+  }
+
+  function switchAway() {
+    const activeSession = sessionRef.current
+    const socket = socketRef.current
+    if (!activeSession || !socket || socket.readyState !== WebSocket.OPEN) {
+      return Promise.reject(new Error('Reconnect to your current table before switching'))
+    }
+    return new Promise<void>((resolve, reject) => {
+      const timer = window.setTimeout(() => {
+        pendingSwitchRef.current = null
+        reject(new Error('The server did not confirm the table switch'))
+      }, 5000)
+      pendingSwitchRef.current = {
+        resolve: () => {
+          window.clearTimeout(timer)
+          pendingSwitchRef.current = null
+          resolve()
+        },
+        reject: error => {
+          window.clearTimeout(timer)
+          pendingSwitchRef.current = null
+          reject(error)
+        },
+        timer,
+      }
+      try {
+        socket.send(JSON.stringify({ action: 'switch', code: activeSession.code }))
+      } catch {
+        pendingSwitchRef.current.reject(new Error('Could not switch away from this table'))
+      }
+    })
   }
 
   function openSocket(payload: Record<string, unknown>): Promise<Session> {
@@ -162,10 +289,11 @@ function ArenaProvider({ children }: { children: React.ReactNode }) {
       }
       socket.onopen = () => {
         setConnected(true)
-        socket.send(JSON.stringify(payload))
+        const token = accessToken()
+        socket.send(JSON.stringify({ ...payload, ...(token ? { access_token: token } : {}) }))
       }
       socket.onmessage = event => {
-        let message: { type?: string; data?: RoomView; message?: string; player_id?: string; code?: string; reconnect_token?: string; id?: string; content_type?: string; audio?: string; from?: string; signal?: RtcSignal['signal'] }
+        let message: { type?: string; data?: RoomView; message?: string; player_id?: string; code?: string; reconnect_token?: string; id?: string; content_type?: string; audio?: string; from?: string; signal?: RtcSignal['signal']; room_code?: string; status?: string }
         try { message = JSON.parse(String(event.data)) } catch { setError('Received an unreadable server message.'); return }
         if (message.type === 'session' && message.player_id && message.code && message.reconnect_token) {
           const next = { player_id: message.player_id, code: message.code, reconnect_token: message.reconnect_token }
@@ -203,8 +331,34 @@ function ArenaProvider({ children }: { children: React.ReactNode }) {
           socket.onclose = null
           socket.close()
           if (socketRef.current === socket) socketRef.current = null
+          localStorage.removeItem('whot.session')
+          sessionStorage.removeItem('whot.session')
+          sessionRef.current = null
+          setSession(null)
+          setSavedSession(null)
+          setView(null)
+          setConnected(false)
+          pendingLeaveRef.current?.resolve()
+          void refreshTables()
+        } else if (message.type === 'switched') {
+          socket.onclose = null
+          socket.close()
+          if (socketRef.current === socket) socketRef.current = null
+          localStorage.removeItem('whot.session')
+          sessionStorage.removeItem('whot.session')
+          setView(null)
+          setSession(null)
+          setSavedSession(null)
+          sessionRef.current = null
+          setConnected(false)
+          pendingSwitchRef.current?.resolve()
+          void refreshTables()
+        } else if (message.type === 'turn_notification' && message.room_code) {
+          receiveTurnNotification(message)
         } else if (message.type === 'error') {
           setError(message.message || 'The server rejected that action.')
+          pendingSwitchRef.current?.reject(new Error(message.message || 'Could not switch tables'))
+          pendingLeaveRef.current?.reject(new Error(message.message || 'Could not leave the table'))
           if (payload.action === 'reconnect' && message.message === 'Session not found') {
             localStorage.removeItem('whot.session')
             sessionStorage.removeItem('whot.session')
@@ -219,10 +373,14 @@ function ArenaProvider({ children }: { children: React.ReactNode }) {
       }
       socket.onerror = () => {
         setConnected(false)
+        pendingSwitchRef.current?.reject(new Error('The game connection was lost before switching'))
+        pendingLeaveRef.current?.reject(new Error('The game connection was lost before leaving'))
         if (!settled) { settled = true; reject(new Error('Could not connect to the game server.')) }
       }
       socket.onclose = () => {
         setConnected(false)
+        pendingSwitchRef.current?.reject(new Error('The game connection was lost before switching'))
+        pendingLeaveRef.current?.reject(new Error('The game connection was lost before leaving'))
         if (activeRef.current && sessionRef.current) {
           if (retryRef.current) window.clearTimeout(retryRef.current)
           retryRef.current = window.setTimeout(() => {
@@ -248,6 +406,68 @@ function ArenaProvider({ children }: { children: React.ReactNode }) {
       if (socketRef.current) { socketRef.current.onclose = null; socketRef.current.close() }
     }
   }, [])
+
+  useEffect(() => {
+    const token = accessToken()
+    if (!user || !token) return
+    let active = true
+    let retryTimer: number | null = null
+    let heartbeatTimer: number | null = null
+    let authenticationRejected = false
+    let socket: WebSocket | null = null
+    const connect = () => {
+      socket = new WebSocket(NOTIFICATION_WS_URL)
+      notificationSocketRef.current = socket
+      socket.onopen = () => {
+        socket?.send(JSON.stringify({ access_token: token }))
+        heartbeatTimer = window.setInterval(() => {
+          if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ action: 'ping' }))
+        }, 30000)
+      }
+      socket.onmessage = event => {
+        let message: { type?: string; message?: string; room_code?: string; status?: string }
+        try {
+          message = JSON.parse(String(event.data))
+        } catch {
+          setError('Received an unreadable turn notification.')
+          return
+        }
+        if (message.type === 'turn_notification') receiveTurnNotification(message)
+        if (message.type === 'error') {
+          authenticationRejected = true
+          setError(message.message || 'Turn notifications are unavailable.')
+          socket?.close()
+        }
+      }
+      socket.onerror = () => socket?.close()
+      socket.onclose = event => {
+        if (heartbeatTimer !== null) window.clearInterval(heartbeatTimer)
+        heartbeatTimer = null
+        if (notificationSocketRef.current === socket) notificationSocketRef.current = null
+        if (active && !authenticationRejected && event.code !== 1008) {
+          retryTimer = window.setTimeout(connect, 2000)
+        }
+      }
+    }
+    connect()
+    return () => {
+      active = false
+      if (retryTimer !== null) window.clearTimeout(retryTimer)
+      if (heartbeatTimer !== null) window.clearInterval(heartbeatTimer)
+      if (notificationSocketRef.current === socket) notificationSocketRef.current = null
+      if (socket) {
+        socket.onclose = null
+        socket.close()
+      }
+    }
+  }, [user?.id])
+
+  useEffect(() => {
+    if (!user) return
+    void refreshTables()
+    const timer = window.setInterval(() => void refreshTables(), 15000)
+    return () => window.clearInterval(timer)
+  }, [user?.id])
 
   useEffect(() => () => {
     for (const url of voiceUrlsRef.current) URL.revokeObjectURL(url)
@@ -291,13 +511,90 @@ function ArenaProvider({ children }: { children: React.ReactNode }) {
   async function connectRoom(action: string, values: Record<string, unknown> = {}) {
     setBusy(true); setError('')
     if (retryRef.current) window.clearTimeout(retryRef.current)
-    if (socketRef.current) { socketRef.current.onclose = null; socketRef.current.close() }
-    sessionRef.current = null
     try {
+      if (sessionRef.current && socketRef.current?.readyState === WebSocket.OPEN) {
+        await switchAway()
+      } else if (socketRef.current) {
+        socketRef.current.onclose = null
+        socketRef.current.close()
+      }
+      sessionRef.current = null
       const savedToken = accessToken()
       const next = await openSocket({ action, ...values, ...(savedToken ? { access_token: savedToken } : {}) })
       return next
     } finally { setBusy(false) }
+  }
+
+  async function resumeSavedRoom() {
+    if (!savedSession) return null
+    if (sessionRef.current?.player_id === savedSession.player_id) return savedSession
+    setBusy(true); setError('')
+    if (retryRef.current) window.clearTimeout(retryRef.current)
+    try {
+      if (sessionRef.current && socketRef.current?.readyState === WebSocket.OPEN) {
+        await switchAway()
+      } else if (socketRef.current) {
+        socketRef.current.onclose = null
+        socketRef.current.close()
+      }
+      sessionRef.current = savedSession
+      setSession(savedSession)
+      sessionStorage.setItem('whot.session', JSON.stringify(savedSession))
+      return await openSocket({ action: 'reconnect', code: savedSession.code, player_id: savedSession.player_id, reconnect_token: savedSession.reconnect_token })
+    } catch (reason) {
+      sessionRef.current = null
+      setSession(null)
+      sessionStorage.removeItem('whot.session')
+      throw reason
+    } finally { setBusy(false) }
+  }
+
+  async function switchActiveTable(code: string) {
+    const token = accessToken()
+    if (!token) throw new Error('Sign in to switch tables')
+    if (sessionRef.current?.code === code && socketRef.current?.readyState === WebSocket.OPEN) {
+      return sessionRef.current
+    }
+    setBusy(true); setError('')
+    if (retryRef.current) window.clearTimeout(retryRef.current)
+    let switchedAway = false
+    try {
+      const response = await fetch(`${API_URL}/api/tables/${code}/resume`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      if (!response.ok) throw new Error((await response.json()).detail || 'You cannot resume that table')
+      const data = await response.json()
+      const next: Session = {
+        code: data.code,
+        player_id: data.player_id,
+        reconnect_token: data.reconnect_token,
+      }
+      if (sessionRef.current && socketRef.current?.readyState === WebSocket.OPEN) {
+        await switchAway()
+        switchedAway = true
+      } else if (socketRef.current) {
+        socketRef.current.onclose = null
+        socketRef.current.close()
+      }
+      saveSession(next)
+      return await openSocket({ action: 'reconnect', code: next.code, player_id: next.player_id, reconnect_token: next.reconnect_token })
+    } catch (reason) {
+      if (switchedAway) {
+        sessionRef.current = null
+        setSession(null)
+        setSavedSession(null)
+        setView(null)
+        localStorage.removeItem('whot.session')
+        sessionStorage.removeItem('whot.session')
+      }
+      const error = reason instanceof Error ? reason : new Error('Could not resume this table')
+      setError(error.message)
+      throw error
+    } finally { setBusy(false) }
+  }
+
+  function dismissTurnNotification(id: number) {
+    setTurnNotifications(previous => previous.filter(item => item.id !== id))
   }
 
   function send(action: string, values: Record<string, unknown> = {}) {
@@ -322,25 +619,6 @@ function ArenaProvider({ children }: { children: React.ReactNode }) {
       socket.onclose = null
       socket.close()
     }
-  }
-
-  async function resumeSavedRoom() {
-    if (!savedSession) return null
-    if (sessionRef.current?.player_id === savedSession.player_id) return savedSession
-    setBusy(true); setError('')
-    if (retryRef.current) window.clearTimeout(retryRef.current)
-    if (socketRef.current) { socketRef.current.onclose = null; socketRef.current.close() }
-    sessionRef.current = savedSession
-    setSession(savedSession)
-    sessionStorage.setItem('whot.session', JSON.stringify(savedSession))
-    try {
-      return await openSocket({ action: 'reconnect', code: savedSession.code, player_id: savedSession.player_id, reconnect_token: savedSession.reconnect_token })
-    } catch (reason) {
-      sessionRef.current = null
-      setSession(null)
-      sessionStorage.removeItem('whot.session')
-      throw reason
-    } finally { setBusy(false) }
   }
 
   function requestVoice(messageId: string) {
@@ -368,6 +646,7 @@ function ArenaProvider({ children }: { children: React.ReactNode }) {
       sessionStorage.removeItem('whot.token')
       localStorage.setItem('whot.user', JSON.stringify(body.user))
       setUser(body.user)
+      void refreshTables()
     } catch (reason) { throw reason instanceof Error ? reason : new Error('Authentication failed') }
     finally { setBusy(false) }
   }
@@ -376,10 +655,16 @@ function ArenaProvider({ children }: { children: React.ReactNode }) {
     sessionStorage.removeItem('whot.token'); localStorage.removeItem('whot.token'); localStorage.removeItem('whot.user')
     localStorage.removeItem('whot.session'); sessionStorage.removeItem('whot.session'); sessionRef.current = null
     setUser(null); setSession(null); setSavedSession(null); setView(null)
+    setTables([]); setTurnNotifications([])
     if (socketRef.current) { socketRef.current.onclose = null; socketRef.current.close() }
+    if (notificationSocketRef.current) {
+      notificationSocketRef.current.onclose = null
+      notificationSocketRef.current.close()
+      notificationSocketRef.current = null
+    }
   }
 
-  return <Context.Provider value={{ view, session, savedSession, user, error, connected, busy, voiceUrls, requestVoice, rtcSignals, sendRtcSignal, subscribeLiveAudio, clearError: () => setError(''), connectRoom, send, leaveRoom, resumeSavedRoom, authenticate, signOut }}>{children}</Context.Provider>
+  return <Context.Provider value={{ view, session, savedSession, user, error, connected, busy, voiceUrls, requestVoice, rtcSignals, sendRtcSignal, subscribeLiveAudio, clearError: () => setError(''), connectRoom, send, leaveRoom, switchAway, resumeSavedRoom, switchActiveTable, tables, activeTableCount: tables.filter(table => table.status !== 'finished').length, turnNotifications, dismissTurnNotification, refreshTables, leaveTable, authenticate, signOut }}>{children}</Context.Provider>
 }
 
 function useArena() {
@@ -395,6 +680,7 @@ function RequireLogin({ children }: { children: React.ReactNode }) {
 
 const navItems = [
   { to: '/dashboard', label: 'Dashboard', icon: Home },
+  { to: '/tables', label: 'My Tables', icon: Table2, badge: true },
   { to: '/create', label: 'Play a game', icon: Gamepad2 },
   { to: '/leaderboard', label: 'Leaderboard', icon: Trophy },
   { to: '/history', label: 'Game history', icon: History },
@@ -469,7 +755,7 @@ function ArenaBackgroundMusic() {
 }
 
 function AppFrame() {
-  const { user, session, view, connected, error, clearError, signOut } = useArena()
+  const { user, session, view, connected, error, clearError, signOut, activeTableCount } = useArena()
   const [menuOpen, setMenuOpen] = useState(false)
   const [theme, setTheme] = useState<ColorTheme>(preferredTheme)
   const location = useLocation()
@@ -504,7 +790,7 @@ function AppFrame() {
     <aside className={`sidebar ${menuOpen ? 'sidebar-open' : ''}`}>
       <Link to="/" className="brand"><span className="brand-mark">W</span><span>WHOT<span className="brand-light">ARENA</span></span></Link>
       <div className="side-caption">PLAY</div>
-      <nav className="side-nav">{navItems.map(({ to, label, icon: Icon }) => <NavLink key={to} to={to} onClick={() => setMenuOpen(false)} className={({ isActive }) => `nav-link ${isActive ? 'nav-active' : ''}`}><Icon size={18} strokeWidth={1.8} /><span>{label}</span></NavLink>)}</nav>
+      <nav className="side-nav">{navItems.map(({ to, label, icon: Icon, badge }) => <NavLink key={to} to={to} onClick={() => setMenuOpen(false)} className={({ isActive }) => `nav-link ${isActive ? 'nav-active' : ''}`}><Icon size={18} strokeWidth={1.8} /><span>{label}</span>{badge && <span className="nav-count" aria-label={`${activeTableCount} active tables`}>{activeTableCount}</span>}</NavLink>)}</nav>
       <div className="side-caption second-caption">YOUR ACCOUNT</div>
       <nav className="side-nav">
         <NavLink to="/profile" onClick={() => setMenuOpen(false)} className={({ isActive }) => `nav-link ${isActive ? 'nav-active' : ''}`}><UserRound size={18} /><span>Profile</span></NavLink>
@@ -535,6 +821,7 @@ function AppFrame() {
         <Route path="/login" element={<AuthPage />} />
         <Route path="/register" element={<AuthPage registering />} />
         <Route path="/dashboard" element={<Dashboard />} />
+        <Route path="/tables" element={<RequireLogin><MyTablesPage /></RequireLogin>} />
         <Route path="/create" element={<RequireLogin><CreateRoom /></RequireLogin>} />
         <Route path="/join" element={<RequireLogin><JoinRoom /></RequireLogin>} />
         <Route path="/lobby/:code" element={<RequireLogin><Lobby /></RequireLogin>} />
@@ -547,6 +834,7 @@ function AppFrame() {
         <Route path="/help" element={<HelpPage />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes></main>
+      <TurnNotifications />
       {(user || (session && view)) && <VoicePanel messages={view?.voice_messages || []} chatMessages={view?.chat_messages || []} playerId={session?.player_id || ''} enabled={view?.status === 'playing'} players={view?.players || (user ? [{ id: 'account', name: user.username, count: 0, connected: true }] : [])} balance={view?.players.find(player => player.id === session?.player_id)?.coin_balance || user?.arena_coins || 0} wager={view?.wager || 0} pot={view?.wager_pot || 0} username={user?.username} roomCode={session?.code} />}
     </div>
   </div>
@@ -566,13 +854,45 @@ function Landing() {
 }
 
 function Dashboard() {
-  const { user } = useArena()
+  const { user, tables, activeTableCount, switchActiveTable, busy } = useArena()
+  const navigate = useNavigate()
   const hour = new Date().getHours()
   const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening'
-  return <><PageTitle eyebrow="PLAYER DASHBOARD" title={`${greeting}${user ? `, ${user.username}` : ''}.`} detail="Pick up a game or see how you stack up." action={<Link className="button button-lime" to="/create"><Plus size={17} /> New game</Link>} />
+  const firstOpenTable = tables.find(table => table.status !== 'finished')
+  async function resumeFirstTable() {
+    if (!firstOpenTable) return
+    try {
+      const session = await switchActiveTable(firstOpenTable.code)
+      if (session) navigate(firstOpenTable.status === 'lobby' ? `/lobby/${session.code}` : `/game/${session.code}`)
+    } catch { /* the provider displays the error */ }
+  }
+  return <><PageTitle eyebrow="PLAYER DASHBOARD" title={`${greeting}${user ? `, ${user.username}` : ''}.`} detail="Pick up a game or see how you stack up." action={<Link className="button button-lime" to="/tables"><Table2 size={17} /> My tables <span className="button-count">{activeTableCount}</span></Link>} />
+    {activeTableCount > 0 && <div className="continue-table-banner"><span><Table2 size={16} /> You have {activeTableCount} {activeTableCount === 1 ? 'unfinished table' : 'unfinished tables'}. Resume any game without losing your cards.</span><div className="open-table-actions"><button type="button" className="button button-green" onClick={() => void resumeFirstTable()} disabled={busy}><Play size={15} /> Resume first table</button><Link className="button button-quiet" to="/tables">View all <ArrowRight size={15} /></Link></div></div>}
     <div className="dashboard-grid"><section className="content-panel feature-panel"><div className="panel-topline"><span className="small-label">YOUR NEXT GAME</span><span className="status-tag"><span className="status-dot online" /> OPEN</span></div><h2>Make the first move.</h2><p>Create a private table, invite up to three friends, and let the cards decide.</p><div className="panel-actions"><Link className="button button-green" to="/create"><Plus size={17} /> Create a room</Link><Link className="text-link" to="/join">Join with a code <ArrowRight size={15} /></Link></div><div className="panel-mark">W</div></section><section className="content-panel rank-panel"><div className="panel-topline"><span className="small-label">THE ARENA</span><Trophy size={18} /></div><h3>Play. Win. Climb.</h3><p>Rankings update after completed matches with registered players.</p><Link className="text-link" to="/leaderboard">View leaderboard <ArrowRight size={15} /></Link><div className="rank-decoration"><span /><span /><span /><span /><span /></div></section></div>
-    <div className="section-heading"><div><span className="small-label">KEEP EXPLORING</span><h2>Make yourself at home</h2></div></div><div className="quick-grid"><Link to="/help" className="quick-action"><span className="quick-icon green"><BookOpen size={19} /></span><span><strong>Rules at a glance</strong><small>Learn the Arena's house rules</small></span><ArrowRight size={17} /></Link><Link to="/profile" className="quick-action"><span className="quick-icon coral"><UserRound size={19} /></span><span><strong>Your player profile</strong><small>Account and match statistics</small></span><ArrowRight size={17} /></Link><Link to="/settings" className="quick-action"><span className="quick-icon gold"><Settings size={19} /></span><span><strong>Game settings</strong><small>Set your name and preferences</small></span><ArrowRight size={17} /></Link></div>
+    <div className="section-heading"><div><span className="small-label">KEEP EXPLORING</span><h2>Make yourself at home</h2></div></div><div className="quick-grid"><Link to="/tables" className="quick-action"><span className="quick-icon green"><Table2 size={19} /></span><span><strong>My tables</strong><small>{activeTableCount} saved {activeTableCount === 1 ? 'table' : 'tables'}</small></span><ArrowRight size={17} /></Link><Link to="/help" className="quick-action"><span className="quick-icon green"><BookOpen size={19} /></span><span><strong>Rules at a glance</strong><small>Learn the Arena's house rules</small></span><ArrowRight size={17} /></Link><Link to="/profile" className="quick-action"><span className="quick-icon coral"><UserRound size={19} /></span><span><strong>Your player profile</strong><small>Account and match statistics</small></span><ArrowRight size={17} /></Link><Link to="/settings" className="quick-action"><span className="quick-icon gold"><Settings size={19} /></span><span><strong>Game settings</strong><small>Set your name and preferences</small></span><ArrowRight size={17} /></Link></div>
+    <TablesPreview />
   </>
+}
+
+function TablesPreview() {
+  const { tables, switchActiveTable, leaveTable, busy } = useArena()
+  const navigate = useNavigate()
+  if (!tables.length) return null
+  return <section className="content-panel tables-preview-panel">
+    <div className="tables-preview-head"><span className="small-label">RESUME YOUR TABLES</span><span>{tables.length} {tables.length === 1 ? 'table' : 'tables'}</span></div>
+    <div className="tables-preview-list">
+      {tables.slice(0, 3).map(table => (
+        <div className="tables-preview-row" key={table.code}>
+          <div><strong>{table.code}</strong><small>{table.status || 'reconnecting'}</small></div>
+          <div className="tables-preview-actions">
+            <button type="button" className="button button-green" disabled={busy} onClick={() => void switchActiveTable(table.code).then(session => session && navigate(`/game/${session.code}`))}>Resume</button>
+            <button type="button" className="button button-quiet" onClick={() => void leaveTable(table.code)}>Leave</button>
+          </div>
+        </div>
+      ))}
+    </div>
+    <div className="tables-preview-foot"><Link to="/tables">Manage all tables <ArrowRight size={15} /></Link></div>
+  </section>
 }
 
 function AuthPage({ registering = false }: { registering?: boolean }) {
@@ -731,7 +1051,7 @@ function WinnerCelebration({ name, champion = false }: { name: string; champion?
 
 function GameTable() {
   const { code = '' } = useParams()
-  const { view, session, send, leaveRoom } = useArena()
+  const { view, session, send, leaveRoom, switchAway, busy } = useArena()
   const [selectedWhot, setSelectedWhot] = useState<Card | null>(null)
   const [shape, setShape] = useState('circle')
   const [toast, setToast] = useState('')
@@ -783,6 +1103,15 @@ function GameTable() {
     leaveRoom()
     navigate('/dashboard')
   }
+  async function switchTables() {
+    if (wagerLocked && !window.confirm('Switch tables now? Your locked stake stays in the pot and your cards are preserved.')) return
+    try {
+      await switchAway()
+      navigate('/tables')
+    } catch (reason) {
+      setToast(reason instanceof Error ? reason.message : 'Could not switch tables')
+    }
+  }
   return (
     <div className={`game-page theme-${me?.table_theme || 'classic'} card-back-${me?.card_back || 'classic'}`}>
       {view.status === 'finished' && <WinnerCelebration name={view.match_winner ? championName : winnerName} champion={Boolean(view.match_winner)} />}
@@ -796,7 +1125,7 @@ function GameTable() {
           {view.wager > 0 && <span className="table-wager">₦{view.wager_pot.toLocaleString()} VIRTUAL POT</span>}
         </div>
         <div className="match-scoreboard" aria-label={`Best of three match score, round ${view.round_number}`}><span>ROUND {view.round_number} · BEST OF 3</span><div>{view.team_mode ? [1, 2].map(team => { const key = `team-${team}`; const members = view.players.filter(player => player.team === team).map(player => player.name).join(' & '); return <span className={matchWinner?.team === team ? 'score-champion' : ''} key={key}><strong>Team {team} · {members}</strong><b>{view.round_wins[key] || 0}</b><small>{view.match_points[key] || 0} pts</small></span> }) : view.players.map(player => <span className={player.id === view.match_winner ? 'score-champion' : ''} key={player.id}><strong>{player.name}</strong><b>{view.round_wins[player.id] || 0}</b><small>{view.match_points[player.id] || 0} pts</small></span>)}</div></div>
-        <div className="game-actions">{view.host === session?.player_id && !view.is_public && view.status === 'playing' && <button type="button" className="button button-outline game-pause" disabled={view.is_paused && view.pause_reason !== 'manual'} onClick={() => send('pause')}>{view.is_paused && view.pause_reason === 'manual' ? <><Play size={15} /> Resume</> : <><Pause size={15} /> Pause</>}</button>}<button type="button" className="button button-outline game-leave" title="Leave room and return to dashboard" onClick={exitRoom}><DoorOpen size={15} /> Leave room</button></div>
+        <div className="game-actions">{view.host === session?.player_id && !view.is_public && view.status === 'playing' && <button type="button" className="button button-outline game-pause" disabled={view.is_paused && view.pause_reason !== 'manual'} onClick={() => send('pause')}>{view.is_paused && view.pause_reason === 'manual' ? <><Play size={15} /> Resume</> : <><Pause size={15} /> Pause</>}</button>}<button type="button" className="button button-outline game-switch" title="Keep this table and choose another" disabled={busy} onClick={() => void switchTables()}><Table2 size={15} /> Switch table</button><button type="button" className="button button-outline game-leave" title="Leave room and return to dashboard" onClick={exitRoom}><DoorOpen size={15} /> Leave room</button></div>
       </div>
       <div className={`game-layout ${opponents.every(player => player.is_bot) ? 'solo-layout' : ''}`}>
       <div className="table-column">
@@ -1540,6 +1869,73 @@ const rules = [
   ['14', 'General Market', 'Every opponent draws one card, then you play again.'],
   ['20', 'WHOT', 'Choose the next shape. WHOT can be played at any time.'],
 ]
+function MyTablesPage() {
+  const { tables, switchActiveTable, leaveTable, refreshTables, busy } = useArena()
+  const navigate = useNavigate()
+  const [confirming, setConfirming] = useState<string | null>(null)
+  async function resume(table: SavedTable) {
+    try {
+      const session = await switchActiveTable(table.code)
+      if (session) navigate(table.status === 'lobby' ? `/lobby/${session.code}` : `/game/${session.code}`)
+    } catch { /* error already surfaced */ }
+  }
+  function confirmLeave(code: string) {
+    setConfirming(code)
+  }
+  async function doLeave(code: string) {
+    try {
+      await leaveTable(code)
+      setConfirming(null)
+    } catch {
+      return
+    }
+  }
+  return <><PageTitle eyebrow="MY TABLES" title="Your active tables." detail="Resume any unfinished game. Your cards, turn position and Virtual Naira stakes are preserved." action={<button type="button" className="button button-outline" onClick={() => void refreshTables()} disabled={busy}><Check size={16} /> Refresh</button>} />
+    {confirming && <div className="leave-confirm-modal" role="dialog" aria-modal="true" aria-labelledby="leave-confirm-title">
+      <div className="leave-confirm-card">
+        <h2 id="leave-confirm-title">Leave this table?</h2>
+        <p>Your membership will be removed. Leaving a private match may trigger its existing reconnect pause; any locked stake remains in the room.</p>
+        <div className="leave-confirm-actions">
+          <button type="button" className="button button-quiet" onClick={() => setConfirming(null)}>Cancel</button>
+          <button type="button" className="button button-coral" onClick={() => void doLeave(confirming)}>Leave table</button>
+        </div>
+      </div>
+    </div>}
+    {!tables.length ? <section className="content-panel tables-empty"><div className="tables-empty-icon"><Table2 size={26} /></div><span className="small-label">NO SAVED TABLES</span><h2>You are not at any table right now.</h2><p>Join or create a room and it will appear here so you can resume later.</p><div className="tables-empty-actions"><Link className="button button-green" to="/create"><Plus size={17} /> Create a room</Link><Link className="button button-quiet" to="/join">Join with a code</Link></div></section> : <div className="tables-grid">{tables.map(table => {
+      const statusLabel = table.status === 'playing' ? 'In progress' : table.status === 'lobby' ? 'Lobby' : table.status === 'finished' ? 'Finished' : 'Reconnecting'
+      const statusClass = table.status === 'playing' ? 'tables-status-playing' : table.status === 'lobby' ? 'tables-status-lobby' : ''
+      return <section className="content-panel table-card" key={table.code}>
+        <div className="table-card-head"><div><span className="small-label">ROOM CODE</span><strong>{table.code}</strong></div><span className={`status-tag ${statusClass}`}>{statusLabel}</span></div>
+        <div className="table-card-meta"><span><Users size={15} /> {table.player_count}/{table.total_seats || 4} players</span><span><Clock3 size={15} /> {table.current_turn_name ? `${table.current_turn_name}'s turn` : 'Waiting for host'}</span></div>
+        <div className="table-card-meta"><span className="table-participation">{table.participation_status === 'away' || !table.your_connected ? 'You are away' : 'You are participating'}</span>{table.wager > 0 && <span className="table-stake">₦{table.wager.toLocaleString()} stake · ₦{table.wager_pot.toLocaleString()} pot</span>}</div>
+        {table.players.length > 0 && <div className="table-player-list">{table.players.map(player => <span className={player.is_you ? 'table-player-you' : ''} key={player.id}>{player.name}{player.is_you ? ' (you)' : ''}{player.connected ? '' : ' · away'}</span>)}</div>}
+        <div className="table-card-actions">
+          <button type="button" className="button button-green" disabled={busy} onClick={() => void resume(table)}><Play size={15} /> Resume table</button>
+          <button type="button" className="button button-quiet" onClick={() => confirmLeave(table.code)}><DoorOpen size={15} /> Leave table</button>
+        </div>
+      </section>
+    })}</div>}
+    <p className="tables-footnote"><Shield size={15} /> Your Virtual Naira balance is never charged again when you resume a table. Switching rooms keeps your cards and turn position intact.</p>
+  </>
+}
+
+function TurnNotifications() {
+  const { turnNotifications, dismissTurnNotification, switchActiveTable, busy } = useArena()
+  const navigate = useNavigate()
+  if (!turnNotifications.length) return null
+  return <div className="turn-notifications" aria-live="polite">
+    {turnNotifications.map(notification => (
+      <div className="turn-notification" key={notification.id}>
+        <div><strong>It is your turn</strong><span>Room {notification.room_code} · {notification.status === 'playing' ? 'Game in progress' : 'Table update'}</span></div>
+        <div className="turn-notification-actions">
+          <button type="button" className="button button-green" disabled={busy} onClick={() => void switchActiveTable(notification.room_code).then(session => session && navigate(`/game/${session.code}`)).catch(() => undefined)}>Switch</button>
+          <button type="button" className="icon-button" aria-label="Dismiss" onClick={() => dismissTurnNotification(notification.id)}><X size={16} /></button>
+        </div>
+      </div>
+    ))}
+  </div>
+}
+
 function HelpPage() {
   return <><PageTitle eyebrow="HOW TO PLAY" title="Know the table." detail="These are WHOT Arena's chosen house rules, enforced by the game server." /><section className="rules-intro"><div><span className="small-label">THE OBJECT</span><h2>Be the first to play every card in your hand.</h2><p>Match the top card by shape or number, or draw one card and pass.</p></div><div className="rule-visual"><span className="rule-number">20</span><span>✦</span><small>WILD</small></div></section><div className="rules-grid">{rules.map(([number, title, description]) => <article className="rule-row" key={number}><span className={`rule-token tone-${shapeTone[number === '20' ? 'whot' : 'star']}`}>{number}</span><div><strong>{title}</strong><p>{description}</p></div><ChevronDown size={16} /></article>)}</div><div className="rules-note"><BookOpen size={17} /><div><strong>Penalty blocking and Last Card</strong><p>Pick Two only stacks on Pick Two, while Pick Three only stacks on Pick Three. A player without the matching penalty card picks the accumulated total and loses their turn. When you reach one card, press LAST CARD before the next game action or pick two cards. The CPU must declare too. Special cards 1, 2, 5, 8, 14, and 20 cannot finish a round.</p></div></div><div className="help-actions"><Link className="button button-green" to="/create"><Gamepad2 size={16} /> Start a game</Link><Link className="text-link" to="/settings">Game settings <ArrowRight size={15} /></Link></div></>
 }

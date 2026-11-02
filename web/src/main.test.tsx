@@ -1,7 +1,40 @@
-import { render, screen } from '@testing-library/react'
+import { cleanup, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { App, Avatar, CardFace, RematchAction, microphoneFailureMessage, normalizeTurnUrl, relayPlaybackStartAt, shouldUseRelayFallback } from './main'
+
+class NotificationTestSocket {
+  static OPEN = 1
+  readyState = NotificationTestSocket.OPEN
+  onopen: ((event: Event) => void) | null = null
+  onmessage: ((event: MessageEvent) => void) | null = null
+  onerror: ((event: Event) => void) | null = null
+  onclose: ((event: CloseEvent) => void) | null = null
+
+  constructor() {
+    window.setTimeout(() => this.onopen?.(new Event('open')), 0)
+  }
+
+  send() {}
+
+  close() {
+    this.readyState = 3
+    this.onclose?.(new CloseEvent('close'))
+  }
+}
+
+beforeEach(() => {
+  localStorage.clear()
+  sessionStorage.clear()
+  vi.stubGlobal('WebSocket', NotificationTestSocket)
+})
+
+afterEach(() => {
+  cleanup()
+  vi.unstubAllGlobals()
+  localStorage.clear()
+  sessionStorage.clear()
+})
 
 describe('WHOT Arena web client', () => {
   it('navigates from the landing screen to the rules page', async () => {
@@ -91,5 +124,40 @@ describe('WHOT Arena web client', () => {
       .toBe('turns:global.relay.metered.ca:443?transport=tcp')
     expect(normalizeTurnUrl('turn:relay.example:3478?transport=udp'))
       .toBe('turn:relay.example:3478?transport=udp')
+  })
+
+  it('lists authenticated tables with player, turn, stake, and participation details', async () => {
+    localStorage.setItem('whot.token', 'account-token')
+    localStorage.setItem('whot.user', JSON.stringify({
+      id: 1, username: 'Ada', email: 'ada@example.com', wins: 0, arena_coins: 500,
+      matches_played: 0, xp: 0, level: 1, win_streak: 0, best_win_streak: 0,
+      achievements: [], unlocked_themes: ['classic'], unlocked_card_backs: ['classic'],
+      unlocked_avatars: ['initial'], selected_theme: 'classic',
+      selected_card_back: 'classic', selected_avatar: 'initial', is_admin: false,
+    }))
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        tables: [{
+          code: 'A1B2C3', status: 'playing', player_count: 2, total_seats: 2,
+          wager: 50, wager_pot: 100, current_turn_name: 'Ada', is_your_turn: true,
+          your_connected: false, participation_status: 'away',
+          players: [
+            { id: 'ada', name: 'Ada', count: 5, connected: false, is_bot: false, is_you: true },
+            { id: 'ben', name: 'Ben', count: 4, connected: true, is_bot: false, is_you: false },
+          ],
+        }],
+      }),
+    }))
+    window.history.pushState({}, '', '/tables')
+    render(<App />)
+
+    expect(await screen.findByText('A1B2C3')).toBeInTheDocument()
+    expect(screen.getByText('2/2 players')).toBeInTheDocument()
+    expect(screen.getByText("Ada's turn")).toBeInTheDocument()
+    expect(screen.getByText('You are away')).toBeInTheDocument()
+    expect(screen.getByText('₦50 stake · ₦100 pot')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /resume table/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /leave table/i })).toBeInTheDocument()
   })
 })

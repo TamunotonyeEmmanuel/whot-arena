@@ -24,6 +24,9 @@ The test suites use the existing backend's FastAPI/pytest and WebSocket tests, p
 
 - Account registration/login validation, authenticated profile, leaderboard, and participant-specific history authorization.
 - Room creation/joining, host start authorization, room capacity, quick match, private hands, disconnect/reconnect, and wrong reconnect credentials.
+- Multiple memberships for one authenticated account, duplicate-room join rejection, membership-authorized resume, switch-away without pausing the room, and wager-preserving reconnect.
+- Dedicated notification socket authentication and turn alerts that expose only the room code/status, not private card data.
+- Browser My Tables summary rendering with player/turn/stake/participation status and accessible resume/leave controls; responsive styles are included but need a real-device visual smoke test.
 - Private 2v2 room creation, four-human start requirement, alternating seat teams, shared team scoring, and teammate LAST CARD call restrictions.
 - Active game recovery after terminating and restarting a backend process against the same database, including preserved private hands, pause-until-reconnected behavior, and reconnect-token validation.
 - Deal size, turn order, draw, legal-card enforcement, WHOT shape validation, Pick Two, Pick Three, Hold On, skip, General Market, immediate win, and host-only rematch reset.
