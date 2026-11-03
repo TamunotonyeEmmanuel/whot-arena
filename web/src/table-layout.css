@@ -109,11 +109,11 @@
   }
 
   .table-frame .table-felt {
-    width: 100%;
-    height: clamp(470px, calc(100dvh - 290px), 680px);
-    min-height: 470px;
-    aspect-ratio: auto;
-    justify-self: stretch;
+    width: min(100%, 640px);
+    height: auto;
+    min-height: 0;
+    aspect-ratio: 1 / 1;
+    justify-self: center;
   }
 
   .table-frame .hand-panel {
