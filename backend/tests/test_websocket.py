@@ -376,6 +376,42 @@ def test_notification_socket_authenticates_and_reports_turn_in_another_table(ser
                         notifications.recv(timeout=0.2)
 
 
+def test_notification_socket_does_not_notify_after_leaving_table(server_url):
+    target_token = account_token(server_url)
+    host_token = account_token(server_url)
+    with notification_socket(server_url, target_token) as notifications:
+        with connect(server_url) as host:
+            send(host, {"action": "create", "name": "Host", "access_token": host_token})
+            host_session = receive_type(host, "session")
+            receive_type(host, "state")
+            with connect(server_url) as target:
+                send(target, {
+                    "action": "join", "code": host_session["code"],
+                    "name": "Target", "access_token": target_token,
+                })
+                receive_type(target, "session")
+                receive_type(host, "state")
+                receive_type(target, "state")
+                send(host, {"action": "start"})
+                receive_type(host, "state")
+                receive_type(target, "state")
+                send(target, {"action": "switch", "code": host_session["code"]})
+                receive_type(target, "switched")
+                receive_type(host, "state")
+
+                status, response = api_json(
+                    server_url, f"/api/tables/{host_session['code']}", target_token,
+                    method="DELETE",
+                )
+                assert status == 200
+                assert response["code"] == host_session["code"]
+
+                send(host, {"action": "draw"})
+                receive_type(host, "state")
+                with pytest.raises(TimeoutError):
+                    notifications.recv(timeout=0.2)
+
+
 def test_notification_socket_rejects_missing_authentication():
     from fastapi.testclient import TestClient
     from app.main import app

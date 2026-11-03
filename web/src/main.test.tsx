@@ -1,10 +1,11 @@
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { App, Avatar, CardFace, RematchAction, microphoneFailureMessage, normalizeTurnUrl, relayPlaybackStartAt, shouldUseRelayFallback } from './main'
 
 class NotificationTestSocket {
   static OPEN = 1
+  static instances: NotificationTestSocket[] = []
   readyState = NotificationTestSocket.OPEN
   onopen: ((event: Event) => void) | null = null
   onmessage: ((event: MessageEvent) => void) | null = null
@@ -12,6 +13,7 @@ class NotificationTestSocket {
   onclose: ((event: CloseEvent) => void) | null = null
 
   constructor() {
+    NotificationTestSocket.instances.push(this)
     window.setTimeout(() => this.onopen?.(new Event('open')), 0)
   }
 
@@ -26,6 +28,7 @@ class NotificationTestSocket {
 beforeEach(() => {
   localStorage.clear()
   sessionStorage.clear()
+  NotificationTestSocket.instances = []
   vi.stubGlobal('WebSocket', NotificationTestSocket)
 })
 
@@ -177,5 +180,30 @@ describe('WHOT Arena web client', () => {
     expect(await screen.findByText(/configured API does not have GET \/api\/tables \(HTTP 404\)/)).toBeInTheDocument()
     expect(screen.queryByText('You are not at any table right now.')).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: /try again/i })).toBeInTheDocument()
+  })
+
+  it('keeps only one turn notification for each table', async () => {
+    localStorage.setItem('whot.token', 'account-token')
+    localStorage.setItem('whot.user', JSON.stringify({
+      id: 1, username: 'Ada', email: 'ada@example.com', wins: 0, arena_coins: 500,
+      matches_played: 0, xp: 0, level: 1, win_streak: 0, best_win_streak: 0,
+      achievements: [], unlocked_themes: ['classic'], unlocked_card_backs: ['classic'],
+      unlocked_avatars: ['initial'], selected_theme: 'classic',
+      selected_card_back: 'classic', selected_avatar: 'initial', is_admin: false,
+    }))
+    render(<App />)
+    await waitFor(() => expect(NotificationTestSocket.instances).toHaveLength(1))
+
+    const socket = NotificationTestSocket.instances[0]
+    const notification = {
+      type: 'turn_notification',
+      room_code: '3BB7D9',
+      status: 'playing',
+    }
+    socket.onmessage?.(new MessageEvent('message', { data: JSON.stringify(notification) }))
+    socket.onmessage?.(new MessageEvent('message', { data: JSON.stringify(notification) }))
+
+    expect(await screen.findByText('Room 3BB7D9 · Game in progress')).toBeInTheDocument()
+    expect(screen.getAllByText('Room 3BB7D9 · Game in progress')).toHaveLength(1)
   })
 })

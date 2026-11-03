@@ -221,6 +221,8 @@ function ArenaProvider({ children }: { children: React.ReactNode }) {
       }
       const body = await response.json() as { tables: SavedTable[] }
       setTables(body.tables)
+      const tableCodes = new Set(body.tables.map(table => table.code))
+      setTurnNotifications(previous => previous.filter(item => tableCodes.has(item.room_code)))
       setTablesError('')
     } catch (reason) {
       const message = reason instanceof Error ? reason.message : 'Could not load your tables'
@@ -271,10 +273,14 @@ function ArenaProvider({ children }: { children: React.ReactNode }) {
 
   function receiveTurnNotification(message: { room_code?: string; status?: string }) {
     if (!message.room_code) return
-    setTurnNotifications(previous => [
-      ...previous.slice(-4),
-      { id: Date.now() + Math.floor(Math.random() * 1000), room_code: message.room_code!, status: message.status || 'playing' },
-    ])
+    setTurnNotifications(previous => {
+      const notification = {
+        id: Date.now() + Math.floor(Math.random() * 1000),
+        room_code: message.room_code!,
+        status: message.status || 'playing',
+      }
+      return [...previous.filter(item => item.room_code !== notification.room_code), notification].slice(-5)
+    })
     if (!document.hasFocus()) playGameSound('turn')
   }
 
