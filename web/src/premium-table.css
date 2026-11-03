@@ -64,7 +64,7 @@
   border: 1px solid #ffffff17;
   border-radius: 14px;
   color: #f5f1e7;
-  background: #171426ed;
+  background: linear-gradient(135deg, #15563d, #103d30);
   box-shadow: 0 12px 32px #08071075, inset 0 1px #ffffff0d;
   backdrop-filter: blur(18px);
 }
@@ -717,7 +717,7 @@
   border: 1px solid #ffffff24;
   border-radius: 10px;
   color: #eee8da;
-  background: #1b172c;
+  background: linear-gradient(145deg, #1a6849, #12503a);
   cursor: pointer;
   font-size: 10px;
   font-weight: 800;
@@ -743,9 +743,9 @@
 .premium-game-controls .premium-action-play {
   min-width: 144px;
   border-color: #f2d18a;
-  color: #281c13;
-  background: linear-gradient(135deg, #ffe9a8, #d6a64c);
-  box-shadow: 0 5px 16px #b7893740;
+  color: #fff7e2;
+  background: linear-gradient(135deg, #1d7650, #14583e);
+  box-shadow: 0 5px 16px #092f2140;
 }
 
 .premium-game-controls .premium-action-draw {
