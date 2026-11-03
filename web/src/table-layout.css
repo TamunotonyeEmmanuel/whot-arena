@@ -62,6 +62,9 @@
 
 @media (min-width: 761px) {
   .table-frame {
+    position: relative;
+    inset: auto;
+    width: 100%;
     height: auto;
     min-height: 100dvh;
     overflow: visible;
@@ -157,6 +160,7 @@
   background: linear-gradient(135deg, #163d2dF2, #285a39F2);
   box-shadow: 0 16px 44px #07180d65, 0 0 0 5px #d5ef8826;
   text-align: center;
+  text-transform: uppercase;
   pointer-events: none;
   transform: translateX(-50%);
   animation: turn-popup-in 0.24s cubic-bezier(.16, .8, .25, 1) both;
