@@ -129,12 +129,13 @@ export function shouldUseRelayFallback(connectionState?: RTCPeerConnectionState)
   return connectionState !== 'connected' && connectionState !== 'closed'
 }
 type TurnSnapshot = Pick<RoomView, 'code' | 'status' | 'turn' | 'is_paused'>
-export function turnAnnouncement(previous: TurnSnapshot | null, current: TurnSnapshot, playerName?: string) {
+export function turnAnnouncement(previous: TurnSnapshot | null, current: TurnSnapshot, playerName?: string, viewerPlayerId?: string) {
   if (!previous || previous.code !== current.code || current.status !== 'playing'
       || current.is_paused || !current.turn) return null
   const started = previous.status !== 'playing' && current.status === 'playing'
   const changed = previous.status === 'playing' && previous.turn !== current.turn
   if (!started && !changed) return null
+  if (current.turn === viewerPlayerId) return 'Your turn'
   return `${playerName || 'A player'}'s turn`
 }
 export function relayPlaybackStartAt(previousTime: number | undefined, now: number) {
@@ -2061,7 +2062,7 @@ function TurnNotifications() {
 }
 
 function TurnChangePopup() {
-  const { view } = useArena()
+  const { view, session } = useArena()
   const [announcement, setAnnouncement] = useState('')
   const previousTurnRef = useRef<TurnSnapshot | null>(null)
 
@@ -2076,9 +2077,9 @@ function TurnChangePopup() {
     }
     previousTurnRef.current = current
     const playerName = view.players.find(player => player.id === view.turn)?.name
-    const nextAnnouncement = turnAnnouncement(previous, current, playerName)
+    const nextAnnouncement = turnAnnouncement(previous, current, playerName, session?.player_id)
     if (nextAnnouncement) setAnnouncement(nextAnnouncement)
-  }, [view?.code, view?.status, view?.turn, view?.is_paused, view?.players])
+  }, [view?.code, view?.status, view?.turn, view?.is_paused, view?.players, session?.player_id])
 
   useEffect(() => {
     if (!announcement) return

@@ -115,7 +115,7 @@ describe('WHOT Arena web client', () => {
     expect(shouldUseRelayFallback('closed')).toBe(false)
   })
 
-  it('announces turn changes by player name but ignores reconnect and pause state updates', () => {
+  it('announces own and opponent turns but ignores reconnect and pause state updates', () => {
     const previous = {
       code: 'A1B2C3',
       status: 'playing' as const,
@@ -129,8 +129,9 @@ describe('WHOT Arena web client', () => {
       is_paused: false,
     }
 
-    expect(turnAnnouncement(previous, { ...previous, turn: 'ben' }, 'Ben')).toBe("Ben's turn")
-    expect(turnAnnouncement(lobby, previous, 'Ada')).toBe("Ada's turn")
+    expect(turnAnnouncement(previous, { ...previous, turn: 'ben' }, 'Ben', 'ada')).toBe("Ben's turn")
+    expect(turnAnnouncement(previous, { ...previous, turn: 'ada' }, 'Ada', 'ada')).toBe('Your turn')
+    expect(turnAnnouncement(lobby, previous, 'Ada', 'ada')).toBe('Your turn')
     expect(turnAnnouncement(previous, { ...previous, is_paused: true }, 'Ada')).toBeNull()
     expect(turnAnnouncement(previous, { ...previous }, 'Ada')).toBeNull()
     expect(turnAnnouncement(null, previous, 'Ada')).toBeNull()
