@@ -164,6 +164,42 @@ describe('WHOT Arena web client', () => {
     expect(screen.getByRole('button', { name: /leave table/i })).toBeInTheDocument()
   })
 
+  it('uses POST when requesting a saved table resume session', async () => {
+    localStorage.setItem('whot.token', 'account-token')
+    localStorage.setItem('whot.user', JSON.stringify({
+      id: 1, username: 'Ada', email: 'ada@example.com', wins: 0, arena_coins: 500,
+      matches_played: 0, xp: 0, level: 1, win_streak: 0, best_win_streak: 0,
+      achievements: [], unlocked_themes: ['classic'], unlocked_card_backs: ['classic'],
+      unlocked_avatars: ['initial'], selected_theme: 'classic',
+      selected_card_back: 'classic', selected_avatar: 'initial', is_admin: false,
+    }))
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          tables: [{
+            code: 'A1B2C3', status: 'playing', player_count: 2, total_seats: 2,
+            wager: 0, wager_pot: 0, current_turn_name: null, is_your_turn: false,
+            your_connected: false, participation_status: 'away', players: [],
+          }],
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 405,
+        json: async () => ({ detail: 'Method Not Allowed' }),
+      })
+    vi.stubGlobal('fetch', fetchMock)
+    window.history.pushState({}, '', '/tables')
+    const user = userEvent.setup()
+    render(<App />)
+
+    await user.click(await screen.findByRole('button', { name: /resume table/i }))
+
+    expect(await screen.findByText('Method Not Allowed')).toBeInTheDocument()
+    expect(fetchMock.mock.calls[1][1]).toMatchObject({ method: 'POST' })
+  })
+
   it('explains that a missing saved-table endpoint is not an empty table list', async () => {
     localStorage.setItem('whot.token', 'account-token')
     localStorage.setItem('whot.user', JSON.stringify({

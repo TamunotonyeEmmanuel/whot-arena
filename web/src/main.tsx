@@ -602,6 +602,7 @@ function ArenaProvider({ children }: { children: React.ReactNode }) {
     let switchedAway = false
     try {
       const response = await fetch(`${API_URL}/api/tables/${code}/resume`, {
+        method: 'POST',
         headers: { Authorization: `Bearer ${token}` },
       })
       if (!response.ok) throw new Error((await response.json()).detail || 'You cannot resume that table')
