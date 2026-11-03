@@ -210,7 +210,7 @@ function ArenaProvider({ children }: { children: React.ReactNode }) {
       const response = await fetch(`${API_URL}/api/tables`, {
         headers: { Authorization: `Bearer ${token}` },
       })
-      if (!response.ok) throw new Error('Could not load your tables')
+      if (!response.ok) throw new Error(`Could not load your tables (HTTP ${response.status})`)
       const body = await response.json() as { tables: SavedTable[] }
       setTables(body.tables)
     } catch (reason) {

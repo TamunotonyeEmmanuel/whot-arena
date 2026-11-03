@@ -160,4 +160,20 @@ describe('WHOT Arena web client', () => {
     expect(screen.getByRole('button', { name: /resume table/i })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /leave table/i })).toBeInTheDocument()
   })
+
+  it('shows the HTTP status when the saved table request fails', async () => {
+    localStorage.setItem('whot.token', 'account-token')
+    localStorage.setItem('whot.user', JSON.stringify({
+      id: 1, username: 'Ada', email: 'ada@example.com', wins: 0, arena_coins: 500,
+      matches_played: 0, xp: 0, level: 1, win_streak: 0, best_win_streak: 0,
+      achievements: [], unlocked_themes: ['classic'], unlocked_card_backs: ['classic'],
+      unlocked_avatars: ['initial'], selected_theme: 'classic',
+      selected_card_back: 'classic', selected_avatar: 'initial', is_admin: false,
+    }))
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 500 }))
+    window.history.pushState({}, '', '/tables')
+    render(<App />)
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Could not load your tables (HTTP 500)')
+  })
 })
