@@ -41,7 +41,7 @@ Players match the top card by number or active shape; WHOT 20 is wild and reques
 - A player may draw one card and pass even when holding a playable card; the drawn card is not played immediately.
 - A player who reaches one card should declare LAST CARD. An opponent may call an undeclared player before the next game action to apply a two-card penalty; the penalty is not automatic. Bots declare automatically and call missed declarations on their turn.
 - Action cards cannot finish a hand; the player draws a replacement. Emptying a hand otherwise wins the round. If the market is exhausted, the lowest hand score wins (star cards count double and WHOT counts 20); the discard pile is not recycled.
-- A match is best of three rounds: the first player to win two rounds is the match winner.
+- A match is a single round; its winner is the match winner.
 - A turn lasts 30 seconds; active-game disconnect grace is 30 seconds and lobby reconnect grace is 10 minutes.
 
 These are configurable house-rule choices, not a claim that every Nigerian WHOT table uses the same variant. Runtime room creation does not currently expose a user-facing rules editor.

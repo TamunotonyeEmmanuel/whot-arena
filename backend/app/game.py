@@ -287,12 +287,11 @@ class Room:
         )
         self.match_points.setdefault(winner_key, 0)
         self.match_points[winner_key] += awarded
-        if self.round_wins[winner_key] >= 2:
-            self.match_winner = winner_id
+        self.match_winner = winner_id
         self.status = "finished"
         self.updated_at = time.time()
 
-    def start(self, pid, continue_match=False):
+    def start(self, pid):
         if pid != self.host or self.status != "lobby":
             raise ValueError("Only the host can start a lobby")
         if self.team_mode and (len(self.players) != 4
@@ -306,12 +305,11 @@ class Room:
             raise ValueError("All players must be connected before starting")
         for index, player in enumerate(self.players):
             player.team = index % 2 + 1 if self.team_mode else None
-        if not continue_match:
-            self.round_number = 1
-            self.round_wins = {key: 0 for key in self.score_keys()}
-            self.match_points = {key: 0 for key in self.score_keys()}
-            self.match_winner = None
-            self.match_id = secrets.token_urlsafe(32)
+        self.round_number = 1
+        self.round_wins = {key: 0 for key in self.score_keys()}
+        self.match_points = {key: 0 for key in self.score_keys()}
+        self.match_winner = None
+        self.match_id = secrets.token_urlsafe(32)
         self.deck = [{"shape": shape, "number": n, "id": secrets.token_hex(5)}
                      for shape, numbers in SHAPES.items() for n in numbers]
         self.deck += [{"shape": "whot", "number": 20, "id": secrets.token_hex(5)}
@@ -355,17 +353,13 @@ class Room:
         self.voice_messages.clear()
         self.voice_sent_at.clear()
         self.chat_messages.clear()
-        starts_new_match = self.match_winner is not None
-        if starts_new_match:
-            self.round_number = 1
-            self.round_wins = {key: 0 for key in self.score_keys()}
-            self.match_points = {key: 0 for key in self.score_keys()}
-            self.match_winner = None
-        else:
-            self.round_number += 1
+        self.round_number = 1
+        self.round_wins = {key: 0 for key in self.score_keys()}
+        self.match_points = {key: 0 for key in self.score_keys()}
+        self.match_winner = None
         self.status = "lobby"
-        self.start(self.host, continue_match=not starts_new_match)
-        self.last_action = "New match started" if self.round_number == 1 else f"Round {self.round_number} started"
+        self.start(self.host)
+        self.last_action = "New match started"
 
     def add_voice_message(self, pid, content_type, audio):
         player = self.player(pid)

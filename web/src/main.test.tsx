@@ -190,13 +190,13 @@ describe('WHOT Arena web client', () => {
       .toContain('No microphone was found')
   })
 
-  it('keeps new-match action in the room for any connected player', async () => {
+  it('keeps the new-match action in the room for any connected player', async () => {
     const onRematch = vi.fn()
     const user = userEvent.setup()
     render(<RematchAction players={[
       { id: 'host', name: 'Host', count: 0, connected: true },
       { id: 'guest', name: 'Guest', count: 0, connected: true },
-    ]} isNewMatch onRematch={onRematch} />)
+    ]} onRematch={onRematch} />)
 
     await user.click(screen.getByRole('button', { name: /new match/i }))
 
@@ -207,7 +207,7 @@ describe('WHOT Arena web client', () => {
     render(<RematchAction players={[
       { id: 'host', name: 'Host', count: 0, connected: true },
       { id: 'guest', name: 'Guest', count: 0, connected: false },
-    ]} isNewMatch onRematch={vi.fn()} />)
+    ]} onRematch={vi.fn()} />)
 
     expect(screen.getByRole('button', { name: 'Waiting for players to reconnect' })).toBeDisabled()
   })

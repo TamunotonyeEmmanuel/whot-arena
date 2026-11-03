@@ -1,7 +1,6 @@
 .table-frame {
   color: #f5f1e7;
-  background:
-    radial-gradient(ellipse at 50% 12%, #30224a 0, #19152d 42%, #100e20 100%);
+  background: linear-gradient(145deg, #211b32, #171426);
 }
 
 .table-frame .page-content {

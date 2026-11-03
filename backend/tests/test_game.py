@@ -569,31 +569,28 @@ def test_non_player_cannot_start_a_rematch():
     except ValueError as error:
         assert "connected player in this room" in str(error)
 
-def test_best_of_three_tracks_round_wins_points_and_match_champion():
+def test_single_game_sets_match_winner_and_rematch_resets_scores():
     r = setup()
     r.players[0].hand = []
     r.players[1].hand = [{"shape": "star", "number": 5, "id": "ten-points"}]
     r.finish_round("a")
     assert r.round_wins == {"a": 1, "b": 0}
     assert r.match_points == {"a": 10, "b": 0}
-    assert r.match_winner is None
+    assert r.match_winner == "a"
 
-    r.rematch("a")
-    assert r.round_number == 2
+    r.rematch("b")
+    assert r.round_number == 1
+    assert r.round_wins == {"a": 0, "b": 0}
+    assert r.match_points == {"a": 0, "b": 0}
+    assert r.match_winner is None
+    assert r.status == "playing"
+
     r.players[0].hand = [{"shape": "circle", "number": 7, "id": "seven"}]
     r.players[1].hand = []
     r.finish_round("b")
-    assert r.round_wins == {"a": 1, "b": 1}
-    assert r.match_points == {"a": 10, "b": 7}
-
-    r.rematch("a")
-    assert r.round_number == 3
-    r.players[0].hand = []
-    r.players[1].hand = [{"shape": "circle", "number": 4, "id": "four"}]
-    r.finish_round("a")
-    assert r.round_wins == {"a": 2, "b": 1}
-    assert r.match_points == {"a": 14, "b": 7}
-    assert r.match_winner == "a"
+    assert r.round_wins == {"a": 0, "b": 1}
+    assert r.match_points == {"a": 0, "b": 7}
+    assert r.match_winner == "b"
 
 def team_setup():
     room = Room("TEAMS", "a", [
@@ -617,10 +614,13 @@ def test_team_match_assigns_alternating_seats_and_shares_match_score():
 
     assert room.round_wins == {"team-1": 1, "team-2": 0}
     assert room.match_points == {"team-1": 17, "team-2": 0}
+    assert room.match_winner == "a"
 
     room.rematch("a")
+    assert room.round_wins == {"team-1": 0, "team-2": 0}
+    assert room.match_points == {"team-1": 0, "team-2": 0}
     room.finish_round("c")
-    assert room.round_wins == {"team-1": 2, "team-2": 0}
+    assert room.round_wins == {"team-1": 1, "team-2": 0}
     assert room.match_winner == "c"
 
 def test_team_match_requires_four_human_players():
