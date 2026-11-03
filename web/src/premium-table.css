@@ -640,29 +640,6 @@
   transform: translateX(-50%);
 }
 
-.premium-table-felt .reaction-picker {
-  position: absolute;
-  right: 7%;
-  bottom: 25%;
-  z-index: 4;
-  display: flex;
-  gap: 5px;
-}
-
-.premium-table-felt .reaction-picker button {
-  width: 32px;
-  height: 32px;
-  border: 1px solid #ffffff35;
-  border-radius: 50%;
-  background: #08251ed9;
-  cursor: pointer;
-  transition: transform .15s ease;
-}
-
-.premium-table-felt .reaction-picker button:hover {
-  transform: translateY(-3px) scale(1.08);
-}
-
 .premium-table-felt .premium-you-seat {
   position: absolute;
   bottom: 2.5%;
@@ -758,8 +735,7 @@
 }
 
 .premium-game-controls button:focus-visible,
-.premium-table-felt .pile-stack:focus-visible,
-.premium-table-felt .reaction-picker button:focus-visible {
+.premium-table-felt .pile-stack:focus-visible {
   outline: 3px solid #f1ce7b;
   outline-offset: 3px;
 }
@@ -1417,19 +1393,6 @@
     bottom: 23%;
     min-height: 32px;
     font-size: 8px;
-  }
-
-  .premium-table-felt .reaction-picker {
-    right: 5%;
-    bottom: 21%;
-    gap: 2px;
-  }
-
-  .premium-table-felt .reaction-picker button {
-    width: 26px;
-    height: 26px;
-    padding: 0;
-    font-size: 12px;
   }
 
   .premium-table-felt .premium-you-seat {
