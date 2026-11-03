@@ -410,6 +410,13 @@ html[data-theme="dark"] .button-danger {
   grid-column: 1 / -1;
 }
 
+.rules-step-actions {
+  display: flex;
+  grid-column: 1 / -1;
+  justify-content: space-between;
+  gap: 12px;
+}
+
 @media (max-width: 760px) {
   .rules-editor {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -420,6 +427,10 @@ html[data-theme="dark"] .button-danger {
   }
 
   .player-rules-panel > .rules-editor {
+    grid-column: 1;
+  }
+
+  .rules-step-actions {
     grid-column: 1;
   }
 }
@@ -457,6 +468,10 @@ html[data-theme="dark"] .button-danger {
 
   .rules-stacking-toggle {
     grid-column: 1;
+  }
+
+  .rules-step-actions {
+    flex-direction: column-reverse;
   }
 }
 

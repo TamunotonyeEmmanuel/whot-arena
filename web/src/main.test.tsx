@@ -50,6 +50,43 @@ describe('WHOT Arena web client', () => {
     expect(screen.getByText('Pick Two')).toBeInTheDocument()
   })
 
+  it('shows private-match rules after setup and before opening the table', async () => {
+    localStorage.setItem('whot.token', 'account-token')
+    localStorage.setItem('whot.user', JSON.stringify({
+      id: 1, username: 'Ada', email: 'ada@example.com', wins: 0, arena_coins: 500,
+      matches_played: 0, xp: 0, level: 1, win_streak: 0, best_win_streak: 0,
+      achievements: [], unlocked_themes: ['classic'], unlocked_card_backs: ['classic'],
+      unlocked_avatars: ['initial'], selected_theme: 'classic',
+      selected_card_back: 'classic', selected_avatar: 'initial', is_admin: false,
+    }))
+    vi.stubGlobal('fetch', vi.fn().mockImplementation(async (url: string) => ({
+      ok: true,
+      json: async () => url.endsWith('/api/game-rules')
+        ? {
+          cards_per_player: 5, pick_two: 2, pick_three: 3, pick_three_enabled: true,
+          general_market: 1, penalty_stacking: true,
+        }
+        : { tables: [] },
+    })))
+    window.history.pushState({}, '', '/create')
+    const user = userEvent.setup()
+    render(<App />)
+
+    expect(await screen.findByRole('button', { name: /continue to game rules/i })).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'Choose your match rules' })).not.toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: /continue to game rules/i }))
+
+    expect(screen.getByRole('heading', { name: 'Choose your match rules' })).toBeInTheDocument()
+    expect(await screen.findByRole('checkbox', { name: /enable pick three/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /create private table/i })).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: /back to table setup/i }))
+
+    expect(screen.queryByRole('heading', { name: 'Choose your match rules' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /continue to game rules/i })).toBeInTheDocument()
+  })
+
   it('exposes an accessible WHOT card control', async () => {
     const onClick = vi.fn()
     const user = userEvent.setup()
