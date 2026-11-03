@@ -17,6 +17,9 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('CREATE PRIVATE ROOM'), findsOneWidget);
     expect(find.text('2v2 TEAM MATCH'), findsOneWidget);
+    expect(find.text('GAME RULES'), findsOneWidget);
+    expect(find.text('ENABLE PICK THREE'), findsOneWidget);
+    expect(find.text('ALLOW PENALTY STACKING'), findsOneWidget);
     expect(find.text('QUICK MATCH'), findsOneWidget);
     expect(find.text('JOIN ROOM'), findsOneWidget);
   });

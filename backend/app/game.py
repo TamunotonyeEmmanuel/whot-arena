@@ -426,12 +426,13 @@ class Room:
         return message
 
     def legal(self, card):
+        if card["number"] == 20:
+            return True
         if self.pending_draw:
             return (self.rules.penalty_stacking and
                     card["number"] == self.pending_penalty)
         top = self.discard[-1]
-        return (card["number"] == 20 or
-                card["number"] == top["number"] or
+        return (card["number"] == top["number"] or
                 card["shape"] == (self.requested_shape or top["shape"]))
 
     def _advance(self, steps=1):

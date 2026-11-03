@@ -790,12 +790,15 @@ async def ws_endpoint(ws: WebSocket):
                     user_id = message_user_id(msg)
                     if not user_id:
                         raise ValueError("Log in before playing a game")
+                    with database_session() as db:
+                        rules = requested_game_rules(msg, db)
                     async with state_lock:
                         room = next((candidate for candidate in rooms.values()
                                      if candidate.is_public and candidate.status == "lobby"
                                      and len(candidate.players) == 1
                                      and candidate.players[0].connected
-                                     and candidate.players[0].user_id != user_id), None)
+                                     and candidate.players[0].user_id != user_id
+                                     and candidate.rules == rules), None)
                         pid = secrets.token_urlsafe(18)
                         player = make_player(pid, name, user_id)
                         if room:
@@ -804,8 +807,6 @@ async def ws_endpoint(ws: WebSocket):
                             room.start(room.host)
                         else:
                             code = new_room_code()
-                            with database_session() as db:
-                                rules = stored_game_rules(db)
                             room = Room(
                                 code=code, host=pid, players=[player], is_public=True,
                                 rules=rules,

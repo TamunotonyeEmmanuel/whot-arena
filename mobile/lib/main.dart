@@ -42,6 +42,14 @@ class _ArenaHomeState extends State<ArenaHome> {
   String? pid, code, reconnectToken, accessToken, error;
   bool busy = false;
   bool teamMode = false;
+  final Map<String, dynamic> rules = {
+    'cards_per_player': 5,
+    'pick_two': 2,
+    'pick_three': 3,
+    'pick_three_enabled': true,
+    'general_market': 1,
+    'penalty_stacking': true,
+  };
 
   @override
   void initState() {
@@ -60,6 +68,34 @@ class _ArenaHomeState extends State<ArenaHome> {
       reconnectToken = prefs.getString('reconnect_token');
       accessToken = prefs.getString('access_token');
     });
+    await loadGameRules();
+  }
+
+  Future<void> loadGameRules() async {
+    try {
+      final response = await http
+          .get(apiUri('/api/game-rules'))
+          .timeout(const Duration(seconds: 5));
+      if (response.statusCode >= 400) {
+        throw Exception('Request failed (${response.statusCode})');
+      }
+      final values = Map<String, dynamic>.from(jsonDecode(response.body) as Map);
+      if (values['cards_per_player'] is! int ||
+          values['pick_two'] is! int ||
+          values['pick_three'] is! int ||
+          values['pick_three_enabled'] is! bool ||
+          values['general_market'] is! int ||
+          values['penalty_stacking'] is! bool) {
+        throw const FormatException('The server returned invalid game rules');
+      }
+      if (mounted) setState(() => rules.addAll(values));
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          error = 'Could not load game-rule defaults: $e';
+        });
+      }
+    }
   }
 
   Future<void> connect(String action) async {
@@ -110,6 +146,7 @@ class _ArenaHomeState extends State<ArenaHome> {
         'action': action,
         'name': name.text.trim().isEmpty ? 'Guest' : name.text.trim(),
         if (action == 'create') 'team_mode': teamMode,
+        if (action == 'create' || action == 'quick_match') 'rules': rules,
         if (accessToken != null) 'access_token': accessToken,
         if (action == 'join') 'code': roomCode.text.trim(),
         if (action == 'reconnect') 'code': code,
@@ -133,6 +170,21 @@ class _ArenaHomeState extends State<ArenaHome> {
     return ws.replace(
         scheme: ws.scheme == 'wss' ? 'https' : 'http', path: path);
   }
+
+  Widget ruleDropdown(String key, String label, int min, int max) =>
+      DropdownButtonFormField<int>(
+        value: rules[key] as int,
+        decoration: InputDecoration(labelText: label),
+        items: [
+          for (var value = min; value <= max; value++)
+            DropdownMenuItem(value: value, child: Text('$value')),
+        ],
+        onChanged: busy || (key == 'pick_three' && rules['pick_three_enabled'] != true)
+            ? null
+            : (value) {
+                if (value != null) setState(() => rules[key] = value);
+              },
+      );
 
   Future<void> authenticate(bool registering) async {
     final email = TextEditingController();
@@ -313,8 +365,10 @@ class _ArenaHomeState extends State<ArenaHome> {
                       decoration: const InputDecoration(labelText: 'Nickname')),
                   TextField(
                       controller: server,
+                      onSubmitted: (_) => loadGameRules(),
                       decoration: const InputDecoration(
-                          labelText: 'Server WebSocket URL')),
+                          labelText: 'Server WebSocket URL',
+                          helperText: 'Submit the URL to reload server rule defaults')),
                   SwitchListTile(
                     contentPadding: EdgeInsets.zero,
                     title: const Text('2v2 TEAM MATCH'),
@@ -322,6 +376,35 @@ class _ArenaHomeState extends State<ArenaHome> {
                         const Text('Four players · seats 1 & 3 vs seats 2 & 4'),
                     value: teamMode,
                     onChanged: (value) => setState(() => teamMode = value),
+                  ),
+                  const Padding(
+                    padding: EdgeInsets.only(top: 10),
+                    child: Text('GAME RULES',
+                        style: TextStyle(
+                            color: gold, fontWeight: FontWeight.bold)),
+                  ),
+                  ruleDropdown('cards_per_player', 'Cards per player', 3, 10),
+                  ruleDropdown('pick_two', 'Pick Two penalty cards', 1, 10),
+                  ruleDropdown('pick_three', 'Pick Three penalty cards', 1, 10),
+                  ruleDropdown(
+                      'general_market', 'General Market cards', 1, 5),
+                  SwitchListTile(
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text('ENABLE PICK THREE'),
+                    value: rules['pick_three_enabled'] as bool,
+                    onChanged: busy
+                        ? null
+                        : (value) => setState(
+                            () => rules['pick_three_enabled'] = value),
+                  ),
+                  SwitchListTile(
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text('ALLOW PENALTY STACKING'),
+                    value: rules['penalty_stacking'] as bool,
+                    onChanged: busy
+                        ? null
+                        : (value) => setState(
+                            () => rules['penalty_stacking'] = value),
                   ),
                   Row(children: [
                     Expanded(

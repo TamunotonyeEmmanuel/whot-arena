@@ -311,6 +311,23 @@ def test_whot_sets_shape_for_the_next_player():
     assert r.current().id == "b"
     assert r.legal({"shape": "star", "number": 7, "id": "matching"})
 
+
+def test_whot_can_still_be_played_while_a_penalty_is_pending():
+    r = setup()
+    r.discard = [{"shape": "circle", "number": 7, "id": "top"}]
+    r.players[0].hand = [{"shape": "circle", "number": 2, "id": "two"}]
+    r.players[1].hand = [{"shape": "whot", "number": 20, "id": "wild"}]
+
+    r.play("a", "two")
+
+    assert r.pending_draw == 2
+    assert r.current().id == "b"
+    assert r.legal({"shape": "whot", "number": 20, "id": "wild-2"})
+    r.play("b", "wild", "star")
+    assert r.requested_shape == "star"
+    assert r.current().id == "a"
+
+
 def test_view_does_not_expose_reconnect_token():
     r = setup()
     rendered = repr(r.view("a"))

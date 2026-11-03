@@ -160,6 +160,60 @@ def test_admin_can_change_default_rules_and_player_can_override_for_private_game
         assert restored.status_code == 200
 
 
+def test_quick_match_uses_selected_rules_and_only_matches_the_same_setup():
+    players = [credentials() for _ in range(3)]
+    with TestClient(app) as client:
+        tokens = [
+            client.post("/api/auth/register", json=player).json()["access_token"]
+            for player in players
+        ]
+        selected_rules = {
+            "cards_per_player": 7,
+            "pick_two": 4,
+            "pick_three": 5,
+            "pick_three_enabled": False,
+            "general_market": 2,
+            "penalty_stacking": False,
+        }
+        different_rules = {**selected_rules, "cards_per_player": 6}
+        with client.websocket_connect("/ws") as first:
+            first.send_json({
+                "action": "quick_match",
+                "name": players[0]["username"],
+                "access_token": tokens[0],
+                "rules": selected_rules,
+            })
+            first_session = first.receive_json()
+            first_state = first.receive_json()["data"]
+            assert first_state["rules"] == selected_rules
+
+            with client.websocket_connect("/ws") as second:
+                second.send_json({
+                    "action": "quick_match",
+                    "name": players[1]["username"],
+                    "access_token": tokens[1],
+                    "rules": different_rules,
+                })
+                second_session = second.receive_json()
+                second_state = second.receive_json()["data"]
+                assert second_session["code"] != first_session["code"]
+                assert second_state["rules"] == different_rules
+
+                with client.websocket_connect("/ws") as third:
+                    third.send_json({
+                        "action": "quick_match",
+                        "name": players[2]["username"],
+                        "access_token": tokens[2],
+                        "rules": selected_rules,
+                    })
+                    third_session = third.receive_json()
+                    third_state = third.receive_json()["data"]
+                    assert third_session["code"] == first_session["code"]
+                    assert third_state["status"] == "playing"
+                    assert third_state["rules"] == selected_rules
+                    assert len(third_state["hand"]) == selected_rules["cards_per_player"]
+
+
 def test_registration_validates_input_and_login_rejects_bad_password():
     payload = credentials()
     with TestClient(app) as client:

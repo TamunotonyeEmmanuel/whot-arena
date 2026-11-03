@@ -33,7 +33,9 @@ npm run dev
 Open the Vite URL shown in the terminal (normally `http://localhost:5173`). Set
 `VITE_API_URL` and `VITE_WS_URL` in `web/.env.local` if the backend is not on
 the local default. These are public build-time endpoints, never secrets. For
-deployment, see [docs/WEB_DEPLOYMENT.md](docs/WEB_DEPLOYMENT.md).
+deployment, see [docs/WEB_DEPLOYMENT.md](docs/WEB_DEPLOYMENT.md). Before a
+private room, solo game, or quick match, choose the table rules. Quick matches
+are paired only with players who selected the same rules.
 
 ## 1. Generate platform scaffolding (Flutter SDK required)
 From the repository root:
@@ -89,6 +91,8 @@ In the Flutter home screen, set the server URL:
 - Physical phone on same Wi-Fi: `ws://YOUR_LAN_IP:8000/ws`
 The phone must be able to reach your backend and firewall must permit port 8000.
 For production, use `https://` and `wss://` with TLS and a hosted server.
+The mobile home screen also lets you choose game rules before creating a private
+room or entering quick match.
 
 ## 4. Play
 Register or sign in before creating, matchmaking, or joining a room.
