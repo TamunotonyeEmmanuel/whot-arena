@@ -12,7 +12,7 @@ import { SnookerGame } from './SnookerGame'
 
 type Card = { id: string; shape: string; number: number }
 type Player = { id: string; name: string; count: number; connected: boolean; team?: number | null; voice_ready?: boolean; voice_speaking?: boolean; reaction?: string | null; reaction_at?: number | null; coin_balance?: number; is_bot?: boolean; last_card_required?: boolean; table_theme?: string; card_back?: string; avatar?: string }
-type GameRules = { cards_per_player: number; pick_two: number; pick_three: number; general_market: number; penalty_stacking: boolean }
+type GameRules = { cards_per_player: number; pick_two: number; pick_three: number; pick_three_enabled: boolean; general_market: number; penalty_stacking: boolean }
 type VoiceMessage = { id: string; player_id: string; name: string; content_type: string; size: number; sent_at: number }
 type ChatMessage = { id: string; player_id: string; name: string; text: string; sent_at: number }
 type DirectMessage = { id: number; sender_username: string; recipient_username: string; text: string; sent_at: string; delivered_at?: string | null; read_at?: string | null }
@@ -1046,7 +1046,7 @@ function CreateRoom() {
   const { connectRoom, busy, user } = useArena()
   const navigate = useNavigate()
   const [rules, setRules] = useState<GameRules>({
-    cards_per_player: 5, pick_two: 2, pick_three: 3, general_market: 1, penalty_stacking: true,
+    cards_per_player: 5, pick_two: 2, pick_three: 3, pick_three_enabled: true, general_market: 1, penalty_stacking: true,
   })
   const [rulesLoading, setRulesLoading] = useState(true)
   const [rulesError, setRulesError] = useState('')
@@ -1109,7 +1109,8 @@ function RulesEditor({ rules, onChange, disabled = false }: {
     { key: 'general_market', label: 'General Market cards per opponent', min: 1, max: 5 },
   ]
   return <div className="rules-editor">
-    {numericRules.map(({ key, label, min, max }) => <label className="field-label" key={key}>{label}<input type="number" min={min} max={max} step="1" value={rules[key]} disabled={disabled} onChange={event => onChange({ ...rules, [key]: Number(event.target.value) })} /></label>)}
+    {numericRules.map(({ key, label, min, max }) => <label className="field-label" key={key}>{label}<input type="number" min={min} max={max} step="1" value={rules[key]} disabled={disabled || (key === 'pick_three' && !rules.pick_three_enabled)} onChange={event => onChange({ ...rules, [key]: Number(event.target.value) })} /></label>)}
+    <label className="team-mode-toggle rules-stacking-toggle"><input type="checkbox" checked={rules.pick_three_enabled} disabled={disabled} onChange={event => onChange({ ...rules, pick_three_enabled: event.target.checked })} /><span><strong>Enable Pick Three</strong><small>When disabled, a 5 is a regular card and does not make the next player draw cards.</small></span></label>
     <label className="team-mode-toggle rules-stacking-toggle"><input type="checkbox" checked={rules.penalty_stacking} disabled={disabled} onChange={event => onChange({ ...rules, penalty_stacking: event.target.checked })} /><span><strong>Allow penalty stacking</strong><small>Players may stack matching Pick Two or Pick Three penalties.</small></span></label>
   </div>
 }
@@ -2292,7 +2293,7 @@ function SettingsPage() {
 const rules = [
   ['1', 'Hold On', 'Keep the turn and play again.'],
   ['2', 'Pick Two', 'The next player draws the table-configured penalty. Matching Pick Two cards can stack when enabled.'],
-  ['5', 'Pick Three', 'The next player draws the table-configured penalty. Matching Pick Three cards can stack when enabled.'],
+  ['5', 'Pick Three', 'When enabled by the table rules, the next player draws the configured penalty. Otherwise, 5 is a regular card.'],
   ['8', 'Suspension', 'Skip the next player.'],
   ['14', 'General Market', 'Every opponent draws the table-configured number of cards, then you play again.'],
   ['20', 'WHOT', 'Choose the next shape. WHOT can be played at any time.'],

@@ -4,7 +4,7 @@ from contextlib import contextmanager
 
 from datetime import datetime, timezone
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, UniqueConstraint, create_engine, inspect, select, text
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint, create_engine, inspect, select, text
 
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship, sessionmaker
 
@@ -224,6 +224,10 @@ class GameRuleSettings(Base):
 
     pick_three: Mapped[int] = mapped_column(Integer, default=3)
 
+    pick_three_enabled: Mapped[bool] = mapped_column(
+        Boolean, default=True, server_default=text("TRUE")
+    )
+
     general_market: Mapped[int] = mapped_column(Integer, default=1)
 
     penalty_stacking: Mapped[bool] = mapped_column(default=True)
@@ -432,6 +436,12 @@ def _ensure_game_rule_settings_v1(connection):
     ))
 
 
+def _add_pick_three_enabled_v1(connection):
+    _add_missing_columns(connection, "game_rule_settings", {
+        "pick_three_enabled": (Boolean(), "TRUE"),
+    })
+
+
 def _apply_migration(connection, name, upgrade):
     applied = connection.execute(
         text("SELECT name FROM data_migrations WHERE name = :name"),
@@ -488,6 +498,11 @@ def init_database():
             connection,
             "008_ensure_game_rule_settings",
             _ensure_game_rule_settings_v1,
+        )
+        _apply_migration(
+            connection,
+            "009_add_pick_three_enabled",
+            _add_pick_three_enabled_v1,
         )
 
 @contextmanager

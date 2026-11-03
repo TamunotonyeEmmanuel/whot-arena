@@ -19,6 +19,7 @@ DEFAULT_GAME_RULES = {
     "cards_per_player": 5,
     "pick_two": 2,
     "pick_three": 3,
+    "pick_three_enabled": True,
     "general_market": 1,
     "penalty_stacking": True,
 }
@@ -37,6 +38,7 @@ def rules_payload(settings: GameRuleSettings | None):
         "cards_per_player": settings.cards_per_player,
         "pick_two": settings.pick_two,
         "pick_three": settings.pick_three,
+        "pick_three_enabled": settings.pick_three_enabled,
         "general_market": settings.general_market,
         "penalty_stacking": settings.penalty_stacking,
     }
@@ -63,6 +65,7 @@ def update_admin_rules(
     settings.cards_per_player = payload.cards_per_player
     settings.pick_two = payload.pick_two
     settings.pick_three = payload.pick_three
+    settings.pick_three_enabled = payload.pick_three_enabled
     settings.general_market = payload.general_market
     settings.penalty_stacking = payload.penalty_stacking
     db.commit()

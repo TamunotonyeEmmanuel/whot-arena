@@ -32,6 +32,7 @@ class GameRulesRequest(BaseModel):
     cards_per_player: int = Field(ge=3, le=10)
     pick_two: int = Field(ge=1, le=10)
     pick_three: int = Field(ge=1, le=10)
+    pick_three_enabled: bool = True
     general_market: int = Field(ge=1, le=5)
     penalty_stacking: bool
 

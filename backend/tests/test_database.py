@@ -44,6 +44,21 @@ def test_database_migrations_preserve_existing_account_data(tmp_path, monkeypatc
             INSERT INTO direct_messages (id, sender_id, recipient_id, text, sent_at)
             VALUES (1, 1, 1, 'existing message', CURRENT_TIMESTAMP)
         """))
+        connection.execute(text("""
+            CREATE TABLE game_rule_settings (
+                id INTEGER PRIMARY KEY,
+                cards_per_player INTEGER NOT NULL,
+                pick_two INTEGER NOT NULL,
+                pick_three INTEGER NOT NULL,
+                general_market INTEGER NOT NULL,
+                penalty_stacking BOOLEAN NOT NULL
+            )
+        """))
+        connection.execute(text("""
+            INSERT INTO game_rule_settings
+                (id, cards_per_player, pick_two, pick_three, general_market, penalty_stacking)
+            VALUES (1, 6, 3, 4, 2, FALSE)
+        """))
 
     monkeypatch.setattr(database, "engine", legacy_engine)
     database.init_database()
@@ -60,11 +75,16 @@ def test_database_migrations_preserve_existing_account_data(tmp_path, monkeypatc
         migrations = set(connection.execute(text(
             "SELECT name FROM data_migrations"
         )).scalars())
+        rules = connection.execute(text("""
+            SELECT cards_per_player, pick_three_enabled, penalty_stacking
+            FROM game_rule_settings WHERE id = 1
+        """)).one()
 
     assert tuple(user[:3]) == (12, 4, 237)
     assert user.google_sub is None
     assert user.deleted_at is None
     assert message == "existing message"
+    assert tuple(rules) == (6, True, False)
     assert migrations == {
         "001_add_user_account_fields",
         "002_add_message_delivery_fields",
@@ -74,6 +94,7 @@ def test_database_migrations_preserve_existing_account_data(tmp_path, monkeypatc
         "006_add_google_account_id",
         "007_add_user_deletion_timestamp",
         "008_ensure_game_rule_settings",
+        "009_add_pick_three_enabled",
     }
 
 

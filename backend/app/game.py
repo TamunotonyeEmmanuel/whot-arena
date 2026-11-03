@@ -30,6 +30,7 @@ class HouseRules:
     cards_per_player: int = 5
     pick_two: int = 2
     pick_three: int = 3
+    pick_three_enabled: bool = True
     general_market: int = 1
     penalty_stacking: bool = True
 
@@ -321,8 +322,11 @@ class Room:
             p.last_card_required = False
             self._draw(p, self.rules.cards_per_player)
         # Begin with a non-action card to avoid ambiguity on opening.
+        action_numbers = {1, 2, 8, 14, 20}
+        if self.rules.pick_three_enabled:
+            action_numbers.add(5)
         idx = next(i for i, c in enumerate(self.deck)
-                   if c["number"] not in (1, 2, 5, 8, 14, 20))
+                   if c["number"] not in action_numbers)
         self.discard = [self.deck.pop(idx)]
         self.status = "playing"
         self.turn = 0
@@ -494,7 +498,10 @@ class Room:
         self.requested_shape = shape if card["number"] == 20 else None
         self.last_action = f"{p.name} played {card['number']}"
         replacement_drawn = False
-        if not p.hand and card["number"] in LAST_CARD_REQUIRES_REPLACEMENT:
+        replacement_required = card["number"] in LAST_CARD_REQUIRES_REPLACEMENT
+        if card["number"] == 5 and not self.rules.pick_three_enabled:
+            replacement_required = False
+        if not p.hand and replacement_required:
             if self._draw(p) == 0:
                 self.finish_exhausted_market()
                 return
@@ -510,7 +517,7 @@ class Room:
         if n == 1:
             self.turn_started = time.time()
             self.updated_at = self.turn_started
-        elif n in (2, 5):
+        elif n == 2 or (n == 5 and self.rules.pick_three_enabled):
             required = self.rules.pick_two if n == 2 else self.rules.pick_three
             self.pending_penalty = n
             self.pending_draw += required
@@ -650,6 +657,7 @@ class Room:
             "rules": {"cards_per_player": self.rules.cards_per_player,
                       "pick_two": self.rules.pick_two,
                       "pick_three": self.rules.pick_three,
+                      "pick_three_enabled": self.rules.pick_three_enabled,
                       "general_market": self.rules.general_market,
                       "penalty_stacking": self.rules.penalty_stacking},
         }

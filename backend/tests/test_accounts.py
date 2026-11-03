@@ -89,6 +89,7 @@ def test_admin_can_change_default_rules_and_player_can_override_for_private_game
         "cards_per_player": 7,
         "pick_two": 4,
         "pick_three": 5,
+        "pick_three_enabled": False,
         "general_market": 2,
         "penalty_stacking": False,
     }
@@ -106,6 +107,7 @@ def test_admin_can_change_default_rules_and_player_can_override_for_private_game
             "cards_per_player": 5,
             "pick_two": 2,
             "pick_three": 3,
+            "pick_three_enabled": True,
             "general_market": 1,
             "penalty_stacking": True,
         }
@@ -150,6 +152,7 @@ def test_admin_can_change_default_rules_and_player_can_override_for_private_game
                 "cards_per_player": 5,
                 "pick_two": 2,
                 "pick_three": 3,
+                "pick_three_enabled": True,
                 "general_market": 1,
                 "penalty_stacking": True,
             },

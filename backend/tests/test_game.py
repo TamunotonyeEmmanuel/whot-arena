@@ -220,6 +220,38 @@ def test_pick_three_gives_target_a_turn_before_penalty_is_taken():
     assert len(r.players[1].hand) == before + 3
     assert r.current().id == "a"
 
+
+def test_disabled_pick_three_is_a_normal_card_and_can_win():
+    r = Room("TEST", "a", [Player("a", "Ada"), Player("b", "Ben")],
+             rules=HouseRules(pick_three_enabled=False))
+    r.start("a")
+    r.discard = [{"shape": "circle", "number": 7, "id": "top"}]
+    r.players[0].hand = [{"shape": "circle", "number": 5, "id": "three"}]
+    r.players[1].hand = [{"shape": "square", "number": 7, "id": "safe"}]
+
+    r.play("a", "three")
+
+    assert r.status == "finished"
+    assert r.winner == "a"
+    assert r.pending_draw == 0
+
+
+def test_disabled_pick_three_advances_turn_without_penalty():
+    r = Room("TEST", "a", [Player("a", "Ada"), Player("b", "Ben")],
+             rules=HouseRules(pick_three_enabled=False))
+    r.start("a")
+    r.discard = [{"shape": "circle", "number": 7, "id": "top"}]
+    r.players[0].hand = [{"shape": "circle", "number": 5, "id": "three"},
+                         {"shape": "star", "number": 3, "id": "keep"}]
+    r.players[1].hand = [{"shape": "square", "number": 7, "id": "safe"}]
+
+    r.play("a", "three")
+
+    assert r.current().id == "b"
+    assert r.pending_draw == 0
+    assert r.pending_penalty is None
+
+
 def test_penalty_can_only_stack_with_the_same_card_then_draw_total_and_skip():
     r = Room("TEST", "a", [Player("a", "Ada"), Player("b", "Ben"),
                              Player("c", "Cleo")])

@@ -88,6 +88,7 @@ def stored_game_rules(db):
         cards_per_player=settings.cards_per_player,
         pick_two=settings.pick_two,
         pick_three=settings.pick_three,
+        pick_three_enabled=settings.pick_three_enabled,
         general_market=settings.general_market,
         penalty_stacking=settings.penalty_stacking,
     )
@@ -579,6 +580,7 @@ def public_game_rules(db: Session = Depends(get_db)):
         "cards_per_player": rules.cards_per_player,
         "pick_two": rules.pick_two,
         "pick_three": rules.pick_three,
+        "pick_three_enabled": rules.pick_three_enabled,
         "general_market": rules.general_market,
         "penalty_stacking": rules.penalty_stacking,
     }
