@@ -87,6 +87,32 @@ describe('WHOT Arena web client', () => {
     expect(screen.getByRole('button', { name: /continue to game rules/i })).toBeInTheDocument()
   })
 
+  it('shows the saved-table resume heading on the dashboard', async () => {
+    localStorage.setItem('whot.token', 'account-token')
+    localStorage.setItem('whot.user', JSON.stringify({
+      id: 1, username: 'Ada', email: 'ada@example.com', wins: 0, arena_coins: 500,
+      matches_played: 0, xp: 0, level: 1, win_streak: 0, best_win_streak: 0,
+      achievements: [], unlocked_themes: ['classic'], unlocked_card_backs: ['classic'],
+      unlocked_avatars: ['initial'], selected_theme: 'classic',
+      selected_card_back: 'classic', selected_avatar: 'initial', is_admin: false,
+    }))
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        tables: [{
+          code: 'A1B2C3', status: 'playing', player_count: 2, total_seats: 2,
+          wager: 0, wager_pot: 0, current_turn_name: 'Ada', is_your_turn: true,
+          your_connected: false, participation_status: 'away', players: [],
+        }],
+      }),
+    }))
+    window.history.pushState({}, '', '/dashboard')
+    render(<App />)
+
+    expect(await screen.findByRole('heading', { name: 'Resume your tables' })).toBeInTheDocument()
+    expect(screen.getByText('A1B2C3')).toBeInTheDocument()
+  })
+
   it('exposes an accessible WHOT card control', async () => {
     const onClick = vi.fn()
     const user = userEvent.setup()

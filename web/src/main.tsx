@@ -958,7 +958,7 @@ function TablesPreview() {
   const navigate = useNavigate()
   if (!tables.length) return null
   return <section className="content-panel tables-preview-panel">
-    <div className="tables-preview-head"><span className="small-label">RESUME YOUR TABLES</span><span>{tables.length} {tables.length === 1 ? 'table' : 'tables'}</span></div>
+    <div className="tables-preview-head"><h2>Resume your tables</h2><span>{tables.length} {tables.length === 1 ? 'table' : 'tables'}</span></div>
     <div className="tables-preview-list">
       {tables.slice(0, 3).map(table => (
         <div className="tables-preview-row" key={table.code}>
