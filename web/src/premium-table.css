@@ -190,71 +190,6 @@
   opacity: .48;
 }
 
-.premium-score-row {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 46px;
-  margin: 0 auto 10px;
-}
-
-.premium-score-row .match-scoreboard {
-  display: flex;
-  align-items: center;
-  gap: 13px;
-  margin: 0;
-  padding: 7px 12px;
-  border: 1px solid #ffffff12;
-  border-radius: 10px;
-  background: #171426a8;
-}
-
-.premium-score-row .match-scoreboard > span {
-  color: #d2bd84;
-  font-size: 8px;
-  letter-spacing: .08em;
-  white-space: nowrap;
-}
-
-.premium-score-row .match-scoreboard > div {
-  display: flex;
-  gap: 6px;
-}
-
-.premium-score-row .match-scoreboard > div > span {
-  display: grid;
-  min-width: 78px;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 2px 6px;
-  padding: 2px 7px;
-  border-left: 1px solid #ffffff20;
-  color: #f2ecdf;
-}
-
-.premium-score-row .match-scoreboard strong {
-  overflow: hidden;
-  color: #e5e0d4;
-  font-size: 8px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.premium-score-row .match-scoreboard b {
-  color: #f3d288;
-  font-size: 11px;
-  grid-row: span 2;
-}
-
-.premium-score-row .match-scoreboard small {
-  color: #9e9aaa;
-  font-size: 7px;
-}
-
-.premium-score-caption {
-  color: #9e97aa;
-  font-size: 9px;
-}
-
 .premium-game-layout {
   width: 100%;
   grid-template-columns: minmax(0, 1fr) !important;
@@ -1303,40 +1238,6 @@
     min-width: 35px;
     min-height: 34px;
     padding: 0;
-  }
-
-  .premium-score-row {
-    min-height: 38px;
-    margin-bottom: 7px;
-  }
-
-  .premium-score-row .match-scoreboard {
-    width: 100%;
-    justify-content: center;
-    gap: 5px;
-    padding: 5px 7px;
-  }
-
-  .premium-score-row .match-scoreboard > span {
-    font-size: 7px;
-  }
-
-  .premium-score-row .match-scoreboard > div {
-    max-width: 68vw;
-    overflow-x: auto;
-  }
-
-  .premium-score-row .match-scoreboard > div > span {
-    min-width: 58px;
-    padding-inline: 5px;
-  }
-
-  .premium-score-row .match-scoreboard strong {
-    max-width: 62px;
-  }
-
-  .premium-score-caption {
-    display: none;
   }
 
   .premium-game-layout,

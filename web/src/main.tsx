@@ -1123,7 +1123,6 @@ function CreateRoom() {
   const [rulesError, setRulesError] = useState('')
   const [name, setName] = useState(user?.username || localStorage.getItem('whot.nickname') || 'Guest')
   const [roomError, setRoomError] = useState('')
-  const [loadingLabel, setLoadingLabel] = useState('')
   const [wager, setWager] = useState(0)
   const [playMode, setPlayMode] = useState<'free' | 'stake'>('free')
   const [teamMode, setTeamMode] = useState(false)
@@ -1144,19 +1143,14 @@ function CreateRoom() {
   }, [])
   async function create(action: 'create' | 'quick_match' | 'computer') {
     setRoomError('')
-    setLoadingLabel(action === 'create' ? 'OPENING YOUR TABLE' : action === 'computer' ? 'DEALING AGAINST THE COMPUTER' : 'FINDING YOUR MATCH')
     try {
-      const [next] = await Promise.all([
-        connectRoom(action, {
-          name: name.trim() || 'Guest',
-          ...(action === 'create' ? { wager: playMode === 'stake' ? wager : 0, team_mode: teamMode } : {}),
-          rules,
-        }),
-        new Promise(resolve => window.setTimeout(resolve, 1200)),
-      ])
+      const next = await connectRoom(action, {
+        name: name.trim() || 'Guest',
+        ...(action === 'create' ? { wager: playMode === 'stake' ? wager : 0, team_mode: teamMode } : {}),
+        rules,
+      })
       navigate(action === 'computer' ? `/game/${next.code}` : `/lobby/${next.code}`)
     } catch (error) {
-      setLoadingLabel('')
       setRoomError(error instanceof Error ? error.message : 'Could not create room')
     }
   }
@@ -1171,10 +1165,9 @@ function CreateRoom() {
       <section className="content-panel player-rules-panel"><div><span className="small-label">TABLE RULES</span><h2>Choose your match rules</h2><p>{soloMatch ? 'These rules apply to your match against Arena Bot.' : quickMatch ? 'Quick matches pair players who chose the same rules.' : 'These rules will be used for the private room you are creating.'}</p></div>
         {rulesLoading ? <div className="table-empty">Loading game rules…</div> : <RulesEditor rules={rules} onChange={setRules} disabled={Boolean(rulesError)} />}
         {rulesError && <div role="alert" className="form-error">{rulesError} Refresh the page to try again.</div>}
-        <div className="rules-step-actions"><button type="button" className="button button-outline" disabled={busy} onClick={() => { setRulesForAction(null); setRoomError('') }}>Back to table setup</button><button type="button" className="button button-green" disabled={busy || rulesLoading || Boolean(rulesError) || !isValidGameRules(rules)} onClick={() => void create(rulesForAction)}>{busy ? 'Opening table…' : soloMatch ? 'Start solo match' : quickMatch ? 'Find a quick match' : 'Create private table'}</button></div>
+        <div className="rules-step-actions"><button type="button" className="button button-outline" disabled={busy} onClick={() => { setRulesForAction(null); setRoomError('') }}>Back to table setup</button><button type="button" className="button button-green" disabled={busy || rulesLoading || Boolean(rulesError) || !isValidGameRules(rules)} onClick={() => void create(rulesForAction)}>{soloMatch ? 'Start solo match' : quickMatch ? 'Find a quick match' : 'Create private table'}</button></div>
       </section>
       {roomError && <div role="alert" className="form-error form-error-block">{roomError}</div>}
-      {loadingLabel && <LoadingScreen message={loadingLabel} action />}
     </>
   }
   return <><PageTitle eyebrow="FIND YOUR TABLE" title="Let's play." detail="Play the computer, set up a private room, or find a quick match." />
@@ -1182,7 +1175,7 @@ function CreateRoom() {
     <section className="content-panel setup-panel computer-match-panel"><span className="setup-number">01</span><span className="small-label">SOLO MATCH</span><h2>Challenge the computer.</h2><p>Jump straight into a two-player round against Arena Bot. No room code or waiting required.</p><label className="field-label">Your table name<input value={name} maxLength={20} onChange={event => setName(event.target.value)} onBlur={() => localStorage.setItem('whot.nickname', name)} placeholder="Choose a nickname" /></label><button disabled={busy} onClick={() => continueToRules('computer')} className="button button-green full-button"><Gamepad2 size={17} /> Set solo match rules</button></section>
     <section className="content-panel setup-panel"><span className="setup-number">02</span><span className="small-label">PRIVATE ROOM</span><h2>Bring your own crew.</h2><p>Choose a free match or set your own Virtual Naira stake.</p><label className="team-mode-toggle"><input type="checkbox" checked={teamMode} onChange={event => { setTeamMode(event.target.checked); if (event.target.checked) setPlayMode('free') }} /><span><strong>2v2 team match</strong><small>Four players · seats 1 & 3 vs seats 2 & 4</small></span></label><div className="play-mode-choice"><button type="button" className={playMode === 'free' ? 'active' : ''} onClick={() => setPlayMode('free')}>Play free</button><button type="button" className={playMode === 'stake' ? 'active' : ''} onClick={() => setPlayMode('stake')} disabled={!user || teamMode}>Play with Virtual Naira</button></div>{teamMode && <small className="stake-fee-note">Team matches are free to play. Invite exactly four players to start.</small>}{playMode === 'stake' && <label className="field-label">Stake per player<input type="number" min="10" max={user?.arena_coins || 1000000} step="1" value={wager || ''} onChange={event => setWager(Math.max(0, Number(event.target.value)))} placeholder="Enter amount, e.g. 500" /></label>}{user ? <div className="coin-balance">₦{user.arena_coins.toLocaleString()} available{playMode === 'stake' && wager > 0 ? ' · 90% winner payout' : ''}</div> : <Link className="text-link" to="/login">Sign in to enable Virtual Naira stakes <ArrowRight size={14} /></Link>}{playMode === 'stake' && <small className="stake-fee-note">A 10% admin fee is deducted from the total pot when the match ends.</small>}<button disabled={busy || (playMode === 'stake' && (wager < 10 || wager > (user?.arena_coins || 0)))} onClick={() => continueToRules('create')} className="button button-green full-button"><Plus size={17} /> Continue to game rules</button></section>
     <section className="content-panel setup-panel quick-match-panel"><span className="setup-number">03</span><span className="small-label">QUICK MATCH</span><h2>Meet at the table.</h2><p>Choose your rules, then pair with a player who chose the same setup.</p><div className="quick-match-meta"><span><Users size={15} /> 2–4 players</span><span><Clock3 size={15} /> Usually under a minute</span></div><button disabled={busy} onClick={() => continueToRules('quick_match')} className="button button-lime full-button"><Sparkles size={17} /> Set quick-match rules</button></section>
-  </div>{roomError && <div role="alert" className="form-error form-error-block">{roomError}</div>}<div className="house-rule-callout"><Shield size={17} /><span><strong>Fair play is server-side.</strong> The game server deals cards, checks moves, and decides the winner.</span><Link to="/help">Rules <ArrowRight size={14} /></Link></div>{loadingLabel && <LoadingScreen message={loadingLabel} action />}</>
+  </div>{roomError && <div role="alert" className="form-error form-error-block">{roomError}</div>}<div className="house-rule-callout"><Shield size={17} /><span><strong>Fair play is server-side.</strong> The game server deals cards, checks moves, and decides the winner.</span><Link to="/help">Rules <ArrowRight size={14} /></Link></div></>
 }
 
 function RulesEditor({ rules, onChange, disabled = false }: {
@@ -1474,7 +1467,6 @@ function GameTable() {
           </div></details>
         </div>
       </header>
-      <div className="premium-score-row"><div className="match-scoreboard" aria-label={`Single game, round ${view.round_number}`}><span>SINGLE GAME</span><div>{view.team_mode ? [1, 2].map(team => { const key = `team-${team}`; const members = view.players.filter(player => player.team === team).map(player => player.name).join(' & '); return <span className={matchWinner?.team === team ? 'score-champion' : ''} key={key}><strong>Team {team} · {members}</strong><b>{view.round_wins[key] || 0}</b><small>{view.match_points[key] || 0} pts</small></span> }) : view.players.map(player => <span className={player.id === view.match_winner ? 'score-champion' : ''} key={player.id}><strong>{player.name}</strong><b>{view.round_wins[player.id] || 0}</b><small>{view.match_points[player.id] || 0} pts</small></span>)}</div></div><span className="premium-score-caption">One round decides the match</span></div>
       <div className={`game-layout premium-game-layout ${opponents.every(player => player.is_bot) ? 'solo-layout' : ''}`}>
       <div className="table-column">
       <section className={`table-felt premium-table-felt ${view.pending_draw > 0 ? 'table-penalty-active' : ''} ${isRoundOpening ? 'table-dealing' : ''}`}>
