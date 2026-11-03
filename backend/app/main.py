@@ -258,7 +258,7 @@ async def notify_turn(room, player):
 
     Notification sockets carry no room session and receive no private state.
     """
-    if (room.status != "playing" or player.connected or not player.user_id
+    if (room.status != "playing" or room.is_paused or player.connected or not player.user_id
             or player not in room.players):
         return
     with database_session() as db:

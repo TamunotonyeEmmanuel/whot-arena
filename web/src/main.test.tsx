@@ -1,7 +1,7 @@
 import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { App, Avatar, CardFace, RematchAction, microphoneFailureMessage, normalizeTurnUrl, relayPlaybackStartAt, shouldUseRelayFallback } from './main'
+import { App, Avatar, CardFace, RematchAction, microphoneFailureMessage, normalizeTurnUrl, relayPlaybackStartAt, shouldUseRelayFallback, turnAnnouncement } from './main'
 
 class NotificationTestSocket {
   static OPEN = 1
@@ -113,6 +113,28 @@ describe('WHOT Arena web client', () => {
     expect(shouldUseRelayFallback('connecting')).toBe(true)
     expect(shouldUseRelayFallback('connected')).toBe(false)
     expect(shouldUseRelayFallback('closed')).toBe(false)
+  })
+
+  it('announces turn changes by player name but ignores reconnect and pause state updates', () => {
+    const previous = {
+      code: 'A1B2C3',
+      status: 'playing' as const,
+      turn: 'ada',
+      is_paused: false,
+    }
+    const lobby = {
+      code: 'A1B2C3',
+      status: 'lobby' as const,
+      turn: null,
+      is_paused: false,
+    }
+
+    expect(turnAnnouncement(previous, { ...previous, turn: 'ben' }, 'Ben')).toBe("Ben's turn")
+    expect(turnAnnouncement(lobby, previous, 'Ada')).toBe("Ada's turn")
+    expect(turnAnnouncement(previous, { ...previous, is_paused: true }, 'Ada')).toBeNull()
+    expect(turnAnnouncement(previous, { ...previous }, 'Ada')).toBeNull()
+    expect(turnAnnouncement(null, previous, 'Ada')).toBeNull()
+    expect(turnAnnouncement(previous, { ...previous, code: 'ZZ9999', turn: 'ben' }, 'Ben')).toBeNull()
   })
 
   it('keeps relay audio moving with a short jitter buffer', () => {

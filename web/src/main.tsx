@@ -128,6 +128,15 @@ const RTC_ICE_SERVERS: RTCIceServer[] = [
 export function shouldUseRelayFallback(connectionState?: RTCPeerConnectionState) {
   return connectionState !== 'connected' && connectionState !== 'closed'
 }
+type TurnSnapshot = Pick<RoomView, 'code' | 'status' | 'turn' | 'is_paused'>
+export function turnAnnouncement(previous: TurnSnapshot | null, current: TurnSnapshot, playerName?: string) {
+  if (!previous || previous.code !== current.code || current.status !== 'playing'
+      || current.is_paused || !current.turn) return null
+  const started = previous.status !== 'playing' && current.status === 'playing'
+  const changed = previous.status === 'playing' && previous.turn !== current.turn
+  if (!started && !changed) return null
+  return `${playerName || 'A player'}'s turn`
+}
 export function relayPlaybackStartAt(previousTime: number | undefined, now: number) {
   if (previousTime === undefined || previousTime > now + 0.75) return now + 0.18
   return Math.max(previousTime, now + 0.025)
@@ -897,6 +906,7 @@ function AppFrame() {
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes></main>
       <TurnNotifications />
+      <TurnChangePopup />
       {(user || (session && view)) && <VoicePanel messages={view?.voice_messages || []} chatMessages={view?.chat_messages || []} playerId={session?.player_id || ''} enabled={view?.status === 'playing'} players={view?.players || (user ? [{ id: 'account', name: user.username, count: 0, connected: true }] : [])} balance={view?.players.find(player => player.id === session?.player_id)?.coin_balance || user?.arena_coins || 0} wager={view?.wager || 0} pot={view?.wager_pot || 0} username={user?.username} roomCode={session?.code} />}
     </div>
   </div>
@@ -2048,6 +2058,36 @@ function TurnNotifications() {
       </div>
     ))}
   </div>
+}
+
+function TurnChangePopup() {
+  const { view } = useArena()
+  const [announcement, setAnnouncement] = useState('')
+  const previousTurnRef = useRef<TurnSnapshot | null>(null)
+
+  useEffect(() => {
+    if (!view) return
+    const previous = previousTurnRef.current
+    const current: TurnSnapshot = {
+      code: view.code,
+      status: view.status,
+      turn: view.turn,
+      is_paused: view.is_paused,
+    }
+    previousTurnRef.current = current
+    const playerName = view.players.find(player => player.id === view.turn)?.name
+    const nextAnnouncement = turnAnnouncement(previous, current, playerName)
+    if (nextAnnouncement) setAnnouncement(nextAnnouncement)
+  }, [view?.code, view?.status, view?.turn, view?.is_paused, view?.players])
+
+  useEffect(() => {
+    if (!announcement) return
+    const timer = window.setTimeout(() => setAnnouncement(''), 2600)
+    return () => window.clearTimeout(timer)
+  }, [announcement])
+
+  if (!announcement) return null
+  return <div className="turn-change-popup" role="status" aria-live="polite"><span>PLAYER TURN</span><strong>{announcement}</strong></div>
 }
 
 function HelpPage() {
