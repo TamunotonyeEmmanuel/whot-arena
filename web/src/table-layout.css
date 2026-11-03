@@ -144,6 +144,52 @@
   }
 }
 
+.desktop-game-notice {
+  display: grid;
+  justify-items: center;
+  max-width: 520px;
+  margin: clamp(36px, 10vh, 100px) auto;
+  padding: clamp(24px, 5vw, 48px);
+  border: 1px solid var(--line, #dfe8d7);
+  border-radius: 22px;
+  color: var(--ink, #213129);
+  background: var(--paper, #fffefa);
+  box-shadow: 0 18px 48px #182b1a12;
+  text-align: center;
+}
+
+.desktop-game-icon {
+  display: grid;
+  width: 58px;
+  height: 58px;
+  margin-bottom: 20px;
+  place-items: center;
+  border-radius: 18px;
+  color: #286541;
+  background: #eaf3df;
+}
+
+.desktop-game-notice h1 {
+  margin: 8px 0;
+  font-family: "Space Grotesk", sans-serif;
+  font-size: clamp(26px, 4vw, 38px);
+}
+
+.desktop-game-notice p {
+  max-width: 390px;
+  margin: 0 0 22px;
+  color: var(--muted, #667568);
+  line-height: 1.6;
+}
+
+@media (min-width: 761px) {
+  .table-frame .turn-change-popup,
+  .table-frame .turn-notifications,
+  .table-frame .live-voice-panel {
+    display: none;
+  }
+}
+
 .turn-change-popup {
   position: fixed;
   z-index: 85;

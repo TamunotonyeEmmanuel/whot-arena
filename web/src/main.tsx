@@ -897,7 +897,7 @@ function AppFrame() {
         <Route path="/create" element={<RequireLogin><CreateRoom /></RequireLogin>} />
         <Route path="/join" element={<RequireLogin><JoinRoom /></RequireLogin>} />
         <Route path="/lobby/:code" element={<RequireLogin><Lobby /></RequireLogin>} />
-        <Route path="/game/:code" element={<RequireLogin><GameTable /></RequireLogin>} />
+        <Route path="/game/:code" element={<RequireLogin><MobileGameOnly /></RequireLogin>} />
         <Route path="/profile" element={<Profile />} />
         <Route path="/history" element={<HistoryPage />} />
         <Route path="/leaderboard" element={<Leaderboard />} />
@@ -2089,6 +2089,29 @@ function TurnChangePopup() {
 
   if (!announcement) return null
   return <div className="turn-change-popup" role="status" aria-live="polite"><span>PLAYER TURN</span><strong>{announcement}</strong></div>
+}
+
+function MobileGameOnly() {
+  const [isMobileViewport, setIsMobileViewport] = useState(
+    () => window.matchMedia('(max-width: 760px)').matches,
+  )
+
+  useEffect(() => {
+    const mobileViewport = window.matchMedia('(max-width: 760px)')
+    const updateViewport = () => setIsMobileViewport(mobileViewport.matches)
+    mobileViewport.addEventListener('change', updateViewport)
+    return () => mobileViewport.removeEventListener('change', updateViewport)
+  }, [])
+
+  if (isMobileViewport) return <GameTable />
+
+  return <section className="desktop-game-notice" role="status">
+    <span className="desktop-game-icon"><Smartphone size={25} /></span>
+    <span className="small-label">MOBILE ONLY</span>
+    <h1>Play on your phone</h1>
+    <p>WHOT Arena games are available on mobile screens. Open this table on your phone to continue playing.</p>
+    <Link className="button button-green" to="/tables"><Table2 size={16} /> My tables</Link>
+  </section>
 }
 
 function HelpPage() {
