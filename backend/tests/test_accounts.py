@@ -184,7 +184,15 @@ def test_google_sign_in_creates_and_reuses_account(monkeypatch):
     monkeypatch.setattr(accounts, "verify_google_credential", lambda credential: claims)
 
     with TestClient(app) as client:
-        first = client.post("/api/auth/google", json={"credential": "google-token"})
+        username_prompt = client.post("/api/auth/google", json={"credential": "google-token"})
+        assert username_prompt.status_code == 202
+        assert username_prompt.json() == {"requires_username": True}
+        with SessionLocal() as db:
+            assert db.query(User).filter_by(google_sub="google-sub-123").count() == 0
+        first = client.post("/api/auth/google", json={
+            "credential": "google-token",
+            "username": "GooglePlayer",
+        })
         second = client.post("/api/auth/google", json={"credential": "google-token"})
 
     assert first.status_code == 200, first.text
@@ -192,6 +200,7 @@ def test_google_sign_in_creates_and_reuses_account(monkeypatch):
     first_user = first.json()["user"]
     second_user = second.json()["user"]
     assert first_user["id"] == second_user["id"]
+    assert first_user["username"] == "GooglePlayer"
     assert first_user["email"] == "google.player@gmail.com"
     assert first_user["arena_coins"] == 10_000
     assert first.json()["access_token"]
@@ -236,12 +245,40 @@ def test_google_sign_in_rejects_another_identity_for_linked_email(monkeypatch):
     monkeypatch.setattr(accounts, "verify_google_credential", lambda credential: claims)
 
     with TestClient(app) as client:
-        first = client.post("/api/auth/google", json={"credential": "first-token"})
+        first = client.post("/api/auth/google", json={
+            "credential": "first-token",
+            "username": "LinkedPlayer",
+        })
         claims["sub"] = "google-sub-other"
         second = client.post("/api/auth/google", json={"credential": "second-token"})
 
     assert first.status_code == 200
     assert second.status_code == 409
+
+
+def test_google_sign_up_requires_unique_valid_username(monkeypatch):
+    claims = {
+        "sub": "google-sub-username",
+        "email": "google.username@gmail.com",
+        "email_verified": True,
+        "iss": "https://accounts.google.com",
+    }
+    monkeypatch.setattr(accounts, "verify_google_credential", lambda credential: claims)
+
+    with TestClient(app) as client:
+        existing = client.post("/api/auth/register", json=credentials())
+        duplicate = client.post("/api/auth/google", json={
+            "credential": "google-token",
+            "username": existing.json()["user"]["username"].upper(),
+        })
+        invalid = client.post("/api/auth/google", json={
+            "credential": "google-token",
+            "username": "not a username",
+        })
+
+    assert duplicate.status_code == 409
+    assert duplicate.json()["detail"] == "Username already exists"
+    assert invalid.status_code == 422
 
 
 def test_google_credential_requires_server_configuration_and_verified_email(monkeypatch):

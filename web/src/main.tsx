@@ -103,7 +103,7 @@ type ArenaContextValue = {
   refreshTables: () => Promise<void>
   leaveTable: (code: string) => Promise<void>
   authenticate: (registering: boolean, values: Record<string, string>) => Promise<void>
-  authenticateGoogle: (credential: string) => Promise<void>
+  authenticateGoogle: (credential: string, username?: string) => Promise<boolean>
   signOut: () => void
 }
 
@@ -138,6 +138,30 @@ export function turnAnnouncement(previous: TurnSnapshot | null, current: TurnSna
   if (!started && !changed) return null
   if (current.turn === viewerPlayerId) return 'Your turn'
   return `${playerName || 'A player'}'s turn`
+}
+export function reconnectPauseGuidance(
+  pauseReason: RoomView['pause_reason'],
+  pausedBy: string | null,
+  disconnectedPlayers: Pick<Player, 'name'>[],
+  secondsRemaining: number,
+) {
+  if (pauseReason === 'disconnect') {
+    const disconnectedNames = disconnectedPlayers.map(player => player.name)
+    const waitingFor = disconnectedNames.length > 2
+      ? `${disconnectedNames.slice(0, -1).join(', ')}, and ${disconnectedNames.at(-1)}`
+      : disconnectedNames.join(' and ') || pausedBy || 'a player'
+    const secondsLabel = `${secondsRemaining} second${secondsRemaining === 1 ? '' : 's'} remaining`
+    return {
+      title: `Waiting for ${waitingFor} to reconnect`,
+      detail: `Reconnect window · ${secondsLabel}`,
+      instruction: 'Keep this table open. Cards and the turn timer are preserved. Play resumes when everyone reconnects; if time runs out, play continues automatically and an expired turn may be skipped.',
+    }
+  }
+  return {
+    title: `${pausedBy || 'The host'} paused the game`,
+    detail: 'Turn timer frozen',
+    instruction: 'No one needs to reconnect. Stay at the table; the host can resume the game when ready.',
+  }
 }
 export function relayPlaybackStartAt(previousTime: number | undefined, now: number) {
   if (previousTime === undefined || previousTime > now + 0.75) return now + 0.18
@@ -705,21 +729,23 @@ function ArenaProvider({ children }: { children: React.ReactNode }) {
     finally { setBusy(false) }
   }
 
-  async function authenticateGoogle(credential: string) {
+  async function authenticateGoogle(credential: string, username?: string) {
     setBusy(true); setError('')
     try {
       const response = await fetch(`${API_URL}/api/auth/google`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ credential }),
+        body: JSON.stringify({ credential, ...(username ? { username } : {}) }),
       })
       const body = await response.json()
       if (!response.ok) throw new Error(body.detail || 'Google sign-in failed')
+      if (body.requires_username === true) return true
       localStorage.setItem('whot.token', body.access_token)
       sessionStorage.removeItem('whot.token')
       localStorage.setItem('whot.user', JSON.stringify(body.user))
       setUser(body.user)
       void refreshTables()
+      return false
     } catch (reason) { throw reason instanceof Error ? reason : new Error('Google sign-in failed') }
     finally { setBusy(false) }
   }
@@ -978,6 +1004,8 @@ function AuthPage({ registering = false }: { registering?: boolean }) {
   const { authenticate, authenticateGoogle, user, busy } = useArena()
   const navigate = useNavigate()
   const [formError, setFormError] = useState('')
+  const [googleCredential, setGoogleCredential] = useState('')
+  const [googleUsername, setGoogleUsername] = useState('')
   const googleButton = useRef<HTMLDivElement>(null)
   const authenticateGoogleRef = useRef(authenticateGoogle)
   authenticateGoogleRef.current = authenticateGoogle
@@ -995,8 +1023,12 @@ function AuthPage({ registering = false }: { registering?: boolean }) {
         client_id: GOOGLE_CLIENT_ID,
         callback: response => {
           if (!response.credential) return
-          void authenticateGoogleRef.current(response.credential)
-            .then(() => navigate('/dashboard'))
+          const credential = response.credential
+          void authenticateGoogleRef.current(credential)
+            .then(requiresUsername => {
+              if (requiresUsername) setGoogleCredential(credential)
+              else navigate('/dashboard')
+            })
             .catch(error => setFormError(error instanceof Error ? error.message : 'Could not sign in with Google'))
         },
       })
@@ -1029,15 +1061,26 @@ function AuthPage({ registering = false }: { registering?: boolean }) {
       script?.removeEventListener('error', handleScriptError)
       if (googleButton.current) googleButton.current.replaceChildren()
     }
-  }, [navigate, registering, user])
+  }, [googleCredential, navigate, registering, user])
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault(); setFormError('')
     const values = Object.fromEntries(new FormData(event.currentTarget).entries()) as Record<string, string>
     try { await authenticate(registering, values); navigate('/dashboard') }
     catch (error) { setFormError(error instanceof Error ? error.message : 'Could not sign in') }
   }
+  async function submitGoogleUsername(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    setFormError('')
+    try {
+      const needsUsername = await authenticateGoogle(googleCredential, googleUsername.trim())
+      if (needsUsername) throw new Error('Choose a username to finish creating your account.')
+      navigate('/dashboard')
+    } catch (error) {
+      setFormError(error instanceof Error ? error.message : 'Could not create your Google account')
+    }
+  }
   if (user) return <div className="center-state"><Check size={28} /><h2>You are signed in</h2><Link to="/dashboard" className="button button-green">Go to dashboard</Link></div>
-  return <div className="auth-wrap"><Link to="/" className="back-link"><ArrowLeft size={15} /> Back to arena</Link><div className="auth-panel"><span className="auth-emblem">W</span><Eyebrow>{registering ? 'JOIN THE ARENA' : 'WELCOME BACK'}</Eyebrow><h1>{registering ? 'Create your player account.' : 'Good games start here.'}</h1><p>{registering ? 'Save your player stats and take your wins across sessions.' : 'Sign in to keep track of your wins and player profile.'}</p><form onSubmit={submit} className="form-stack">{registering && <Field label="Player name" name="username" placeholder="e.g. AdaPlays" minLength={3} maxLength={24} required />}<Field label="Email address" name="email" type="email" placeholder="you@example.com" required /><Field label="Password" name="password" type="password" placeholder="At least 8 characters" minLength={registering ? 8 : undefined} required />{formError && <p role="alert" className="form-error">{formError}</p>}<button disabled={busy} className="button button-lime full-button">{busy ? 'Please wait…' : registering ? 'Create account' : 'Sign in'} <ArrowRight size={16} /></button></form><div className="auth-switch">{registering ? 'Already have a player account?' : 'New to the Arena?'} <Link to={registering ? '/login' : '/register'}>{registering ? 'Sign in' : 'Create one'}</Link></div>{GOOGLE_CLIENT_ID ? <><div className="auth-divider"><span>OR</span></div><div className="google-signin" ref={googleButton} aria-label={registering ? 'Sign up with Google' : 'Sign in with Google'} /></> : <p className="google-unavailable">Google sign-in is not configured.</p>}<div className="guest-note"><Shield size={15} /> Guest games are available without signing in.</div></div></div>
+  return <div className="auth-wrap"><Link to="/" className="back-link"><ArrowLeft size={15} /> Back to arena</Link><div className="auth-panel"><span className="auth-emblem">W</span><Eyebrow>{googleCredential ? 'CHOOSE YOUR PLAYER NAME' : registering ? 'JOIN THE ARENA' : 'WELCOME BACK'}</Eyebrow><h1>{googleCredential ? 'Choose a username.' : registering ? 'Create your player account.' : 'Good games start here.'}</h1><p>{googleCredential ? 'This name will appear to other players. Use 3–24 letters, numbers, or underscores.' : registering ? 'Save your player stats and take your wins across sessions.' : 'Sign in to keep track of your wins and player profile.'}</p>{googleCredential ? <form onSubmit={submitGoogleUsername} className="form-stack"><label className="field-label">Username<input name="username" value={googleUsername} onChange={event => setGoogleUsername(event.target.value)} minLength={3} maxLength={24} pattern="[A-Za-z0-9_]+" autoComplete="nickname" required /></label>{formError && <p role="alert" className="form-error">{formError}</p>}<button disabled={busy} className="button button-lime full-button">{busy ? 'Creating account…' : 'Continue with Google'} <ArrowRight size={16} /></button><button type="button" className="button button-outline full-button" disabled={busy} onClick={() => { setGoogleCredential(''); setGoogleUsername(''); setFormError('') }}>Cancel</button></form> : <><form onSubmit={submit} className="form-stack">{registering && <Field label="Player name" name="username" placeholder="e.g. AdaPlays" minLength={3} maxLength={24} required />}<Field label="Email address" name="email" type="email" placeholder="you@example.com" required /><Field label="Password" name="password" type="password" placeholder="At least 8 characters" minLength={registering ? 8 : undefined} required />{formError && <p role="alert" className="form-error">{formError}</p>}<button disabled={busy} className="button button-lime full-button">{busy ? 'Please wait…' : registering ? 'Create account' : 'Sign in'} <ArrowRight size={16} /></button></form><div className="auth-switch">{registering ? 'Already have a player account?' : 'New to the Arena?'} <Link to={registering ? '/login' : '/register'}>{registering ? 'Sign in' : 'Create one'}</Link></div>{GOOGLE_CLIENT_ID ? <><div className="auth-divider"><span>OR</span></div><div className="google-signin" ref={googleButton} aria-label={registering ? 'Sign up with Google' : 'Sign in with Google'} /></> : <p className="google-unavailable">Google sign-in is not configured.</p>}</>}<div className="guest-note"><Shield size={15} /> Guest games are available without signing in.</div></div></div>
 }
 
 function Field({ label, name, type = 'text', placeholder, required, minLength, maxLength, defaultValue }: { label: string; name: string; type?: string; placeholder?: string; required?: boolean; minLength?: number; maxLength?: number; defaultValue?: string }) { return <label className="field-label">{label}<input name={name} type={type} placeholder={placeholder} minLength={minLength} maxLength={maxLength} required={required} defaultValue={defaultValue} autoComplete={name === 'password' ? 'current-password' : name === 'email' ? 'email' : 'nickname'} /></label> }
@@ -1278,6 +1321,13 @@ function GameTable() {
   if (!view || view.code !== code.toUpperCase()) return <div className="center-state"><div className="loader-mark">W</div><h2>Restoring your game…</h2><p>Your hand stays private while the table reconnects.</p><button type="button" className="button button-outline" onClick={() => { leaveRoom(); navigate('/create') }}>Close open table</button></div>
   const me = view.players.find(player => player.id === session?.player_id)
   const opponents = view.players.filter(player => player.id !== session?.player_id)
+  const disconnectedPlayers = view.players.filter(player => !player.connected && !player.is_bot)
+  const pauseGuidance = reconnectPauseGuidance(
+    view.pause_reason,
+    view.paused_by,
+    disconnectedPlayers,
+    pauseSeconds,
+  )
   const roundWinner = view.players.find(player => player.id === view.winner)
   const matchWinner = view.players.find(player => player.id === view.match_winner)
   const didWinRound = view.team_mode ? me?.team === roundWinner?.team : view.winner === session?.player_id
@@ -1316,7 +1366,7 @@ function GameTable() {
         <div>
           <Eyebrow>ROOM {view.code}</Eyebrow>
           <span className={`game-status ${myTurn ? 'turn-live' : ''}`}>
-            <span className="status-dot online" />
+            <span className={`status-dot ${view.is_paused ? '' : 'online'}`} />
             {view.status === 'finished' ? 'ROUND COMPLETE' : view.is_paused ? 'GAME PAUSED' : myTurn ? 'YOUR TURN' : `TURN: ${view.players.find(player => player.id === view.turn)?.name || 'OPPONENT'}`}
           </span>
           {view.wager > 0 && <span className="table-wager">₦{view.wager_pot.toLocaleString()} VIRTUAL POT</span>}
@@ -1328,7 +1378,7 @@ function GameTable() {
       <div className="table-column">
       <section className={`table-felt ${view.pending_draw > 0 ? 'table-penalty-active' : ''} ${isRoundOpening ? 'table-dealing' : ''}`}>
         <div className="table-stitch" />
-        {view.is_paused && <div className="reconnect-pause" role="status" aria-live="polite">{view.pause_reason === 'disconnect' ? <Wifi size={25} /> : <Pause size={25} />}<span>PRIVATE MATCH PAUSED</span><strong>{view.pause_reason === 'disconnect' ? `Waiting for ${view.paused_by || 'a player'} to reconnect` : `${view.paused_by || 'The host'} paused the game`}</strong><small>{view.pause_reason === 'disconnect' ? `${pauseSeconds} seconds remaining · turn timer frozen at ${turnSeconds}` : `Turn timer frozen at ${turnSeconds} · the host can resume`}</small></div>}
+        {view.is_paused && <div className="reconnect-pause" role="status" aria-live="polite">{view.pause_reason === 'disconnect' ? <Wifi size={25} /> : <Pause size={25} />}<span>PRIVATE MATCH PAUSED</span><strong>{pauseGuidance.title}</strong><small>{pauseGuidance.detail}{view.pause_reason === 'disconnect' ? ` · turn timer frozen at ${turnSeconds}` : ` · ${turnSeconds} seconds left on the turn timer`}</small><p>{pauseGuidance.instruction}</p></div>}
         <div className="opponents-row">
           {opponents.map((player, index) => (
             <div className={`opponent ${!player.connected ? 'player-away' : ''} ${view.turn === player.id ? 'opponent-turn' : ''}`} key={player.id}>

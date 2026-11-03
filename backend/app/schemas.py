@@ -39,6 +39,13 @@ class GameRulesRequest(BaseModel):
 
 class GoogleCredentialRequest(BaseModel):
     credential: str = Field(min_length=1, max_length=8192)
+    username: str | None = Field(default=None, min_length=3, max_length=24,
+                                 pattern=r"^[A-Za-z0-9_]+$")
+
+    @field_validator("username", mode="before")
+    @classmethod
+    def normalize_username(cls, value):
+        return value.strip() if isinstance(value, str) else value
 
 
 class UserResponse(BaseModel):

@@ -1,7 +1,7 @@
 import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { App, Avatar, CardFace, RematchAction, microphoneFailureMessage, normalizeTurnUrl, relayPlaybackStartAt, shouldUseRelayFallback, turnAnnouncement } from './main'
+import { App, Avatar, CardFace, RematchAction, microphoneFailureMessage, normalizeTurnUrl, reconnectPauseGuidance, relayPlaybackStartAt, shouldUseRelayFallback, turnAnnouncement } from './main'
 
 class NotificationTestSocket {
   static OPEN = 1
@@ -199,6 +199,20 @@ describe('WHOT Arena web client', () => {
     expect(turnAnnouncement(previous, { ...previous }, 'Ada')).toBeNull()
     expect(turnAnnouncement(null, previous, 'Ada')).toBeNull()
     expect(turnAnnouncement(previous, { ...previous, code: 'ZZ9999', turn: 'ben' }, 'Ben')).toBeNull()
+  })
+
+  it('explains who needs to reconnect and what happens while waiting', () => {
+    expect(reconnectPauseGuidance('disconnect', 'Ada', [{ name: 'Ben' }, { name: 'Cleo' }], 1))
+      .toEqual({
+        title: 'Waiting for Ben and Cleo to reconnect',
+        detail: 'Reconnect window · 1 second remaining',
+        instruction: 'Keep this table open. Cards and the turn timer are preserved. Play resumes when everyone reconnects; if time runs out, play continues automatically and an expired turn may be skipped.',
+      })
+    expect(reconnectPauseGuidance('manual', 'Ada', [], 12)).toEqual({
+      title: 'Ada paused the game',
+      detail: 'Turn timer frozen',
+      instruction: 'No one needs to reconnect. Stay at the table; the host can resume the game when ready.',
+    })
   })
 
   it('keeps relay audio moving with a short jitter buffer', () => {

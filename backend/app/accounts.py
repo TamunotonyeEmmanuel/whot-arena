@@ -1,9 +1,9 @@
 import os
-import re
 import secrets
 from datetime import timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import JSONResponse
 from sqlalchemy import and_, delete, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -61,17 +61,6 @@ def verify_google_credential(credential: str):
     return claims
 
 
-def google_username(email: str, db: Session):
-    local_part = email.split("@", 1)[0].lower()
-    base = re.sub(r"[^a-z0-9_]", "_", local_part).strip("_")[:13] or "player"
-    for _ in range(10):
-        username = f"{base}_{secrets.token_hex(4)}"
-        exists = db.scalar(select(User.id).where(User.username.ilike(username)))
-        if exists is None:
-            return username
-    raise HTTPException(status_code=503, detail="Could not allocate a player name")
-
-
 @router.post("/auth/register", response_model=AuthResponse, status_code=status.HTTP_201_CREATED)
 def register(payload: RegisterRequest, db: Session = Depends(get_db)):
     email = str(payload.email).lower()
@@ -99,7 +88,7 @@ def login(payload: LoginRequest, db: Session = Depends(get_db)):
     return AuthResponse(access_token=create_access_token(user), user=user)
 
 
-@router.post("/auth/google", response_model=AuthResponse)
+@router.post("/auth/google")
 def google_login(payload: GoogleCredentialRequest, db: Session = Depends(get_db)):
     claims = verify_google_credential(payload.credential)
     google_sub = str(claims["sub"])
@@ -114,8 +103,16 @@ def google_login(payload: GoogleCredentialRequest, db: Session = Depends(get_db)
         if user is not None and user.google_sub not in {None, google_sub}:
             raise HTTPException(status_code=409, detail="This email is linked to another Google account")
         if user is None:
+            if payload.username is None:
+                return JSONResponse(status_code=status.HTTP_202_ACCEPTED,
+                                    content={"requires_username": True})
+            existing_username = db.scalar(select(User.id).where(
+                func.lower(User.username) == payload.username.lower()
+            ))
+            if existing_username is not None:
+                raise HTTPException(status_code=409, detail="Username already exists")
             user = User(
-                username=google_username(email, db),
+                username=payload.username,
                 email=email,
                 password_hash=hash_password(secrets.token_urlsafe(48)),
             )
@@ -127,6 +124,10 @@ def google_login(payload: GoogleCredentialRequest, db: Session = Depends(get_db)
         db.rollback()
         user = db.scalar(select(User).where(User.google_sub == google_sub))
         if user is None:
+            if payload.username is not None and db.scalar(select(User.id).where(
+                func.lower(User.username) == payload.username.lower()
+            )) is not None:
+                raise HTTPException(status_code=409, detail="Username already exists") from error
             raise HTTPException(status_code=409, detail="Google account is already linked") from error
     db.refresh(user)
     return AuthResponse(access_token=create_access_token(user), user=user)
