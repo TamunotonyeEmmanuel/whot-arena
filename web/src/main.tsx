@@ -2,10 +2,11 @@ import React, { createContext, useCallback, useContext, useEffect, useRef, useSt
 import { createPortal } from 'react-dom'
 import { createRoot } from 'react-dom/client'
 import { BrowserRouter, Link, NavLink, Navigate, Route, Routes, useLocation, useNavigate, useParams } from 'react-router-dom'
-import { ArrowLeft, ArrowRight, BatteryFull, BookOpen, Check, ChevronDown, CircleHelp, Clock3, Crown, DoorOpen, Gamepad2, History, Home, LogIn, LogOut, Menu, MessageCircle, Mic, MicOff, Moon, Pause, Play, Plus, Radio, Settings, Share2, Shield, Signal, Smartphone, Sparkles, Sun, Table2, Trophy, UserRound, Users, Volume2, Wallet, Wifi, X } from 'lucide-react'
+import { ArrowLeft, ArrowLeftRight, ArrowRight, BatteryFull, BookOpen, Check, ChevronDown, CircleHelp, Clock3, Crown, DoorOpen, Gamepad2, History, Home, LogIn, LogOut, Menu, MessageCircle, Mic, MicOff, MoreHorizontal, Moon, Pause, Play, Plus, Radio, Settings, Share2, Shield, Signal, Smartphone, Sparkles, Sun, Table2, Trophy, UserRound, Users, Volume2, Wallet, Wifi, X } from 'lucide-react'
 import './styles.css'
 import './live-voice-control.css'
 import './table-layout.css'
+import './premium-table.css'
 import { gameSoundsEnabled, playGameSound, primeGameAudio, setGameSoundsEnabled } from './audio'
 import lagosPhoneWallpaper from './assets/lagos-phone-wallpaper.png'
 import { SnookerGame } from './SnookerGame'
@@ -76,8 +77,35 @@ type GoogleIdentityServices = {
         width: number
       }) => void
     }
+
   }
 }
+export function isCardPlayable(
+  card: Card,
+  pendingDraw: number,
+  pendingPenalty: number | null,
+  top: Card | null,
+  requestedShape: string | null,
+) {
+  if (card.number === 20) return true
+  if (pendingDraw > 0) return card.number === pendingPenalty
+  return card.number === top?.number || card.shape === (requestedShape || top?.shape)
+}
+
+export function opponentSeatClass(index: number, opponentCount: number) {
+  const seats = opponentCount === 1
+    ? ['seat-top']
+    : opponentCount === 2
+      ? ['seat-left', 'seat-right']
+      : ['seat-top', 'seat-left', 'seat-right']
+  return seats[index] || 'seat-top'
+}
+
+function updateGameSoundsEnabled(enabled: boolean) {
+  setGameSoundsEnabled(enabled)
+  window.dispatchEvent(new CustomEvent('whot-sounds-change', { detail: enabled }))
+}
+
 declare global {
   interface Window {
     google?: GoogleIdentityServices
@@ -1251,7 +1279,7 @@ function CardFace({ card, large = false, back = false, selected = false, playabl
       className={`whot-card ${large ? 'card-large' : ''} tone-${shapeTone[card.shape]} ${isWhot ? 'whot-value-card' : ''} ${selected ? 'card-selected' : ''} ${playable ? 'card-playable' : ''}`}
       onClick={onClick}
       disabled={!playable}
-      style={{ '--card-index': index } as React.CSSProperties}
+      style={{ '--card-index': index, '--card-angle': `${(index - 4) * 1.25}deg` } as React.CSSProperties}
       aria-label={`Play ${card.number} ${card.shape}`}
     >
       <span className={`card-glyph ${isWhot ? 'card-glyph-whot' : ''}`}>
@@ -1294,11 +1322,16 @@ function GameTable() {
   const { code = '' } = useParams()
   const { view, session, send, leaveRoom, switchAway, busy } = useArena()
   const [selectedWhot, setSelectedWhot] = useState<Card | null>(null)
+  const [selectedCard, setSelectedCard] = useState<Card | null>(null)
   const [shape, setShape] = useState('circle')
+  const [rulesOpen, setRulesOpen] = useState(false)
+  const [handSorted, setHandSorted] = useState(false)
+  const [soundEnabled, setSoundEnabled] = useState(gameSoundsEnabled())
   const [toast, setToast] = useState('')
   const [turnSeconds, setTurnSeconds] = useState(30)
   const [pauseSeconds, setPauseSeconds] = useState(0)
   const navigate = useNavigate()
+  const myTurn = Boolean(view?.turn === session?.player_id && view?.status === 'playing' && !view?.is_paused)
   useEffect(() => {
     if (view?.status !== 'finished') return
     const roundWinner = view.players.find(player => player.id === view.winner)
@@ -1319,6 +1352,31 @@ function GameTable() {
     const timer = window.setInterval(() => setPauseSeconds(previous => Math.max(0, previous - 1)), 1000)
     return () => window.clearInterval(timer)
   }, [view?.is_paused, view?.pause_seconds_remaining, view?.state_version])
+  useEffect(() => {
+    if (!myTurn) {
+      setSelectedCard(null)
+      setSelectedWhot(null)
+    } else if (selectedCard && !view?.hand.some(card => card.id === selectedCard.id)) {
+      setSelectedCard(null)
+    }
+  }, [view?.hand, myTurn, selectedCard?.id])
+  useEffect(() => {
+    if (!rulesOpen && !selectedWhot) return
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return
+      setRulesOpen(false)
+      setSelectedWhot(null)
+    }
+    window.addEventListener('keydown', closeOnEscape)
+    return () => window.removeEventListener('keydown', closeOnEscape)
+  }, [rulesOpen, selectedWhot])
+  useEffect(() => {
+    const syncSounds = (event: Event) => {
+      setSoundEnabled((event as CustomEvent<boolean>).detail)
+    }
+    window.addEventListener('whot-sounds-change', syncSounds)
+    return () => window.removeEventListener('whot-sounds-change', syncSounds)
+  }, [])
   if (!view || view.code !== code.toUpperCase()) return <div className="center-state"><div className="loader-mark">W</div><h2>Restoring your game…</h2><p>Your hand stays private while the table reconnects.</p><button type="button" className="button button-outline" onClick={() => { leaveRoom(); navigate('/create') }}>Close open table</button></div>
   const me = view.players.find(player => player.id === session?.player_id)
   const opponents = view.players.filter(player => player.id !== session?.player_id)
@@ -1334,18 +1392,46 @@ function GameTable() {
   const didWinRound = view.team_mode ? me?.team === roundWinner?.team : view.winner === session?.player_id
   const winnerName = view.team_mode ? `Team ${roundWinner?.team || ''}` : roundWinner?.name || 'Arena winner'
   const championName = view.team_mode ? `Team ${matchWinner?.team || ''}` : matchWinner?.name || winnerName
-  const myTurn = view.turn === session?.player_id && view.status === 'playing' && !view.is_paused
+  const displayedHand = handSorted
+    ? [...view.hand].sort((a, b) => a.shape.localeCompare(b.shape) || a.number - b.number)
+    : view.hand
   const missedLastCard = view.players.find(player => player.id !== session?.player_id && player.last_card_required && (!view.team_mode || player.team !== me?.team))
   const isRoundOpening = view.last_action === 'Game started' || view.last_action.includes('started')
   const wagerLocked = view.wager_locked
   const reactionVisible = (player?: Player) => Boolean(player?.reaction && player.reaction_at && Date.now() / 1000 - player.reaction_at < 4)
-  const isLegal = (card: Card) => view.pending_draw > 0 ? card.number === view.pending_penalty : card.number === 20 || card.number === view.top?.number || card.shape === (view.requested_shape || view.top?.shape)
+  const isLegal = (card: Card) => isCardPlayable(
+    card, view.pending_draw, view.pending_penalty, view.top, view.requested_shape,
+  )
   function play(card: Card) {
-    if (!myTurn) return
-    if (card.number === 20) { setSelectedWhot(card); return }
-    send('play', { card_id: card.id })
+    if (!myTurn || !isLegal(card)) return
+    setSelectedCard(previous => previous?.id === card.id ? null : card)
   }
-  function confirmWhot() { if (selectedWhot) { send('play', { card_id: selectedWhot.id, shape }); setSelectedWhot(null) } }
+  function playSelected() {
+    if (!myTurn || !selectedCard || !isLegal(selectedCard)) return
+    if (selectedCard.number === 20) {
+      setSelectedWhot(selectedCard)
+      return
+    }
+    send('play', { card_id: selectedCard.id })
+    setSelectedCard(null)
+  }
+  function confirmWhot() {
+    if (selectedWhot && myTurn && isLegal(selectedWhot)) {
+      send('play', { card_id: selectedWhot.id, shape })
+    }
+    setSelectedWhot(null)
+    setSelectedCard(null)
+  }
+  function openTableChat() {
+    window.dispatchEvent(new Event('whot-open-table-chat'))
+  }
+  function openVoiceControls() {
+    window.dispatchEvent(new Event('whot-open-voice-controls'))
+  }
+  function toggleGameSounds() {
+    const enabled = !gameSoundsEnabled()
+    updateGameSoundsEnabled(enabled)
+  }
   function exitRoom() {
     if (wagerLocked && !window.confirm('Leave this Virtual Naira match? Your locked stake remains in the pot.')) return
     leaveRoom()
@@ -1363,44 +1449,64 @@ function GameTable() {
   return (
     <div className={`game-page theme-${me?.table_theme || 'classic'} card-back-${me?.card_back || 'classic'}`}>
       {view.status === 'finished' && <WinnerCelebration name={view.match_winner ? championName : winnerName} champion={Boolean(view.match_winner)} />}
-      <div className="game-topline">
-        <div>
+      <header className="game-topline premium-game-header">
+        <div className="premium-header-room">
+          <button type="button" className="premium-icon-button" onClick={exitRoom} aria-label="Leave table and return to dashboard"><ArrowLeft size={18} /></button>
+          <div className="premium-room-copy">
           <Eyebrow>ROOM {view.code}</Eyebrow>
-          <span className={`game-status ${myTurn ? 'turn-live' : ''}`}>
+          <span className={`game-status ${myTurn ? 'turn-live' : ''}`} aria-live="polite">
             <span className={`status-dot ${view.is_paused ? '' : 'online'}`} />
             {view.status === 'finished' ? 'ROUND COMPLETE' : view.is_paused ? 'GAME PAUSED' : myTurn ? 'YOUR TURN' : `TURN: ${view.players.find(player => player.id === view.turn)?.name || 'OPPONENT'}`}
           </span>
-          {view.wager > 0 && <span className="table-wager">₦{view.wager_pot.toLocaleString()} VIRTUAL POT</span>}
+          </div>
+          <div className="premium-match-meta"><span>{view.is_public ? 'QUICK MATCH' : view.team_mode ? '2V2 TABLE' : opponents.every(player => player.is_bot) ? 'SOLO TABLE' : 'PRIVATE TABLE'}</span><b>{view.players.length} PLAYERS</b>{view.wager > 0 && <strong>₦{view.wager_pot.toLocaleString()} POT</strong>}</div>
         </div>
-        <div className="match-scoreboard" aria-label={`Best of three match score, round ${view.round_number}`}><span>ROUND {view.round_number} · BEST OF 3</span><div>{view.team_mode ? [1, 2].map(team => { const key = `team-${team}`; const members = view.players.filter(player => player.team === team).map(player => player.name).join(' & '); return <span className={matchWinner?.team === team ? 'score-champion' : ''} key={key}><strong>Team {team} · {members}</strong><b>{view.round_wins[key] || 0}</b><small>{view.match_points[key] || 0} pts</small></span> }) : view.players.map(player => <span className={player.id === view.match_winner ? 'score-champion' : ''} key={player.id}><strong>{player.name}</strong><b>{view.round_wins[player.id] || 0}</b><small>{view.match_points[player.id] || 0} pts</small></span>)}</div></div>
-        <div className="game-actions">{view.host === session?.player_id && !view.is_public && view.status === 'playing' && <button type="button" className="button button-outline game-pause" disabled={view.is_paused && view.pause_reason !== 'manual'} onClick={() => send('pause')}>{view.is_paused && view.pause_reason === 'manual' ? <><Play size={15} /> Resume</> : <><Pause size={15} /> Pause</>}</button>}<button type="button" className="button button-outline game-switch" title="Keep this table and choose another" disabled={busy} onClick={() => void switchTables()}><Table2 size={15} /> Switch table</button><button type="button" className="button button-outline game-leave" title="Leave room and return to dashboard" onClick={exitRoom}><DoorOpen size={15} /> Leave room</button></div>
-      </div>
-      <div className={`game-layout ${opponents.every(player => player.is_bot) ? 'solo-layout' : ''}`}>
+        <div className="premium-header-actions">
+          <button type="button" className="premium-header-button" onClick={openTableChat} aria-label="Open table chat"><MessageCircle size={16} /><span>Chat</span></button>
+          {!opponents.every(player => player.is_bot) && <button type="button" className="premium-header-button" onClick={openVoiceControls} aria-label="Open live voice controls"><Mic size={16} /><span>Voice</span></button>}
+          <button type="button" className="premium-icon-button" onClick={toggleGameSounds} aria-label={soundEnabled ? 'Mute game sounds' : 'Enable game sounds'} title={soundEnabled ? 'Mute game sounds' : 'Enable game sounds'}><Volume2 size={17} />{!soundEnabled && <i />}</button>
+          <button type="button" className="premium-header-button" onClick={() => navigate('/tables')} aria-label="Open My Tables"><Table2 size={16} /><span>My Tables</span></button>
+          <button type="button" className="premium-header-button premium-switch-button" disabled={busy} onClick={() => void switchTables()} aria-label="Switch to another table"><ArrowLeft size={15} /><span>Switch Table</span></button>
+          <details className="premium-more-menu"><summary className="premium-icon-button" aria-label="More game options"><MoreHorizontal size={19} /></summary><div className="premium-menu-items">
+            <button type="button" onClick={() => setRulesOpen(true)}><BookOpen size={15} /> View game rules</button>
+            {view.host === session?.player_id && !view.is_public && view.status === 'playing' && <button type="button" disabled={view.is_paused && view.pause_reason !== 'manual'} onClick={() => send('pause')}>{view.is_paused && view.pause_reason === 'manual' ? <Play size={15} /> : <Pause size={15} />}{view.is_paused && view.pause_reason === 'manual' ? 'Resume game' : 'Pause game'}</button>}
+            <button type="button" onClick={exitRoom}><DoorOpen size={15} /> Leave table</button>
+          </div></details>
+        </div>
+      </header>
+      <div className="premium-score-row"><div className="match-scoreboard" aria-label={`Best of three match score, round ${view.round_number}`}><span>ROUND {view.round_number} · BEST OF 3</span><div>{view.team_mode ? [1, 2].map(team => { const key = `team-${team}`; const members = view.players.filter(player => player.team === team).map(player => player.name).join(' & '); return <span className={matchWinner?.team === team ? 'score-champion' : ''} key={key}><strong>Team {team} · {members}</strong><b>{view.round_wins[key] || 0}</b><small>{view.match_points[key] || 0} pts</small></span> }) : view.players.map(player => <span className={player.id === view.match_winner ? 'score-champion' : ''} key={player.id}><strong>{player.name}</strong><b>{view.round_wins[player.id] || 0}</b><small>{view.match_points[player.id] || 0} pts</small></span>)}</div></div><span className="premium-score-caption">Arena match · first to two rounds</span></div>
+      <div className={`game-layout premium-game-layout ${opponents.every(player => player.is_bot) ? 'solo-layout' : ''}`}>
       <div className="table-column">
-      <section className={`table-felt ${view.pending_draw > 0 ? 'table-penalty-active' : ''} ${isRoundOpening ? 'table-dealing' : ''}`}>
+      <section className={`table-felt premium-table-felt ${view.pending_draw > 0 ? 'table-penalty-active' : ''} ${isRoundOpening ? 'table-dealing' : ''}`}>
         <div className="table-stitch" />
         {view.is_paused && <div className="reconnect-pause" role="status" aria-live="polite">{view.pause_reason === 'disconnect' ? <Wifi size={25} /> : <Pause size={25} />}<span>PRIVATE MATCH PAUSED</span><strong>{pauseGuidance.title}</strong><small>{pauseGuidance.detail}{view.pause_reason === 'disconnect' ? ` · turn timer frozen at ${turnSeconds}` : ` · ${turnSeconds} seconds left on the turn timer`}</small><p>{pauseGuidance.instruction}</p></div>}
-        <div className="opponents-row">
+        <div className={`opponents-row premium-opponents opponents-${opponents.length}`}>
           {opponents.map((player, index) => (
-            <div className={`opponent ${!player.connected ? 'player-away' : ''} ${view.turn === player.id ? 'opponent-turn' : ''}`} key={player.id}>
+            <div className={`opponent premium-player-seat ${opponentSeatClass(index, opponents.length)} ${!player.connected ? 'player-away' : ''} ${view.turn === player.id ? 'opponent-turn' : ''}`} key={player.id}>
               <div className={`opponent-avatar-wrap ${player.voice_speaking ? 'voice-speaking' : ''}`}>{reactionVisible(player) && <span className="player-reaction" aria-label={`${player.name} reacted ${player.reaction}`}>{player.reaction}</span>}<Avatar name={player.name} avatar={player.avatar} className={`opponent-avatar avatar-${index}`} /><span className={`status-dot ${player.connected ? 'online' : ''}`} /></div>
-              <strong>{player.name}{player.is_bot ? ' · CPU' : ''}{view.team_mode && <em className={`team-tag team-tag-${player.team}`}>TEAM {player.team}</em>}</strong><span className={player.count === 1 ? 'last-card-label' : ''}>{player.count === 1 ? 'LAST CARD' : `${player.count} cards`}</span>{view.wager > 0 && player.id === session?.player_id && !player.is_bot && <span className="player-wallet">₦{(player.coin_balance ?? 0).toLocaleString()}</span>}{view.turn === player.id && <span className="opponent-turn-label">{player.is_bot ? 'THINKING' : 'THEIR TURN'}</span>}
+              <strong>{player.name}{player.is_bot ? ' · CPU' : ''}{view.team_mode && <em className={`team-tag team-tag-${player.team}`}>TEAM {player.team}</em>}</strong><span className={player.count === 1 ? 'last-card-label' : ''}>{player.count === 1 ? 'LAST CARD' : `${player.count} cards`}</span>{view.wager > 0 && player.id === session?.player_id && !player.is_bot && <span className="player-wallet">₦{(player.coin_balance ?? 0).toLocaleString()}</span>}{view.turn === player.id && <span className="opponent-turn-label"><Clock3 size={12} />{player.is_bot ? 'THINKING' : `${turnSeconds}s · THEIR TURN`}</span>}
               <div className="opponent-card-fan">{Array.from({ length: Math.min(player.count, 3) }, (_, cardIndex) => <CardFace key={cardIndex} back />)}</div>
             </div>
           ))}
         </div>
         <div className="center-piles">
-          <div className="pile-block"><span className="pile-label">DRAW PILE</span><div className={`pile-stack${view.market_count > 0 && view.market_count <= 5 ? ' pile-stack-low' : ''}`} onClick={() => myTurn && send('draw')} role="button" tabIndex={0} onKeyDown={event => event.key === 'Enter' && myTurn && send('draw')} aria-label={view.pending_draw ? `Accept penalty and draw ${view.pending_draw} cards` : `Draw one card and pass. ${view.market_count} cards remain`}><CardFace back large /><span className="market-count">{view.market_count}</span><span className="pile-count">{myTurn ? view.pending_draw ? `PICK ${view.pending_draw}` : 'TAP TO DRAW' : `${view.market_count} CARDS`}</span></div></div>
+          <div className="pile-block"><span className="pile-label">DRAW DECK</span><button type="button" disabled={!myTurn} className={`pile-stack${view.market_count > 0 && view.market_count <= 5 ? ' pile-stack-low' : ''}`} onClick={() => myTurn && send('draw')} aria-label={view.pending_draw ? `Accept penalty and draw ${view.pending_draw} cards` : `Draw one card and pass. ${view.market_count} cards remain`}><CardFace back large /><span className="market-count">{view.market_count}</span><span className="pile-count">{myTurn ? view.pending_draw ? `PICK ${view.pending_draw}` : 'DRAW & PASS' : `${view.market_count} CARDS`}</span></button></div>
           <div className="table-arrow">{view.status === 'playing' ? <div className={`table-turn-timer ${!view.is_paused && turnSeconds <= 5 ? 'table-turn-timer-urgent' : ''}`} aria-live="polite" aria-label={view.is_paused ? view.pause_reason === 'disconnect' ? `${pauseSeconds} seconds to reconnect` : 'Game paused by host' : `${turnSeconds} seconds remaining`}><Clock3 size={16} /><strong>{view.is_paused ? view.pause_reason === 'disconnect' ? pauseSeconds : '‖' : turnSeconds}</strong><span>{view.is_paused ? 'PAUSE' : 'SEC'}</span></div> : <Sparkles size={19} />}</div>
-          <div className="pile-block"><span className="pile-label">ON THE TABLE</span><div className="top-card-slot"><CardFace key={view.top?.id || 'empty-top'} card={view.top} large selected /><div className="top-glow" /></div></div>
+          <div className="pile-block"><span className="pile-label">DISCARD PILE</span><div className="top-card-slot"><CardFace key={view.top?.id || 'empty-top'} card={view.top} large selected /><div className="top-glow" /></div></div>
         </div>
         {view.requested_shape && <div className="requested-shape"><span>SHAPE REQUESTED</span><strong>{shapeGlyph[view.requested_shape]} {view.requested_shape}</strong></div>}
         {view.pending_draw > 0 && <div className="requested-shape penalty-stack" role="status"><span>PENALTY STACK</span><strong>Pick {view.pending_draw} · Block with another {view.pending_penalty}</strong></div>}
         <div className="table-message" aria-live="polite">{toast || view.last_action}</div>
         {missedLastCard && view.status === 'playing' && !view.is_paused && <button type="button" className="button button-outline" onClick={() => send('call_last', { target_id: missedLastCard.id })} aria-label={`Call ${missedLastCard.name} for missing LAST CARD; they draw two cards`}>CALL LAST CARD · +2</button>}
         <div className="reaction-picker" aria-label="Quick reactions">{['😂', '🔥', '😭', '👏'].map(reaction => <button type="button" key={reaction} onClick={() => send('reaction', { reaction })} aria-label={`React ${reaction}`}>{reaction}</button>)}</div>
-        <div className="you-at-table"><div className={`you-avatar-wrap ${me?.voice_speaking ? 'voice-speaking' : ''}`}>{reactionVisible(me) && <span className="player-reaction" aria-label={`You reacted ${me?.reaction}`}>{me?.reaction}</span>}<Avatar name={me?.name || 'You'} avatar={me?.avatar} className="you-avatar" /></div><div><strong>{me?.name || 'You'} <span>(you)</span>{view.team_mode && <em className={`team-tag team-tag-${me?.team}`}>TEAM {me?.team}</em>}</strong><small>{myTurn ? 'Your move' : view.status === 'finished' ? 'Round over' : 'Waiting for your turn'}{view.wager > 0 ? ` · ₦${(me?.coin_balance ?? 0).toLocaleString()}` : ''}</small></div>{myTurn && <span className="turn-clock"><Clock3 size={15} /> PLAY NOW</span>}</div>
+        <div className={`you-at-table premium-you-seat ${myTurn ? 'you-seat-turn' : ''}`}><div className={`you-avatar-wrap ${me?.voice_speaking ? 'voice-speaking' : ''}`}>{reactionVisible(me) && <span className="player-reaction" aria-label={`You reacted ${me?.reaction}`}>{me?.reaction}</span>}<Avatar name={me?.name || 'You'} avatar={me?.avatar} className="you-avatar" /><span className={`status-dot ${me?.connected ? 'online' : ''}`} /></div><div><strong>{me?.name || 'You'} <span>(you)</span>{view.team_mode && <em className={`team-tag team-tag-${me?.team}`}>TEAM {me?.team}</em>}</strong><small>{myTurn ? 'Your move' : view.status === 'finished' ? 'Round over' : 'Waiting for your turn'}{view.wager > 0 ? ` · ₦${(me?.coin_balance ?? 0).toLocaleString()}` : ''}</small></div>{myTurn && <span className="turn-clock"><Clock3 size={15} /> {turnSeconds}s · YOUR TURN</span>}</div>
       </section>
+      {view.status === 'playing' && <nav className="premium-game-controls" aria-label="Game controls">
+        <button type="button" className="premium-action-draw" disabled={!myTurn} onClick={() => myTurn && send('draw')}><CardFace back /><span>{view.pending_draw ? `Draw ${view.pending_draw} cards` : 'Draw card'}</span><small>{view.pending_draw ? 'Accept penalty' : 'Draw & pass'}</small></button>
+        <button type="button" className="premium-action-play" disabled={!myTurn || !selectedCard} onClick={playSelected}>{selectedCard?.number === 20 ? <Sparkles size={17} /> : <Play size={16} />}<span>{selectedCard?.number === 20 ? 'Pick shape' : 'Play card'}</span></button>
+        <button type="button" className="premium-action-secondary" onClick={() => setHandSorted(previous => !previous)}><ArrowLeftRight size={16} /><span>{handSorted ? 'Natural hand' : 'Sort cards'}</span></button>
+        <button type="button" className="premium-action-secondary" onClick={() => setRulesOpen(true)}><BookOpen size={16} /><span>Game rules</span></button>
+      </nav>}
       {view.status === 'finished' ? (
         <section className="round-result">
           <div className="result-icon">{didWinRound ? <Crown size={26} /> : <Trophy size={26} />}</div>
@@ -1409,13 +1515,14 @@ function GameTable() {
         </section>
       ) : (
         <section className={`hand-panel ${view.pending_draw > 0 && myTurn ? 'penalty-hand' : ''}`}>
-          <div className="hand-heading"><div><span className="small-label">YOUR HAND</span><strong className={view.hand.length === 1 ? 'last-card-label' : ''}>{view.hand.length === 1 ? 'LAST CARD' : `${view.hand.length} cards`}</strong></div>{me?.last_card_required ? <button type="button" className="last-card-button" onClick={() => send('declare_last')}><Sparkles size={15} /> LAST CARD!</button> : <span className="hand-hint">{myTurn ? view.pending_draw ? `Play another ${view.pending_penalty} or pick ${view.pending_draw}` : 'Choose a matching card or draw to pass' : 'Cards only you can see'}</span>}</div>
-          <div className="hand-cards">{view.hand.map((card, index) => <CardFace key={card.id} card={card} playable={myTurn && isLegal(card)} selected={selectedWhot?.id === card.id} index={index} onClick={() => play(card)} />)}</div>
+          <div className="hand-heading"><div><span className="small-label">YOUR HAND</span><strong className={view.hand.length === 1 ? 'last-card-label' : ''}>{view.hand.length === 1 ? 'LAST CARD' : `${view.hand.length} cards`}</strong></div>{me?.last_card_required ? <button type="button" className="last-card-button" onClick={() => send('declare_last')}><Sparkles size={15} /> LAST CARD!</button> : <span className="hand-hint">{myTurn ? view.pending_draw ? `Select another ${view.pending_penalty} or draw ${view.pending_draw}` : selectedCard ? `${selectedCard.number} ${selectedCard.shape} selected` : 'Select a highlighted card, then play' : 'Cards only you can see'}</span>}</div>
+          <div className="hand-cards">{displayedHand.map((card, index) => <CardFace key={card.id} card={card} playable={myTurn && isLegal(card)} selected={selectedCard?.id === card.id} index={index} onClick={() => play(card)} />)}</div>
         </section>
       )}
       </div>
       {!opponents.every(player => player.is_bot) && <LiveVoicePanel players={view.players} playerId={session?.player_id || ''} enabled={view.status === 'playing'} />}
       </div>
+      {rulesOpen && <div className="premium-dialog-scrim" onMouseDown={() => setRulesOpen(false)}><section className="premium-rules-dialog" role="dialog" aria-modal="true" aria-labelledby="premium-rules-title" onMouseDown={event => event.stopPropagation()}><button type="button" className="premium-icon-button" onClick={() => setRulesOpen(false)} aria-label="Close game rules"><X size={18} /></button><span className="small-label">CURRENT TABLE SETTINGS</span><h2 id="premium-rules-title">Game rules</h2><p>These are the rules enforced by the server for this match.</p><div className="premium-rules-list"><span>Cards per player <strong>{view.rules.cards_per_player}</strong></span><span>Pick Two penalty <strong>{view.rules.pick_two} cards</strong></span><span>Pick Three <strong>{view.rules.pick_three_enabled ? `${view.rules.pick_three} cards` : 'Disabled'}</strong></span><span>General Market <strong>{view.rules.general_market} per opponent</strong></span><span>Penalty stacking <strong>{view.rules.penalty_stacking ? 'Enabled' : 'Disabled'}</strong></span><span>First to <strong>2 round wins</strong></span></div><p className="premium-rules-note">WHOT 20 may be played anytime. Tap a playable card to select it, then choose Play Card.</p><button type="button" className="button premium-action-play" onClick={() => setRulesOpen(false)}>Back to table</button></section></div>}
       {selectedWhot && createPortal(<div className="shape-modal-backdrop" onMouseDown={() => setSelectedWhot(null)}><section className="shape-modal" role="dialog" aria-modal="true" aria-labelledby="shape-modal-title" onMouseDown={event => event.stopPropagation()}><button type="button" className="icon-button shape-modal-close" onClick={() => setSelectedWhot(null)} aria-label="Cancel shape selection"><X size={18} /></button><div className="shape-modal-card"><span>20</span><strong>WHOT</strong></div><span className="small-label">WHOT 20</span><h2 id="shape-modal-title">Choose the next shape</h2><p>Every player must match the shape you select.</p><div className="shape-modal-grid">{shapes.map(item => <button type="button" key={item} className={`shape-modal-choice shape-${item} ${shape === item ? 'shape-modal-choice-active' : ''}`} onClick={() => setShape(item)} aria-pressed={shape === item}><span>{shapeGlyph[item]}</span><strong>{item}</strong></button>)}</div><button type="button" className="button button-lime shape-modal-confirm" onClick={confirmWhot}><Check size={16} /> Play WHOT · {shapeGlyph[shape]} {shape}</button></section></div>, document.body)}
     </div>
   )
@@ -1455,6 +1562,12 @@ function LiveVoicePanel({ players, playerId, enabled }: { players: Player[]; pla
   const relayPlaybackTimesRef = useRef(new Map<string, number>())
   // React may batch incoming WebSocket packets into a single render.
   const handledAudioIdsRef = useRef(new Set<string>())
+
+  useEffect(() => {
+    const openControls = () => setDrawerOpen(true)
+    window.addEventListener('whot-open-voice-controls', openControls)
+    return () => window.removeEventListener('whot-open-voice-controls', openControls)
+  }, [])
 
   function unlockLivePlayback() {
     const playback = relayPlaybackRef.current || new AudioContext({ latencyHint: 'playback' })
@@ -1928,6 +2041,24 @@ function VoicePanel({ messages, chatMessages, playerId, enabled, players, balanc
   const directMessageIdsRef = useRef<Set<number> | null>(null)
 
   useEffect(() => {
+    const openTableChat = () => {
+      setOpen(true)
+      setPhoneApp('messenger')
+      setMessageMode('table')
+    }
+    window.addEventListener('whot-open-table-chat', openTableChat)
+    return () => window.removeEventListener('whot-open-table-chat', openTableChat)
+  }, [])
+
+  useEffect(() => {
+    const syncSounds = (event: Event) => {
+      setPhoneSounds((event as CustomEvent<boolean>).detail)
+    }
+    window.addEventListener('whot-sounds-change', syncSounds)
+    return () => window.removeEventListener('whot-sounds-change', syncSounds)
+  }, [])
+
+  useEffect(() => {
     if (!username) return
     let active = true
     const load = () => fetch(`${API_URL}/api/messages?limit=100`, { headers: { Authorization: `Bearer ${accessToken()}` } })
@@ -2025,7 +2156,7 @@ function VoicePanel({ messages, chatMessages, playerId, enabled, players, balanc
         {phoneApp === 'snooker' && <SnookerGame />}
         {phoneApp === 'messenger' && <div className="phone-messenger">{username && <div className="messenger-tabs"><button className={messageMode === 'direct' ? 'active' : ''} onClick={() => setMessageMode('direct')}>Direct messages</button><button className={messageMode === 'table' ? 'active' : ''} onClick={() => setMessageMode('table')} disabled={!playerId}>Table chat</button></div>}{messageMode === 'direct' && username ? <><div className="direct-recipient"><input value={recipient} maxLength={24} onChange={event => setRecipient(event.target.value)} placeholder="Player username" aria-label="Recipient username" />{playerMatches.length > 0 && <div>{playerMatches.slice(0, 4).map(player => <button key={player.id} onClick={() => { setRecipient(player.username); setPlayerMatches([]) }}>@{player.username}</button>)}</div>}</div><div className="voice-feed chat-feed direct-feed" aria-live="polite">{directMessages.length ? directMessages.map(message => { const mine = message.sender_username === username; return <div className={`chat-bubble ${mine ? 'chat-bubble-mine' : ''}`} key={`direct-${message.id}`}><div className="voice-message-meta"><strong>{mine ? `To @${message.recipient_username}` : `@${message.sender_username}`}</strong><time>{new Date(message.sent_at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</time></div><p>{message.text}</p></div> }) : <div className="voice-empty"><MessageCircle size={19} /><span>No direct messages yet.</span><small>Enter a username to start a conversation.</small></div>}</div><div className="voice-compose chat-compose direct-compose"><form onSubmit={sendDirectMessage}><input value={directText} maxLength={500} onChange={event => setDirectText(event.target.value)} placeholder={recipient ? `Message @${recipient}` : 'Choose a username first'} aria-label="Direct message" disabled={!recipient.trim()} /><button type="submit" className="icon-button iphone-send" disabled={!recipient.trim() || !directText.trim()} aria-label="Send direct message"><ArrowRight size={17} /></button></form>{directError && <span className="voice-error">{directError}</span>}</div></> : <><div className="iphone-chat-date">Table</div><div className="voice-feed chat-feed" aria-live="polite">{feed.length ? feed.map(item => item.kind === 'text' ? <div className={`chat-bubble ${item.message.player_id === playerId ? 'chat-bubble-mine' : ''}`} key={`text-${item.message.id}`}><div className="voice-message-meta"><strong>{item.message.name}</strong><time>{new Date(item.message.sent_at * 1000).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</time></div><p>{item.message.text}</p></div> : <div className={`voice-message ${item.message.player_id === playerId ? 'chat-bubble-mine' : ''}`} key={`voice-${item.message.id}`}><div className="voice-message-meta"><strong>{item.message.name}</strong><time>{new Date(item.message.sent_at * 1000).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</time></div>{voiceUrls[item.message.id] ? <audio controls preload="none" src={voiceUrls[item.message.id]} aria-label={`Voice message from ${item.message.name}`} /> : <button className="voice-play" onClick={() => requestVoice(item.message.id)}><Volume2 size={14} /> Listen <span>{Math.max(1, Math.round(item.message.size / 16_000))} KB</span></button>}</div>) : <div className="voice-empty"><MessageCircle size={19} /><span>No table messages yet.</span><small>{enabled ? 'Say hello to the table.' : 'Table chat opens when the match starts.'}</small></div>}</div><div className="voice-compose chat-compose"><form onSubmit={sendTextMessage}><input value={textMessage} maxLength={500} onChange={event => setTextMessage(event.target.value)} placeholder={enabled ? 'Message the table' : 'Available when match starts'} aria-label="Message the table" disabled={!enabled} /><button type="submit" className="icon-button iphone-send" disabled={!enabled || !textMessage.trim()} aria-label="Send message"><ArrowRight size={17} /></button></form></div></>}</div>}
         {phoneApp === 'bank' && <div className="phone-bank"><span className="phone-bank-mark">₦</span><small>TOTAL VIRTUAL NAIRA</small><strong>₦{balance.toLocaleString()}</strong><div><span>Current stake<b>{wager ? `₦${wager.toLocaleString()}` : 'Free match'}</b></span><span>Table pot<b>{pot ? `₦${pot.toLocaleString()}` : 'No pot'}</b></span></div><p>Virtual Naira has no cash value and cannot be purchased, transferred, or withdrawn.</p></div>}
-        {phoneApp === 'settings' && <div className="phone-settings"><label className="toggle-row"><span><strong>Background music</strong><small>Game soundtrack</small></span><input type="checkbox" checked={phoneMusic} onChange={event => { setPhoneMusic(event.target.checked); setBackgroundMusicEnabled(event.target.checked) }} /></label><label className="toggle-row"><span><strong>Game sounds</strong><small>Cards, turns, and taps</small></span><input type="checkbox" checked={phoneSounds} onChange={event => { setPhoneSounds(event.target.checked); setGameSoundsEnabled(event.target.checked) }} /></label><div className="phone-theme"><span>COLOR MODE</span><button className={phoneTheme === 'light' ? 'active' : ''} onClick={() => { setPhoneTheme('light'); applyColorTheme('light') }}><Sun size={16} /> Light</button><button className={phoneTheme === 'dark' ? 'active' : ''} onClick={() => { setPhoneTheme('dark'); applyColorTheme('dark') }}><Moon size={16} /> Dark</button></div></div>}
+        {phoneApp === 'settings' && <div className="phone-settings"><label className="toggle-row"><span><strong>Background music</strong><small>Game soundtrack</small></span><input type="checkbox" checked={phoneMusic} onChange={event => { setPhoneMusic(event.target.checked); setBackgroundMusicEnabled(event.target.checked) }} /></label><label className="toggle-row"><span><strong>Game sounds</strong><small>Cards, turns, and taps</small></span><input type="checkbox" checked={phoneSounds} onChange={event => { setPhoneSounds(event.target.checked); updateGameSoundsEnabled(event.target.checked) }} /></label><div className="phone-theme"><span>COLOR MODE</span><button className={phoneTheme === 'light' ? 'active' : ''} onClick={() => { setPhoneTheme('light'); applyColorTheme('light') }}><Sun size={16} /> Light</button><button className={phoneTheme === 'dark' ? 'active' : ''} onClick={() => { setPhoneTheme('dark'); applyColorTheme('dark') }}><Moon size={16} /> Dark</button></div></div>}
         <span className="iphone-homebar" aria-hidden="true" />
       </div>
     </aside>}
@@ -2351,7 +2482,7 @@ function SettingsPage() {
   const [theme, setTheme] = useState<ColorTheme>(preferredTheme)
   const [saved, setSaved] = useState(false)
   function save() { localStorage.setItem('whot.nickname', nickname.slice(0, 20)); setSaved(true); window.setTimeout(() => setSaved(false), 2200) }
-  function toggleSound(enabled: boolean) { setSound(enabled); setGameSoundsEnabled(enabled); if (enabled) playGameSound('preview') }
+  function toggleSound(enabled: boolean) { setSound(enabled); updateGameSoundsEnabled(enabled); if (enabled) playGameSound('preview') }
   function toggleMusic(enabled: boolean) { setMusic(enabled); setBackgroundMusicEnabled(enabled) }
   function changeTheme(next: ColorTheme) { setTheme(next); applyColorTheme(next) }
   return <><PageTitle eyebrow="PREFERENCES" title="Make it yours." detail="Local settings for this browser. Your account data stays on the server." /><div className="settings-layout"><section className="content-panel settings-panel"><span className="small-label">PLAYER IDENTITY</span><h2>Table name</h2><p>This name appears to other players when you join as a guest.</p><label className="field-label">Display name<input value={nickname} maxLength={20} onChange={event => setNickname(event.target.value)} /></label><button className="button button-green" onClick={save}><Check size={16} /> {saved ? 'Saved' : 'Save preference'}</button></section><section className="content-panel settings-panel"><span className="small-label">APPEARANCE</span><h2>Color mode</h2><p>Choose the Arena appearance that is most comfortable for you.</p><div className="theme-options"><button type="button" className={`theme-option ${theme === 'light' ? 'theme-option-active' : ''}`} onClick={() => changeTheme('light')}><Sun size={18} /><span><strong>Light</strong><small>Bright and clean</small></span></button><button type="button" className={`theme-option ${theme === 'dark' ? 'theme-option-active' : ''}`} onClick={() => changeTheme('dark')}><Moon size={18} /><span><strong>Dark</strong><small>Easy on the eyes</small></span></button></div></section><section className="content-panel settings-panel"><span className="small-label">GAME EXPERIENCE</span><h2>Audio controls</h2><p>Control background music separately from card and match sound effects.</p><label className="toggle-row"><span><strong>Background music</strong><small>Turn the Arena music on or off</small></span><input type="checkbox" checked={music} onChange={event => toggleMusic(event.target.checked)} /></label><label className="toggle-row"><span><strong>Enable game sounds</strong><small>Card, turn, and victory effects</small></span><input type="checkbox" checked={sound} onChange={event => toggleSound(event.target.checked)} /></label><button type="button" className="button button-outline" disabled={!sound} onClick={() => playGameSound('preview')}><Volume2 size={16} /> Test sound</button></section><div className="info-banner"><Shield size={16} /> Account email and password are managed by your player account, not stored in these local settings.</div></div></>
@@ -2463,26 +2594,7 @@ function TurnChangePopup() {
 }
 
 function MobileGameOnly() {
-  const [isMobileViewport, setIsMobileViewport] = useState(
-    () => window.matchMedia('(max-width: 760px)').matches,
-  )
-
-  useEffect(() => {
-    const mobileViewport = window.matchMedia('(max-width: 760px)')
-    const updateViewport = () => setIsMobileViewport(mobileViewport.matches)
-    mobileViewport.addEventListener('change', updateViewport)
-    return () => mobileViewport.removeEventListener('change', updateViewport)
-  }, [])
-
-  if (isMobileViewport) return <GameTable />
-
-  return <section className="desktop-game-notice" role="status">
-    <span className="desktop-game-icon"><Smartphone size={25} /></span>
-    <span className="small-label">MOBILE ONLY</span>
-    <h1>Play on your phone</h1>
-    <p>WHOT Arena games are available on mobile screens. Open this table on your phone to continue playing.</p>
-    <Link className="button button-green" to="/tables"><Table2 size={16} /> My tables</Link>
-  </section>
+  return <GameTable />
 }
 
 function HelpPage() {

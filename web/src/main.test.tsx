@@ -1,7 +1,7 @@
 import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { App, Avatar, CardFace, RematchAction, microphoneFailureMessage, normalizeTurnUrl, reconnectPauseGuidance, relayPlaybackStartAt, shouldUseRelayFallback, turnAnnouncement } from './main'
+import { App, Avatar, CardFace, RematchAction, isCardPlayable, microphoneFailureMessage, normalizeTurnUrl, opponentSeatClass, reconnectPauseGuidance, relayPlaybackStartAt, shouldUseRelayFallback, turnAnnouncement } from './main'
 
 class NotificationTestSocket {
   static OPEN = 1
@@ -157,6 +157,30 @@ describe('WHOT Arena web client', () => {
     await user.click(card)
 
     expect(onClick).toHaveBeenCalledOnce()
+  })
+
+  it('keeps WHOT playable while a penalty is pending', () => {
+    expect(isCardPlayable(
+      { id: 'wild', shape: 'whot', number: 20 },
+      4,
+      2,
+      { id: 'two', shape: 'circle', number: 2 },
+      null,
+    )).toBe(true)
+    expect(isCardPlayable(
+      { id: 'five', shape: 'star', number: 5 },
+      4,
+      2,
+      { id: 'two', shape: 'circle', number: 2 },
+      null,
+    )).toBe(false)
+  })
+
+  it('positions opponents dynamically for two, three, and four-player tables', () => {
+    expect(opponentSeatClass(0, 1)).toBe('seat-top')
+    expect([opponentSeatClass(0, 2), opponentSeatClass(1, 2)]).toEqual(['seat-left', 'seat-right'])
+    expect([opponentSeatClass(0, 3), opponentSeatClass(1, 3), opponentSeatClass(2, 3)])
+      .toEqual(['seat-top', 'seat-left', 'seat-right'])
   })
 
   it('explains why microphone capture failed and how to retry', () => {
