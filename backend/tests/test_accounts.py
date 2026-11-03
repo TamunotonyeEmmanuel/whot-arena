@@ -176,6 +176,113 @@ def test_google_credential_verification_uses_configured_client_id(monkeypatch):
     }
 
 
+def test_admin_can_manage_accounts_and_audit_wallet_adjustments(monkeypatch):
+    admin_payload = credentials()
+    target_payload = credentials()
+    monkeypatch.setenv(
+        "ADMIN_EMAILS",
+        f"{admin_payload['email']},future-admin@example.com",
+    )
+
+    with TestClient(app) as client:
+        admin = client.post("/api/auth/register", json=admin_payload).json()
+        target = client.post("/api/auth/register", json=target_payload).json()
+        admin_headers = {"Authorization": f"Bearer {admin['access_token']}"}
+        target_headers = {"Authorization": f"Bearer {target['access_token']}"}
+        target_id = target["user"]["id"]
+
+        assert client.get("/api/admin/users", headers=target_headers).status_code == 403
+        assert client.get("/api/admin/users").status_code == 401
+
+        listing = client.get("/api/admin/users?q=" + target_payload["username"], headers=admin_headers)
+        assert listing.status_code == 200
+        assert listing.json()["total"] == 1
+        assert listing.json()["items"][0]["id"] == target_id
+
+        reserved_email = client.put(
+            f"/api/admin/users/{target_id}",
+            headers=admin_headers,
+            json={"username": target_payload["username"], "email": "future-admin@example.com"},
+        )
+        assert reserved_email.status_code == 409
+
+        edited = client.put(
+            f"/api/admin/users/{target_id}",
+            headers=admin_headers,
+            json={"username": "managed_player", "email": "managed@example.com"},
+        )
+        assert edited.status_code == 200, edited.text
+        assert edited.json()["username"] == "managed_player"
+        assert edited.json()["email"] == "managed@example.com"
+
+        funded = client.post(
+            f"/api/admin/users/{target_id}/fund",
+            headers=admin_headers,
+            json={"amount": 500, "reason": "Welcome grant"},
+        )
+        assert funded.status_code == 200, funded.text
+        assert funded.json()["balance"] == 10_500
+
+        debited = client.post(
+            f"/api/admin/users/{target_id}/debit",
+            headers=admin_headers,
+            json={"amount": 200, "reason": "Balance correction"},
+        )
+        assert debited.status_code == 200, debited.text
+        assert debited.json()["balance"] == 10_300
+        insufficient = client.post(
+            f"/api/admin/users/{target_id}/debit",
+            headers=admin_headers,
+            json={"amount": 20_000, "reason": "Invalid debit"},
+        )
+        assert insufficient.status_code == 400
+
+        history = client.get(
+            f"/api/admin/users/{target_id}/wallet-history",
+            headers=admin_headers,
+        )
+        assert history.status_code == 200
+        assert [entry["action"] for entry in history.json()] == ["debit", "fund"]
+        assert history.json()[0]["reason"] == "Balance correction"
+
+        protected = client.delete(
+            f"/api/admin/users/{admin['user']['id']}",
+            headers=admin_headers,
+        )
+        assert protected.status_code == 403
+
+
+def test_admin_delete_anonymizes_account_and_revokes_access(monkeypatch):
+    admin_payload = credentials()
+    target_payload = credentials()
+    monkeypatch.setenv("ADMIN_EMAILS", admin_payload["email"])
+
+    with TestClient(app) as client:
+        admin = client.post("/api/auth/register", json=admin_payload).json()
+        target = client.post("/api/auth/register", json=target_payload).json()
+        admin_headers = {"Authorization": f"Bearer {admin['access_token']}"}
+        target_headers = {"Authorization": f"Bearer {target['access_token']}"}
+        target_id = target["user"]["id"]
+
+        deleted = client.delete(f"/api/admin/users/{target_id}", headers=admin_headers)
+        assert deleted.status_code == 200, deleted.text
+        assert client.get("/api/profile", headers=target_headers).status_code == 401
+        assert client.post("/api/auth/login", json={
+            "email": target_payload["email"],
+            "password": target_payload["password"],
+        }).status_code == 401
+
+        with SessionLocal() as db:
+            deleted_user = db.get(User, target_id)
+            assert deleted_user.deleted_at is not None
+            assert deleted_user.email.startswith(f"deleted-{target_id}-")
+            assert deleted_user.username.startswith(f"deleted_{target_id}_")
+
+        active_users = client.get("/api/admin/users", headers=admin_headers)
+        assert active_users.status_code == 200
+        assert target_id not in {user["id"] for user in active_users.json()["items"]}
+
+
 def test_completed_match_updates_registered_player_statistics():
     payload = credentials()
     opponent_payload = credentials()

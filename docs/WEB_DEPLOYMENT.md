@@ -42,6 +42,8 @@ VITE_GOOGLE_CLIENT_ID=<same Google OAuth Web client ID>
 
 Generate a secret with a password manager or a cryptographically secure local generator. Do not commit `.env`, secrets, or production tokens. Production startup rejects the development JWT fallback/short secrets and wildcard CORS. Ensure `CORS_ORIGINS` is a comma-separated list of exact frontend origins, including scheme and port where relevant.
 
+Accounts whose email is listed in `ADMIN_EMAILS` can use `/admin` to search and edit player usernames/emails, fund or debit Virtual Naira, review wallet-adjustment history, and delete accounts. Wallet changes require a reason and are audited. Account deletion disables login, anonymizes account details, and retains historical match records. Administrator accounts are protected from these changes.
+
 ## Docker Compose deployment
 
 The repository Compose stack includes PostgreSQL, the single-process FastAPI service, and an Nginx-served static web build. The Vite API/WebSocket URLs and Google client ID are build arguments, so changing them requires rebuilding the frontend image.

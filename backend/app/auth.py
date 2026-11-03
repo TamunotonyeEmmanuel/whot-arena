@@ -61,6 +61,6 @@ def current_user(credentials: HTTPAuthorizationCredentials | None = Depends(bear
                  db: Session = Depends(get_db)):
     user_id = token_user_id(credentials.credentials if credentials else None)
     user = db.get(User, user_id) if user_id else None
-    if not user:
+    if not user or user.deleted_at is not None:
         raise HTTPException(status_code=401, detail="Invalid or expired access token")
     return user

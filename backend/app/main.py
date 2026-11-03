@@ -89,11 +89,12 @@ def make_player(pid, name, user_id=None):
     if user_id:
         with database_session() as db:
             user = db.get(User, user_id)
-            if user:
-                player.table_theme = user.selected_theme
-                player.card_back = user.selected_card_back
-                player.avatar = user.selected_avatar
-                player.coin_balance = user.arena_coins
+            if user is None or user.deleted_at is not None:
+                raise ValueError("This account is no longer available")
+            player.table_theme = user.selected_theme
+            player.card_back = user.selected_card_back
+            player.avatar = user.selected_avatar
+            player.coin_balance = user.arena_coins
     return player
 
 def lock_room_wager(room):
@@ -507,7 +508,8 @@ async def notification_ws_endpoint(ws: WebSocket):
             await ws.close(code=1008)
             return
         with database_session() as db:
-            if db.get(User, user_id) is None:
+            user = db.get(User, user_id)
+            if user is None or user.deleted_at is not None:
                 await ws.send_json({"type": "error", "message": "Authentication required"})
                 await ws.close(code=1008)
                 return
@@ -548,7 +550,9 @@ def admin_overview(user: User = Depends(current_user), db: Session = Depends(get
         raise HTTPException(status_code=403, detail="Administrator access required")
     treasury = db.get(ArenaTreasury, 1)
     return {
-        "users": db.scalar(select(func.count(User.id))) or 0,
+        "users": db.scalar(
+            select(func.count(User.id)).where(User.deleted_at.is_(None))
+        ) or 0,
         "active_rooms": len(rooms),
         "active_players": len([player for room in rooms.values() for player in room.players if player.connected and not player.is_bot]),
         "completed_matches": db.scalar(select(func.count(MatchResult.id))) or 0,
@@ -686,6 +690,14 @@ async def ws_endpoint(ws: WebSocket):
             msg = await ws.receive_json()
             action = msg.get("action")
             try:
+                active_user_id = pid_user.get(pid) if pid else None
+                if active_user_id:
+                    with database_session() as db:
+                        active_user = db.get(User, active_user_id)
+                        account_deleted = active_user is None or active_user.deleted_at is not None
+                    if account_deleted:
+                        await ws.close(code=1008, reason="Account is no longer available")
+                        return
                 if action in {"create", "computer"}:
                     if pid is not None:
                         raise ValueError("This connection already has a session")

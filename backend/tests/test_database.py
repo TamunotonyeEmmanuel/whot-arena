@@ -51,7 +51,8 @@ def test_database_migrations_preserve_existing_account_data(tmp_path, monkeypatc
 
     with legacy_engine.connect() as connection:
         user = connection.execute(text("""
-            SELECT matches_played, wins, arena_coins, google_sub FROM users WHERE id = 1
+            SELECT matches_played, wins, arena_coins, google_sub, deleted_at
+            FROM users WHERE id = 1
         """)).one()
         message = connection.execute(text("""
             SELECT text FROM direct_messages WHERE id = 1
@@ -62,6 +63,7 @@ def test_database_migrations_preserve_existing_account_data(tmp_path, monkeypatc
 
     assert tuple(user[:3]) == (12, 4, 237)
     assert user.google_sub is None
+    assert user.deleted_at is None
     assert message == "existing message"
     assert migrations == {
         "001_add_user_account_fields",
@@ -70,6 +72,7 @@ def test_database_migrations_preserve_existing_account_data(tmp_path, monkeypatc
         "004_ensure_arena_treasury",
         "005_add_room_memberships",
         "006_add_google_account_id",
+        "007_add_user_deletion_timestamp",
     }
 
 

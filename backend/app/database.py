@@ -76,6 +76,8 @@ class User(Base):
 
     last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
     typing_to_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     typing_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -187,6 +189,27 @@ class ArenaTreasury(Base):
     id: Mapped[int] = mapped_column(primary_key=True, default=1)
 
     virtual_naira_balance: Mapped[int] = mapped_column(Integer, default=0)
+
+
+class AdminWalletTransaction(Base):
+
+    __tablename__ = "admin_wallet_transactions"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+
+    admin_user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+
+    action: Mapped[str] = mapped_column(String(8))
+
+    amount: Mapped[int] = mapped_column(Integer)
+
+    balance_after: Mapped[int] = mapped_column(Integer)
+
+    reason: Mapped[str] = mapped_column(String(200))
+
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
 
 class Friendship(Base):
 
@@ -377,6 +400,12 @@ def _add_google_account_id_v1(connection):
     ))
 
 
+def _add_user_deletion_timestamp_v1(connection):
+    _add_missing_columns(connection, "users", {
+        "deleted_at": (DateTime(timezone=True), None),
+    })
+
+
 def _apply_migration(connection, name, upgrade):
     applied = connection.execute(
         text("SELECT name FROM data_migrations WHERE name = :name"),
@@ -423,6 +452,11 @@ def init_database():
             connection,
             "006_add_google_account_id",
             _add_google_account_id_v1,
+        )
+        _apply_migration(
+            connection,
+            "007_add_user_deletion_timestamp",
+            _add_user_deletion_timestamp_v1,
         )
 
 @contextmanager

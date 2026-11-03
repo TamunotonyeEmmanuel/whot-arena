@@ -902,7 +902,7 @@ function AppFrame() {
         <Route path="/history" element={<HistoryPage />} />
         <Route path="/leaderboard" element={<Leaderboard />} />
         <Route path="/settings" element={<SettingsPage />} />
-        <Route path="/admin" element={<RequireLogin><AdminDashboard /></RequireLogin>} />
+        <Route path="/admin" element={<RequireLogin><AdminDashboardFull /></RequireLogin>} />
         <Route path="/help" element={<HelpPage />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes></main>
@@ -1970,6 +1970,182 @@ function AdminDashboard() {
   const [error, setError] = useState('')
   useEffect(() => { fetch(`${API_URL}/api/admin/overview`, { headers: { Authorization: `Bearer ${accessToken()}` } }).then(async response => { if (!response.ok) throw new Error((await response.json()).detail || 'Admin dashboard unavailable'); setOverview(await response.json() as AdminOverview) }).catch(reason => setError(reason instanceof Error ? reason.message : 'Admin dashboard unavailable')) }, [])
   return <><PageTitle eyebrow="ARENA ADMINISTRATION" title="Admin dashboard." detail="Live platform activity and Virtual Naira fee totals." />{error ? <div className="info-banner"><Shield size={16} />{error}</div> : !overview ? <div className="table-empty">Loading administrator data…</div> : <><div className="stats-row"><div className="stat-card"><span className="stat-label">USERS</span><strong>{overview.users}</strong></div><div className="stat-card"><span className="stat-label">ACTIVE ROOMS</span><strong>{overview.active_rooms}</strong></div><div className="stat-card"><span className="stat-label">ONLINE PLAYERS</span><strong>{overview.active_players}</strong></div><div className="stat-card"><span className="stat-label">ADMIN FEES</span><strong>₦{overview.admin_fees.toLocaleString()}</strong></div></div><section className="leaderboard content-panel"><div className="leaderboard-head"><span>ROOM</span><span>STATUS</span><span>PLAYERS</span><span>POT</span></div>{overview.rooms.length ? overview.rooms.map(room => <div className="leaderboard-row" key={room.code}><strong>{room.code}</strong><span>{room.status.toUpperCase()}</span><span>{room.players}</span><strong>₦{room.pot.toLocaleString()}</strong></div>) : <div className="table-empty">No active rooms right now.</div>}</section></>}</>
+}
+
+type AdminUser = { id: number; username: string; email: string; arena_coins: number; matches_played: number; wins: number; is_admin: boolean }
+type AdminUsersPage = { items: AdminUser[]; total: number }
+type AdminWalletEntry = { id: number; admin: string; action: 'fund' | 'debit'; amount: number; balance_after: number; reason: string; created_at: string }
+
+async function adminRequest<T>(path: string, init: RequestInit = {}): Promise<T> {
+  const headers = new Headers(init.headers)
+  const token = localStorage.getItem('whot.token')
+  if (token) headers.set('Authorization', `Bearer ${token}`)
+  if (init.body && !headers.has('content-type')) headers.set('content-type', 'application/json')
+  const response = await fetch(`${API_URL}${path}`, { ...init, headers })
+  const data = await response.json().catch(() => ({})) as { detail?: string } & T
+  if (!response.ok) throw new Error(data.detail || `Admin request failed (${response.status})`)
+  return data
+}
+
+function AdminDashboardFull() {
+  return <><AdminDashboard /><AdminAccountManagement /></>
+}
+
+function AdminAccountManagement() {
+  const pageSize = 25
+  const [users, setUsers] = useState<AdminUser[]>([])
+  const [userTotal, setUserTotal] = useState(0)
+  const [search, setSearch] = useState('')
+  const [page, setPage] = useState(0)
+  const [revision, setRevision] = useState(0)
+  const [loading, setLoading] = useState(true)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  const [notice, setNotice] = useState('')
+  const [editing, setEditing] = useState<AdminUser | null>(null)
+  const [editUsername, setEditUsername] = useState('')
+  const [editEmail, setEditEmail] = useState('')
+  const [walletAction, setWalletAction] = useState<{ user: AdminUser; action: 'fund' | 'debit' } | null>(null)
+  const [walletAmount, setWalletAmount] = useState('')
+  const [walletReason, setWalletReason] = useState('')
+  const [historyUser, setHistoryUser] = useState<AdminUser | null>(null)
+  const [walletHistory, setWalletHistory] = useState<AdminWalletEntry[]>([])
+  const [pendingDelete, setPendingDelete] = useState<AdminUser | null>(null)
+
+  useEffect(() => {
+    let active = true
+    setLoading(true)
+    const params = new URLSearchParams({ q: search.trim(), limit: String(pageSize), offset: String(page * pageSize) })
+    adminRequest<AdminUsersPage>(`/api/admin/users?${params}`)
+      .then(data => {
+        if (!active) return
+        setUsers(data.items)
+        setUserTotal(data.total)
+      })
+      .catch(reason => { if (active) setError(reason instanceof Error ? reason.message : 'Could not load accounts') })
+      .finally(() => { if (active) setLoading(false) })
+    return () => { active = false }
+  }, [search, page, revision])
+
+  function closeActions() {
+    setEditing(null)
+    setWalletAction(null)
+    setHistoryUser(null)
+    setWalletHistory([])
+    setPendingDelete(null)
+  }
+
+  async function saveUser() {
+    if (!editing) return
+    setBusy(true)
+    setError('')
+    setNotice('')
+    try {
+      await adminRequest(`/api/admin/users/${editing.id}`, {
+        method: 'PUT',
+        body: JSON.stringify({ username: editUsername, email: editEmail }),
+      })
+      setEditing(null)
+      setNotice('Account details updated.')
+      setRevision(value => value + 1)
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'Could not update account')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function adjustWallet() {
+    if (!walletAction) return
+    setBusy(true)
+    setError('')
+    setNotice('')
+    try {
+      const result = await adminRequest<{ message: string }>(`/api/admin/users/${walletAction.user.id}/${walletAction.action}`, {
+        method: 'POST',
+        body: JSON.stringify({ amount: Number(walletAmount), reason: walletReason }),
+      })
+      setNotice(result.message)
+      setWalletAction(null)
+      setWalletAmount('')
+      setWalletReason('')
+      setRevision(value => value + 1)
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'Could not adjust account balance')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function showHistory(user: AdminUser) {
+    setError('')
+    setHistoryUser(user)
+    try {
+      setWalletHistory(await adminRequest<AdminWalletEntry[]>(`/api/admin/users/${user.id}/wallet-history`))
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'Could not load wallet history')
+    }
+  }
+
+  async function deleteAccount() {
+    if (!pendingDelete) return
+    setBusy(true)
+    setError('')
+    setNotice('')
+    try {
+      await adminRequest(`/api/admin/users/${pendingDelete.id}`, { method: 'DELETE' })
+      setNotice(`${pendingDelete.username}'s account was deleted and anonymized.`)
+      setPendingDelete(null)
+      if (page > 0 && userTotal - 1 <= page * pageSize) setPage(value => value - 1)
+      setUserTotal(value => Math.max(0, value - 1))
+      setRevision(value => value + 1)
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'Could not delete account')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return <section className="leaderboard content-panel admin-accounts">
+    <div className="admin-section-heading"><div><span className="small-label">ACCOUNT MANAGEMENT</span><h2>Player accounts</h2><p>Update account details, manage Virtual Naira, and remove accounts.</p></div><strong>{userTotal.toLocaleString()} accounts</strong></div>
+    {error && <div role="alert" className="info-banner">{error}<button type="button" className="icon-button" aria-label="Dismiss error" onClick={() => setError('')}><X size={15} /></button></div>}
+    {notice && <div role="status" className="info-banner">{notice}<button type="button" className="icon-button" aria-label="Dismiss message" onClick={() => setNotice('')}><X size={15} /></button></div>}
+    <label className="field-label admin-search">Search accounts<input type="search" value={search} placeholder="Username or email" onChange={event => { setSearch(event.target.value); setPage(0); closeActions() }} /></label>
+    <div className="admin-account-scroll">
+      <div className="admin-account-header"><span>PLAYER</span><span>ID</span><span>BALANCE</span><span>RECORD</span><span>ADMIN ACTIONS</span></div>
+      {loading ? <div className="table-empty">Loading accounts…</div> : !users.length ? <div className="table-empty">No accounts match your search.</div> : users.map(user => <div className="admin-account-entry" key={user.id}>
+        <div className="admin-account-row">
+          <div className="admin-account-player"><strong>{user.username}</strong><small>{user.email}</small></div>
+          <span>#{user.id}</span>
+          <strong>₦{user.arena_coins.toLocaleString()}</strong>
+          <span>{user.wins} wins · {user.matches_played} matches</span>
+          <div className="admin-account-actions">
+            <button type="button" className="button button-outline" disabled={user.is_admin || busy} onClick={() => { setEditing(user); setEditUsername(user.username); setEditEmail(user.email); setWalletAction(null); setHistoryUser(null); setPendingDelete(null) }}>Edit</button>
+            <button type="button" className="button button-outline" disabled={user.is_admin || busy} onClick={() => { setWalletAction({ user, action: 'fund' }); setWalletAmount(''); setWalletReason(''); setEditing(null); setHistoryUser(null); setPendingDelete(null) }}>Fund</button>
+            <button type="button" className="button button-outline" disabled={user.is_admin || busy} onClick={() => { setWalletAction({ user, action: 'debit' }); setWalletAmount(''); setWalletReason(''); setEditing(null); setHistoryUser(null); setPendingDelete(null) }}>Debit</button>
+            <button type="button" className="button button-outline" disabled={user.is_admin || busy} onClick={() => void showHistory(user)}>History</button>
+            <button type="button" className="button button-danger" disabled={user.is_admin || busy} onClick={() => { setPendingDelete(user); setEditing(null); setWalletAction(null); setHistoryUser(null) }}>Delete</button>
+            {user.is_admin && <small className="admin-protected-label">Protected</small>}
+          </div>
+        </div>
+        {editing?.id === user.id && <form className="admin-action-panel" onSubmit={event => { event.preventDefault(); void saveUser() }}>
+          <strong>Edit {user.username}</strong>
+          <label className="field-label">Username<input required minLength={3} maxLength={24} pattern="[A-Za-z0-9_]+" value={editUsername} onChange={event => setEditUsername(event.target.value)} /></label>
+          <label className="field-label">Email<input required type="email" maxLength={320} value={editEmail} onChange={event => setEditEmail(event.target.value)} /></label>
+          <div className="admin-action-buttons"><button className="button button-green" disabled={busy}>{busy ? 'Saving…' : 'Save account'}</button><button type="button" className="button button-outline" onClick={closeActions}>Cancel</button></div>
+        </form>}
+        {walletAction?.user.id === user.id && <form className="admin-action-panel" onSubmit={event => { event.preventDefault(); void adjustWallet() }}>
+          <strong>{walletAction.action === 'fund' ? 'Fund' : 'Debit'} {user.username}</strong>
+          <label className="field-label">Amount in Virtual Naira<input required type="number" min="1" max="1000000" step="1" value={walletAmount} onChange={event => setWalletAmount(event.target.value)} /></label>
+          <label className="field-label">Reason<input required minLength={3} maxLength={200} value={walletReason} onChange={event => setWalletReason(event.target.value)} placeholder="Add an audit note" /></label>
+          <div className="admin-action-buttons"><button className="button button-green" disabled={busy}>{busy ? 'Processing…' : `Confirm ${walletAction.action}`}</button><button type="button" className="button button-outline" onClick={closeActions}>Cancel</button></div>
+        </form>}
+        {historyUser?.id === user.id && <div className="admin-action-panel"><strong>Wallet history · {user.username}</strong>{walletHistory.length ? <div className="admin-history-list">{walletHistory.map(entry => <div className="admin-history-row" key={entry.id}><span>{new Date(entry.created_at).toLocaleString()}</span><strong>{entry.action.toUpperCase()} ₦{entry.amount.toLocaleString()}</strong><span>Balance ₦{entry.balance_after.toLocaleString()}</span><small>{entry.reason} · by {entry.admin}</small></div>)}</div> : <p>No administrator wallet adjustments recorded.</p>}<button type="button" className="button button-outline" onClick={closeActions}>Close history</button></div>}
+        {pendingDelete?.id === user.id && <div className="admin-action-panel admin-delete-confirm" role="alertdialog" aria-labelledby={`delete-account-heading-${user.id}`} aria-describedby={`delete-account-description-${user.id}`}><strong id={`delete-account-heading-${user.id}`}>Delete {user.username}?</strong><p id={`delete-account-description-${user.id}`}>This removes account access and anonymizes their details while retaining historical match records. This action cannot be undone.</p><div className="admin-action-buttons"><button type="button" className="button button-danger" disabled={busy} onClick={() => void deleteAccount()}>{busy ? 'Deleting…' : 'Delete account'}</button><button type="button" className="button button-outline" disabled={busy} onClick={closeActions}>Cancel</button></div></div>}
+      </div>)}
+    </div>
+    <div className="admin-pagination"><span>Showing {userTotal ? page * pageSize + 1 : 0}–{Math.min((page + 1) * pageSize, userTotal)} of {userTotal}</span><div><button type="button" className="button button-outline" disabled={page === 0 || loading} onClick={() => setPage(value => value - 1)}>Previous</button><button type="button" className="button button-outline" disabled={(page + 1) * pageSize >= userTotal || loading} onClick={() => setPage(value => value + 1)}>Next</button></div></div>
+  </section>
 }
 
 function SettingsPage() {

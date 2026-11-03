@@ -94,7 +94,7 @@ def register(payload: RegisterRequest, db: Session = Depends(get_db)):
 @router.post("/auth/login", response_model=AuthResponse)
 def login(payload: LoginRequest, db: Session = Depends(get_db)):
     user = db.scalar(select(User).where(User.email == str(payload.email).lower()))
-    if not user or not verify_password(payload.password, user.password_hash):
+    if not user or user.deleted_at is not None or not verify_password(payload.password, user.password_hash):
         raise HTTPException(status_code=401, detail="Invalid email or password")
     return AuthResponse(access_token=create_access_token(user), user=user)
 
@@ -105,8 +105,12 @@ def google_login(payload: GoogleCredentialRequest, db: Session = Depends(get_db)
     google_sub = str(claims["sub"])
     email = str(claims["email"]).strip().lower()
     user = db.scalar(select(User).where(User.google_sub == google_sub))
+    if user is not None and user.deleted_at is not None:
+        raise HTTPException(status_code=401, detail="This account is no longer available")
     if user is None:
         user = db.scalar(select(User).where(User.email == email))
+        if user is not None and user.deleted_at is not None:
+            raise HTTPException(status_code=401, detail="This account is no longer available")
         if user is not None and user.google_sub not in {None, google_sub}:
             raise HTTPException(status_code=409, detail="This email is linked to another Google account")
         if user is None:
@@ -150,7 +154,7 @@ def update_cosmetics(payload: CosmeticsRequest, user: User = Depends(current_use
 @router.get("/leaderboard", response_model=list[PublicPlayerResponse])
 def leaderboard(limit: int = 50, db: Session = Depends(get_db)):
     limit = max(1, min(limit, 100))
-    return list(db.scalars(select(User).order_by(User.wins.desc(),
+    return list(db.scalars(select(User).where(User.deleted_at.is_(None)).order_by(User.wins.desc(),
                                                   User.matches_played.asc(),
                                                   User.username.asc()).limit(limit)))
 
@@ -180,7 +184,8 @@ def search_players(q: str, user: User = Depends(current_user), db: Session = Dep
     if len(query) < 2:
         return []
     return list(db.scalars(
-        select(User).where(User.id != user.id, User.username.ilike(f"%{query}%"))
+        select(User).where(User.id != user.id, User.deleted_at.is_(None),
+                           User.username.ilike(f"%{query}%"))
         .order_by(User.username.asc()).limit(10)
     ))
 
