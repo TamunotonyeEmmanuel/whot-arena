@@ -354,6 +354,76 @@ html[data-theme="dark"] .button-danger {
   font-size: 10px;
 }
 
+.admin-rules-panel,
+.player-rules-panel {
+  display: grid;
+  gap: 16px;
+  margin-bottom: 16px;
+  padding: 20px;
+}
+
+.admin-rules-panel h2,
+.player-rules-panel h2 {
+  margin: 5px 0;
+  font-family: "Space Grotesk", sans-serif;
+  font-size: 19px;
+}
+
+.admin-rules-panel > div:first-child p,
+.player-rules-panel > div:first-child p {
+  margin: 0;
+  color: var(--muted, #778078);
+  font-size: 11px;
+  line-height: 1.55;
+}
+
+.rules-editor {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  align-items: end;
+  gap: 12px;
+}
+
+.rules-editor input[type="number"] {
+  min-width: 0;
+}
+
+.rules-stacking-toggle {
+  grid-column: 1 / -1;
+}
+
+.admin-rules-panel > .button {
+  justify-self: start;
+  min-height: 38px;
+}
+
+.player-rules-panel {
+  grid-template-columns: minmax(190px, .7fr) minmax(0, 1.8fr);
+  align-items: center;
+}
+
+.player-rules-panel > .rules-editor {
+  grid-column: 1 / -1;
+}
+
+.player-rules-panel > .form-error {
+  grid-column: 1 / -1;
+}
+
+@media (max-width: 760px) {
+  .rules-editor {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .player-rules-panel {
+    grid-template-columns: 1fr;
+  }
+
+  .player-rules-panel > .rules-editor {
+    grid-column: 1;
+  }
+}
+
 @media (max-width: 640px) {
   .admin-section-heading {
     flex-direction: column;
@@ -379,6 +449,56 @@ html[data-theme="dark"] .button-danger {
   .admin-pagination {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .rules-editor {
+    grid-template-columns: 1fr;
+  }
+
+  .rules-stacking-toggle {
+    grid-column: 1;
+  }
+}
+
+.profile-edit-panel {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(240px, 360px);
+  align-items: center;
+  gap: 20px;
+  margin-top: 16px;
+  padding: 20px;
+}
+
+.profile-edit-panel h2 {
+  margin: 5px 0;
+  font-family: "Space Grotesk", sans-serif;
+  font-size: 19px;
+}
+
+.profile-edit-panel p {
+  margin: 0;
+  color: var(--muted, #778078);
+  font-size: 11px;
+}
+
+.profile-edit-panel form {
+  display: grid;
+  gap: 9px;
+}
+
+.profile-edit-panel form > small {
+  color: var(--muted, #778078);
+  font-size: 10px;
+}
+
+.profile-edit-panel form > .button {
+  justify-self: start;
+  min-height: 36px;
+}
+
+@media (max-width: 640px) {
+  .profile-edit-panel {
+    grid-template-columns: 1fr;
   }
 }
 

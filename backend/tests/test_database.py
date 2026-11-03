@@ -73,6 +73,7 @@ def test_database_migrations_preserve_existing_account_data(tmp_path, monkeypatc
         "005_add_room_memberships",
         "006_add_google_account_id",
         "007_add_user_deletion_timestamp",
+        "008_ensure_game_rule_settings",
     }
 
 

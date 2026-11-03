@@ -19,6 +19,23 @@ class LoginRequest(BaseModel):
     password: str
 
 
+class ProfileUpdate(BaseModel):
+    username: str = Field(min_length=3, max_length=24, pattern=r"^[A-Za-z0-9_]+$")
+
+    @field_validator("username")
+    @classmethod
+    def normalize_username(cls, value):
+        return value.strip()
+
+
+class GameRulesRequest(BaseModel):
+    cards_per_player: int = Field(ge=3, le=10)
+    pick_two: int = Field(ge=1, le=10)
+    pick_three: int = Field(ge=1, le=10)
+    general_market: int = Field(ge=1, le=5)
+    penalty_stacking: bool
+
+
 class GoogleCredentialRequest(BaseModel):
     credential: str = Field(min_length=1, max_length=8192)
 

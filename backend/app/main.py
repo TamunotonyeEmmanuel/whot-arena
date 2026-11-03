@@ -10,12 +10,12 @@ from datetime import timezone
 from urllib.parse import urlsplit
 from fastapi import Depends, FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from .game import TURN_SECONDS, VOICE_MAX_BYTES, Room, Player
+from .game import HouseRules, TURN_SECONDS, VOICE_MAX_BYTES, Room, Player
 from .accounts import router as accounts_router
 from .admin import router as admin_router
 from .auth import current_user, get_db, token_user_id
 from .database import (
-    ActiveRoomSnapshot, ArenaTreasury, DATABASE_URL, MatchParticipant,
+    ActiveRoomSnapshot, ArenaTreasury, DATABASE_URL, GameRuleSettings, MatchParticipant,
     MatchResult, RoomMembership, User, database_session, delete_active_room_snapshot,
     get_room_membership, init_database, list_room_memberships,
     load_active_room_snapshots, mark_room_membership_left,
@@ -25,6 +25,8 @@ from .database import (
 from sqlalchemy import func, select, text, update
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session
+from pydantic import ValidationError
+from .schemas import GameRulesRequest
 
 rooms = {}
 connections = {}  # player id -> websocket
@@ -76,6 +78,31 @@ validate_production_config(
     os.getenv("CORS_ORIGINS"),
     DATABASE_URL,
 )
+
+
+def stored_game_rules(db):
+    settings = db.get(GameRuleSettings, 1)
+    if settings is None:
+        return HouseRules()
+    return HouseRules(
+        cards_per_player=settings.cards_per_player,
+        pick_two=settings.pick_two,
+        pick_three=settings.pick_three,
+        general_market=settings.general_market,
+        penalty_stacking=settings.penalty_stacking,
+    )
+
+
+def requested_game_rules(message, db):
+    rules = message.get("rules")
+    if rules is None:
+        return stored_game_rules(db)
+    try:
+        validated = GameRulesRequest.model_validate(rules)
+    except ValidationError as error:
+        raise ValueError("Invalid game rules") from error
+    return HouseRules(**validated.model_dump())
+
 
 def message_user_id(msg):
     token = msg.get("access_token")
@@ -544,6 +571,19 @@ def health(db: Session = Depends(get_db)):
 def liveness():
     return {"ok": True}
 
+
+@app.get("/api/game-rules")
+def public_game_rules(db: Session = Depends(get_db)):
+    rules = stored_game_rules(db)
+    return {
+        "cards_per_player": rules.cards_per_player,
+        "pick_two": rules.pick_two,
+        "pick_three": rules.pick_three,
+        "general_market": rules.general_market,
+        "penalty_stacking": rules.penalty_stacking,
+    }
+
+
 @app.get("/api/admin/overview")
 def admin_overview(user: User = Depends(current_user), db: Session = Depends(get_db)):
     if not user.is_admin:
@@ -716,6 +756,10 @@ async def ws_endpoint(ws: WebSocket):
                     )
                     if wager and not user_id:
                         raise ValueError("Sign in to create a Virtual Naira table")
+                    with database_session() as db:
+                        rules = requested_game_rules(
+                            msg, db,
+                        ) if action in {"create", "computer"} else stored_game_rules(db)
                     pid = secrets.token_urlsafe(18)
                     async with state_lock:
                         code = new_room_code()
@@ -723,7 +767,7 @@ async def ws_endpoint(ws: WebSocket):
                         if wager and player.coin_balance < wager:
                             raise ValueError("You do not have enough Virtual Naira for this stake")
                         room = Room(code=code, host=pid, players=[player], wager=wager,
-                                    team_mode=team_mode)
+                                    team_mode=team_mode, rules=rules)
                         if action == "computer":
                             room.add_player(Player("bot-" + secrets.token_urlsafe(8),
                                                    "Arena Bot", is_bot=True))
@@ -758,7 +802,12 @@ async def ws_endpoint(ws: WebSocket):
                             room.start(room.host)
                         else:
                             code = new_room_code()
-                            room = Room(code=code, host=pid, players=[player], is_public=True)
+                            with database_session() as db:
+                                rules = stored_game_rules(db)
+                            room = Room(
+                                code=code, host=pid, players=[player], is_public=True,
+                                rules=rules,
+                            )
                             rooms[code] = room
                         connections[pid] = ws
                         register_player_session(pid, user_id)

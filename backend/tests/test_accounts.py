@@ -41,13 +41,120 @@ def test_register_login_profile_and_leaderboard():
         profile = client.get("/api/profile", headers={"Authorization": f"Bearer {token}"})
         assert profile.status_code == 200
         assert profile.json()["email"] == payload["email"]
+        updated_profile = client.put(
+            "/api/profile",
+            headers={"Authorization": f"Bearer {token}"},
+            json={"username": "renamed_player"},
+        )
+        assert updated_profile.status_code == 200, updated_profile.text
+        assert updated_profile.json()["username"] == "renamed_player"
+        assert client.get(
+            "/api/profile",
+            headers={"Authorization": f"Bearer {token}"},
+        ).json()["username"] == "renamed_player"
+        assert client.put("/api/profile", json={"username": "another_name"}).status_code == 401
+        assert client.put(
+            "/api/profile",
+            headers={"Authorization": f"Bearer {token}"},
+            json={"username": "x"},
+        ).status_code == 422
         history = client.get("/api/history", headers={"Authorization": f"Bearer {token}"})
         assert history.status_code == 200
         assert history.json() == []
 
         leaderboard = client.get("/api/leaderboard")
         assert leaderboard.status_code == 200
-        assert any(player["username"] == payload["username"] for player in leaderboard.json())
+        assert any(player["username"] == "renamed_player" for player in leaderboard.json())
+
+
+def test_profile_username_update_rejects_duplicate_name():
+    first = credentials()
+    second = credentials()
+    with TestClient(app) as client:
+        client.post("/api/auth/register", json=first)
+        second_user = client.post("/api/auth/register", json=second).json()
+        response = client.put(
+            "/api/profile",
+            headers={"Authorization": f"Bearer {second_user['access_token']}"},
+            json={"username": first["username"].upper()},
+        )
+        assert response.status_code == 409
+
+
+def test_admin_can_change_default_rules_and_player_can_override_for_private_game(monkeypatch):
+    admin_payload = credentials()
+    player_payload = credentials()
+    monkeypatch.setenv("ADMIN_EMAILS", admin_payload["email"])
+    custom_rules = {
+        "cards_per_player": 7,
+        "pick_two": 4,
+        "pick_three": 5,
+        "general_market": 2,
+        "penalty_stacking": False,
+    }
+
+    with TestClient(app) as client:
+        admin = client.post("/api/auth/register", json=admin_payload).json()
+        player = client.post("/api/auth/register", json=player_payload).json()
+        admin_headers = {"Authorization": f"Bearer {admin['access_token']}"}
+        player_headers = {"Authorization": f"Bearer {player['access_token']}"}
+
+        assert client.get("/api/admin/rules", headers=player_headers).status_code == 403
+        defaults = client.get("/api/game-rules")
+        assert defaults.status_code == 200
+        assert defaults.json() == {
+            "cards_per_player": 5,
+            "pick_two": 2,
+            "pick_three": 3,
+            "general_market": 1,
+            "penalty_stacking": True,
+        }
+
+        changed = client.put(
+            "/api/admin/rules",
+            headers=admin_headers,
+            json=custom_rules,
+        )
+        assert changed.status_code == 200, changed.text
+        assert changed.json() == custom_rules
+        assert client.get("/api/game-rules").json() == custom_rules
+        assert client.put(
+            "/api/admin/rules",
+            headers=admin_headers,
+            json={**custom_rules, "cards_per_player": 20},
+        ).status_code == 422
+
+        with client.websocket_connect("/ws") as websocket:
+            websocket.send_json({
+                "action": "create",
+                "name": player_payload["username"],
+                "access_token": player["access_token"],
+                "rules": {
+                    **custom_rules,
+                    "cards_per_player": 8,
+                    "penalty_stacking": True,
+                },
+            })
+            assert websocket.receive_json()["type"] == "session"
+            room_state = websocket.receive_json()
+            assert room_state["type"] == "state"
+            assert room_state["data"]["rules"] == {
+                **custom_rules,
+                "cards_per_player": 8,
+                "penalty_stacking": True,
+            }
+        restored = client.put(
+            "/api/admin/rules",
+            headers=admin_headers,
+            json={
+                "cards_per_player": 5,
+                "pick_two": 2,
+                "pick_three": 3,
+                "general_market": 1,
+                "penalty_stacking": True,
+            },
+        )
+        assert restored.status_code == 200
 
 
 def test_registration_validates_input_and_login_rejects_bad_password():

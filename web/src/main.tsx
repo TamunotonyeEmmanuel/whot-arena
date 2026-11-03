@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useRef, useState } from 'react'
+import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { createRoot } from 'react-dom/client'
 import { BrowserRouter, Link, NavLink, Navigate, Route, Routes, useLocation, useNavigate, useParams } from 'react-router-dom'
@@ -12,6 +12,7 @@ import { SnookerGame } from './SnookerGame'
 
 type Card = { id: string; shape: string; number: number }
 type Player = { id: string; name: string; count: number; connected: boolean; team?: number | null; voice_ready?: boolean; voice_speaking?: boolean; reaction?: string | null; reaction_at?: number | null; coin_balance?: number; is_bot?: boolean; last_card_required?: boolean; table_theme?: string; card_back?: string; avatar?: string }
+type GameRules = { cards_per_player: number; pick_two: number; pick_three: number; general_market: number; penalty_stacking: boolean }
 type VoiceMessage = { id: string; player_id: string; name: string; content_type: string; size: number; sent_at: number }
 type ChatMessage = { id: string; player_id: string; name: string; text: string; sent_at: number }
 type DirectMessage = { id: number; sender_username: string; recipient_username: string; text: string; sent_at: string; delivered_at?: string | null; read_at?: string | null }
@@ -40,7 +41,7 @@ type RoomView = {
   voice_messages: VoiceMessage[]
   chat_messages: ChatMessage[]
   wager: number; wager_locked: boolean; wager_pot: number; wager_admin_fee: number; wager_winner_payout: number
-  is_public: boolean; team_mode: boolean; team_scores: Record<string, { round_wins: number; match_points: number }>; rules: { cards_per_player: number; pick_two: number; pick_three: number; general_market: number; penalty_stacking: boolean }
+  is_public: boolean; team_mode: boolean; team_scores: Record<string, { round_wins: number; match_points: number }>; rules: GameRules
 }
 type Session = { player_id: string; code: string; reconnect_token: string }
 type User = { id: number; username: string; email: string; wins: number; arena_coins: number; matches_played: number; xp: number; level: number; win_streak: number; best_win_streak: number; achievements: string[]; unlocked_themes: string[]; unlocked_card_backs: string[]; unlocked_avatars: string[]; selected_theme: string; selected_card_back: string; selected_avatar: string; is_admin?: boolean }
@@ -84,7 +85,7 @@ declare global {
 }
 type ArenaContextValue = {
   view: RoomView | null; session: Session | null; savedSession: Session | null; user: User | null; error: string
-  connected: boolean; busy: boolean; clearError: () => void
+  connected: boolean; busy: boolean; clearError: () => void; updateUser: (user: User) => void
   voiceUrls: Record<string, string>; requestVoice: (messageId: string) => void
   rtcSignals: RtcSignal[]; sendRtcSignal: (target: string, signal: RtcSignal['signal']) => void
   subscribeLiveAudio: (listener: (packet: LiveAudioPacket) => void) => () => void
@@ -736,7 +737,12 @@ function ArenaProvider({ children }: { children: React.ReactNode }) {
     }
   }
 
-  return <Context.Provider value={{ view, session, savedSession, user, error, connected, busy, voiceUrls, requestVoice, rtcSignals, sendRtcSignal, subscribeLiveAudio, clearError: () => setError(''), connectRoom, send, leaveRoom, switchAway, resumeSavedRoom, switchActiveTable, tables, tablesError, activeTableCount: tables.filter(table => table.status !== 'finished').length, turnNotifications, dismissTurnNotification, refreshTables, leaveTable, authenticate, authenticateGoogle, signOut }}>{children}</Context.Provider>
+  const updateUser = useCallback((nextUser: User) => {
+    setUser(nextUser)
+    localStorage.setItem('whot.user', JSON.stringify(nextUser))
+  }, [])
+
+  return <Context.Provider value={{ view, session, savedSession, user, error, connected, busy, voiceUrls, requestVoice, rtcSignals, sendRtcSignal, subscribeLiveAudio, clearError: () => setError(''), updateUser, connectRoom, send, leaveRoom, switchAway, resumeSavedRoom, switchActiveTable, tables, tablesError, activeTableCount: tables.filter(table => table.status !== 'finished').length, turnNotifications, dismissTurnNotification, refreshTables, leaveTable, authenticate, authenticateGoogle, signOut }}>{children}</Context.Provider>
 }
 
 function useArena() {
@@ -1039,18 +1045,41 @@ function Field({ label, name, type = 'text', placeholder, required, minLength, m
 function CreateRoom() {
   const { connectRoom, busy, user } = useArena()
   const navigate = useNavigate()
+  const [rules, setRules] = useState<GameRules>({
+    cards_per_player: 5, pick_two: 2, pick_three: 3, general_market: 1, penalty_stacking: true,
+  })
+  const [rulesLoading, setRulesLoading] = useState(true)
+  const [rulesError, setRulesError] = useState('')
   const [name, setName] = useState(user?.username || localStorage.getItem('whot.nickname') || 'Guest')
   const [roomError, setRoomError] = useState('')
   const [loadingLabel, setLoadingLabel] = useState('')
   const [wager, setWager] = useState(0)
   const [playMode, setPlayMode] = useState<'free' | 'stake'>('free')
   const [teamMode, setTeamMode] = useState(false)
+  useEffect(() => {
+    let active = true
+    fetch(`${API_URL}/api/game-rules`)
+      .then(async response => {
+        if (!response.ok) throw new Error('Could not load the current game-rule defaults.')
+        return await response.json() as GameRules
+      })
+      .then(defaultRules => { if (active) setRules(defaultRules) })
+      .catch(reason => {
+        if (active) setRulesError(reason instanceof Error ? reason.message : 'Could not load game-rule defaults.')
+      })
+      .finally(() => { if (active) setRulesLoading(false) })
+    return () => { active = false }
+  }, [])
   async function create(action: 'create' | 'quick_match' | 'computer') {
     setRoomError('')
     setLoadingLabel(action === 'create' ? 'OPENING YOUR TABLE' : action === 'computer' ? 'DEALING AGAINST THE COMPUTER' : 'FINDING YOUR MATCH')
     try {
       const [next] = await Promise.all([
-        connectRoom(action, { name: name.trim() || 'Guest', ...(action === 'create' ? { wager: playMode === 'stake' ? wager : 0, team_mode: teamMode } : {}) }),
+        connectRoom(action, {
+          name: name.trim() || 'Guest',
+          ...(action === 'create' ? { wager: playMode === 'stake' ? wager : 0, team_mode: teamMode, rules } : {}),
+          ...(action === 'computer' ? { rules } : {}),
+        }),
         new Promise(resolve => window.setTimeout(resolve, 1200)),
       ])
       navigate(action === 'computer' ? `/game/${next.code}` : `/lobby/${next.code}`)
@@ -1059,11 +1088,37 @@ function CreateRoom() {
       setRoomError(error instanceof Error ? error.message : 'Could not create room')
     }
   }
-  return <><PageTitle eyebrow="FIND YOUR TABLE" title="Let's play." detail="Play the computer, set up a private room, or find a quick match." /><div className="setup-layout setup-layout-three">
-    <section className="content-panel setup-panel computer-match-panel"><span className="setup-number">01</span><span className="small-label">SOLO MATCH</span><h2>Challenge the computer.</h2><p>Jump straight into a two-player round against Arena Bot. No room code or waiting required.</p><label className="field-label">Your table name<input value={name} maxLength={20} onChange={event => setName(event.target.value)} onBlur={() => localStorage.setItem('whot.nickname', name)} placeholder="Choose a nickname" /></label><button disabled={busy} onClick={() => void create('computer')} className="button button-green full-button"><Gamepad2 size={17} /> {busy ? 'Dealing cards…' : 'Play vs computer'}</button></section>
-    <section className="content-panel setup-panel"><span className="setup-number">02</span><span className="small-label">PRIVATE ROOM</span><h2>Bring your own crew.</h2><p>Choose a free match or set your own Virtual Naira stake.</p><label className="team-mode-toggle"><input type="checkbox" checked={teamMode} onChange={event => { setTeamMode(event.target.checked); if (event.target.checked) setPlayMode('free') }} /><span><strong>2v2 team match</strong><small>Four players · seats 1 & 3 vs seats 2 & 4</small></span></label><div className="play-mode-choice"><button type="button" className={playMode === 'free' ? 'active' : ''} onClick={() => setPlayMode('free')}>Play free</button><button type="button" className={playMode === 'stake' ? 'active' : ''} onClick={() => setPlayMode('stake')} disabled={!user || teamMode}>Play with Virtual Naira</button></div>{teamMode && <small className="stake-fee-note">Team matches are free to play. Invite exactly four players to start.</small>}{playMode === 'stake' && <label className="field-label">Stake per player<input type="number" min="10" max={user?.arena_coins || 1000000} step="1" value={wager || ''} onChange={event => setWager(Math.max(0, Number(event.target.value)))} placeholder="Enter amount, e.g. 500" /></label>}{user ? <div className="coin-balance">₦{user.arena_coins.toLocaleString()} available{playMode === 'stake' && wager > 0 ? ' · 90% winner payout' : ''}</div> : <Link className="text-link" to="/login">Sign in to enable Virtual Naira stakes <ArrowRight size={14} /></Link>}{playMode === 'stake' && <small className="stake-fee-note">A 10% admin fee is deducted from the total pot when the match ends.</small>}<button disabled={busy || (playMode === 'stake' && (wager < 10 || wager > (user?.arena_coins || 0)))} onClick={() => void create('create')} className="button button-green full-button"><Plus size={17} /> {busy ? 'Opening table…' : playMode === 'stake' ? `Create · Stake ₦${wager.toLocaleString()}` : 'Create free room'}</button></section>
+  return <><PageTitle eyebrow="FIND YOUR TABLE" title="Let's play." detail="Play the computer, set up a private room, or find a quick match." />
+    <section className="content-panel player-rules-panel"><div><span className="small-label">BEFORE THE GAME</span><h2>Choose your match rules</h2><p>These rules apply to your solo or private match. Quick matches use the Arena defaults.</p></div><RulesEditor rules={rules} onChange={setRules} disabled={rulesLoading || Boolean(rulesError)} />{rulesError && <div role="alert" className="form-error">{rulesError} Refresh the page or use Quick Match while rule settings are unavailable.</div>}</section>
+    <div className="setup-layout setup-layout-three">
+    <section className="content-panel setup-panel computer-match-panel"><span className="setup-number">01</span><span className="small-label">SOLO MATCH</span><h2>Challenge the computer.</h2><p>Jump straight into a two-player round against Arena Bot. No room code or waiting required.</p><label className="field-label">Your table name<input value={name} maxLength={20} onChange={event => setName(event.target.value)} onBlur={() => localStorage.setItem('whot.nickname', name)} placeholder="Choose a nickname" /></label><button disabled={busy || rulesLoading || Boolean(rulesError) || !isValidGameRules(rules)} onClick={() => void create('computer')} className="button button-green full-button"><Gamepad2 size={17} /> {busy ? 'Dealing cards…' : 'Play vs computer'}</button></section>
+    <section className="content-panel setup-panel"><span className="setup-number">02</span><span className="small-label">PRIVATE ROOM</span><h2>Bring your own crew.</h2><p>Choose a free match or set your own Virtual Naira stake.</p><label className="team-mode-toggle"><input type="checkbox" checked={teamMode} onChange={event => { setTeamMode(event.target.checked); if (event.target.checked) setPlayMode('free') }} /><span><strong>2v2 team match</strong><small>Four players · seats 1 & 3 vs seats 2 & 4</small></span></label><div className="play-mode-choice"><button type="button" className={playMode === 'free' ? 'active' : ''} onClick={() => setPlayMode('free')}>Play free</button><button type="button" className={playMode === 'stake' ? 'active' : ''} onClick={() => setPlayMode('stake')} disabled={!user || teamMode}>Play with Virtual Naira</button></div>{teamMode && <small className="stake-fee-note">Team matches are free to play. Invite exactly four players to start.</small>}{playMode === 'stake' && <label className="field-label">Stake per player<input type="number" min="10" max={user?.arena_coins || 1000000} step="1" value={wager || ''} onChange={event => setWager(Math.max(0, Number(event.target.value)))} placeholder="Enter amount, e.g. 500" /></label>}{user ? <div className="coin-balance">₦{user.arena_coins.toLocaleString()} available{playMode === 'stake' && wager > 0 ? ' · 90% winner payout' : ''}</div> : <Link className="text-link" to="/login">Sign in to enable Virtual Naira stakes <ArrowRight size={14} /></Link>}{playMode === 'stake' && <small className="stake-fee-note">A 10% admin fee is deducted from the total pot when the match ends.</small>}<button disabled={busy || rulesLoading || Boolean(rulesError) || !isValidGameRules(rules) || (playMode === 'stake' && (wager < 10 || wager > (user?.arena_coins || 0)))} onClick={() => void create('create')} className="button button-green full-button"><Plus size={17} /> {busy ? 'Opening table…' : playMode === 'stake' ? `Create · Stake ₦${wager.toLocaleString()}` : 'Create free room'}</button></section>
     <section className="content-panel setup-panel quick-match-panel"><span className="setup-number">03</span><span className="small-label">QUICK MATCH</span><h2>Meet at the table.</h2><p>Pair up with the next player who joins quick match.</p><div className="quick-match-meta"><span><Users size={15} /> 2–4 players</span><span><Clock3 size={15} /> Usually under a minute</span></div><button disabled={busy} onClick={() => void create('quick_match')} className="button button-lime full-button"><Sparkles size={17} /> {busy ? 'Finding players…' : 'Find a quick match'}</button></section>
   </div>{roomError && <div role="alert" className="form-error form-error-block">{roomError}</div>}<div className="house-rule-callout"><Shield size={17} /><span><strong>Fair play is server-side.</strong> The game server deals cards, checks moves, and decides the winner.</span><Link to="/help">Rules <ArrowRight size={14} /></Link></div>{loadingLabel && <LoadingScreen message={loadingLabel} action />}</>
+}
+
+function RulesEditor({ rules, onChange, disabled = false }: {
+  rules: GameRules
+  onChange: (rules: GameRules) => void
+  disabled?: boolean
+}) {
+  const numericRules: Array<{ key: 'cards_per_player' | 'pick_two' | 'pick_three' | 'general_market'; label: string; min: number; max: number }> = [
+    { key: 'cards_per_player', label: 'Cards dealt per player', min: 3, max: 10 },
+    { key: 'pick_two', label: 'Cards drawn for Pick Two', min: 1, max: 10 },
+    { key: 'pick_three', label: 'Cards drawn for Pick Three', min: 1, max: 10 },
+    { key: 'general_market', label: 'General Market cards per opponent', min: 1, max: 5 },
+  ]
+  return <div className="rules-editor">
+    {numericRules.map(({ key, label, min, max }) => <label className="field-label" key={key}>{label}<input type="number" min={min} max={max} step="1" value={rules[key]} disabled={disabled} onChange={event => onChange({ ...rules, [key]: Number(event.target.value) })} /></label>)}
+    <label className="team-mode-toggle rules-stacking-toggle"><input type="checkbox" checked={rules.penalty_stacking} disabled={disabled} onChange={event => onChange({ ...rules, penalty_stacking: event.target.checked })} /><span><strong>Allow penalty stacking</strong><small>Players may stack matching Pick Two or Pick Three penalties.</small></span></label>
+  </div>
+}
+
+function isValidGameRules(rules: GameRules) {
+  return Number.isInteger(rules.cards_per_player) && rules.cards_per_player >= 3 && rules.cards_per_player <= 10
+    && Number.isInteger(rules.pick_two) && rules.pick_two >= 1 && rules.pick_two <= 10
+    && Number.isInteger(rules.pick_three) && rules.pick_three >= 1 && rules.pick_three <= 10
+    && Number.isInteger(rules.general_market) && rules.general_market >= 1 && rules.general_market <= 5
 }
 
 function JoinRoom() {
@@ -1910,17 +1965,46 @@ function VoicePanel({ messages, chatMessages, playerId, enabled, players, balanc
 }
 
 function Profile() {
-  const { user } = useArena()
+  const { user, updateUser } = useArena()
   const [profile, setProfile] = useState<User | null>(user)
   const [status, setStatus] = useState('')
+  const [usernameDraft, setUsernameDraft] = useState(user?.username || '')
+  const [savingUsername, setSavingUsername] = useState(false)
   useEffect(() => {
     const token = accessToken()
     if (!token) return
     fetch(`${API_URL}/api/profile`, { headers: { Authorization: `Bearer ${token}` } }).then(async response => {
       if (!response.ok) throw new Error('Sign in to view your account profile.')
-      const result = await response.json() as User; setProfile(result); localStorage.setItem('whot.user', JSON.stringify(result))
+      const result = await response.json() as User
+      setProfile(result)
+      setUsernameDraft(result.username)
+      updateUser(result)
     }).catch(error => setStatus(error instanceof Error ? error.message : 'Profile unavailable'))
-  }, [])
+  }, [updateUser])
+  async function saveUsername(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (!profile || savingUsername) return
+    const username = usernameDraft.trim()
+    setSavingUsername(true)
+    setStatus('')
+    try {
+      const response = await fetch(`${API_URL}/api/profile`, {
+        method: 'PUT',
+        headers: { Authorization: `Bearer ${accessToken()}`, 'content-type': 'application/json' },
+        body: JSON.stringify({ username }),
+      })
+      if (!response.ok) throw new Error((await response.json()).detail || 'Could not update your username')
+      const result = await response.json() as User
+      setProfile(result)
+      setUsernameDraft(result.username)
+      updateUser(result)
+      setStatus('Your username was updated.')
+    } catch (reason) {
+      setStatus(reason instanceof Error ? reason.message : 'Could not update your username')
+    } finally {
+      setSavingUsername(false)
+    }
+  }
   async function saveCosmetics(field: 'theme' | 'card_back' | 'avatar', value: string) {
     if (!profile) return
     setStatus('Saving your Arena style…')
@@ -1929,13 +2013,14 @@ function Profile() {
       const response = await fetch(`${API_URL}/api/profile/cosmetics`, { method: 'PUT', headers: { Authorization: `Bearer ${accessToken()}`, 'content-type': 'application/json' }, body: JSON.stringify(payload) })
       if (!response.ok) throw new Error((await response.json()).detail || 'Could not save cosmetics')
       const result = await response.json() as User
-      setProfile(result); localStorage.setItem('whot.user', JSON.stringify(result)); setStatus('Arena style saved.')
+      setProfile(result); updateUser(result); setStatus('Arena style saved.')
     } catch (reason) { setStatus(reason instanceof Error ? reason.message : 'Could not save cosmetics') }
   }
   const xpInLevel = (profile?.xp || 0) % 500
   const achievementNames: Record<string, string> = { first_win: 'First Victory', hot_streak: 'Hot Streak', arena_regular: 'Arena Regular', level_five: 'Level Five' }
   return <><PageTitle eyebrow="PLAYER PROGRESSION" title={profile?.username || 'Your player card'} detail="Play matches, earn XP, build streaks, and unlock your Arena style." />
     <section className="profile-panel content-panel"><Avatar name={profile?.username || 'Guest player'} avatar={profile?.selected_avatar} className={`profile-avatar avatar-cosmetic-${profile?.selected_avatar || 'initial'}`} /><div className="profile-main"><span className="small-label">LEVEL {profile?.level || 1} ARENA PLAYER</span><h2>{profile?.username || 'Guest player'}</h2><p>{profile?.email || 'Sign in to save progression and unlock cosmetics.'}</p><div className="xp-track"><span style={{ width: `${xpInLevel / 5}%` }} /><small>{xpInLevel} / 500 XP to next level</small></div><div className="profile-stats"><div><strong>{profile?.wins ?? '—'}</strong><span>Wins</span></div><div><strong>{profile?.win_streak ?? '—'}</strong><span>Current streak</span></div><div><strong>{profile?.best_win_streak ?? '—'}</strong><span>Best streak</span></div><div><strong>{profile?.xp ?? '—'}</strong><span>Total XP</span></div></div></div>{!profile && <Link className="button button-green" to="/login">Sign in <ArrowRight size={15} /></Link>}</section>
+    {profile && <section className="content-panel profile-edit-panel"><div><span className="small-label">ACCOUNT DETAILS</span><h2>Edit your username</h2><p>Your username appears on your Arena profile and player listings.</p></div><form onSubmit={event => void saveUsername(event)}><label className="field-label">Username<input required minLength={3} maxLength={24} pattern="[A-Za-z0-9_]+" value={usernameDraft} onChange={event => setUsernameDraft(event.target.value)} aria-describedby="profile-username-hint" /></label><small id="profile-username-hint">3–24 letters, numbers, or underscores.</small><button type="submit" className="button button-green" disabled={savingUsername || usernameDraft.trim() === profile.username}>{savingUsername ? 'Saving…' : 'Save username'}</button></form></section>}
     {profile && <div className="progression-grid"><section className="content-panel achievement-panel"><span className="small-label">ACHIEVEMENTS</span><h2>Your trophy shelf</h2><div className="achievement-list">{Object.entries(achievementNames).map(([id, label]) => <span className={profile.achievements.includes(id) ? 'achievement-earned' : ''} key={id}><Trophy size={16} /><strong>{label}</strong><small>{profile.achievements.includes(id) ? 'Earned' : 'Locked'}</small></span>)}</div></section><section className="content-panel cosmetic-panel"><span className="small-label">UNLOCKABLE STYLE</span><h2>Equip your rewards</h2><label>Table theme<select value={profile.selected_theme} onChange={event => void saveCosmetics('theme', event.target.value)}>{profile.unlocked_themes.map(item => <option key={item}>{item}</option>)}</select></label><label>Card back<select value={profile.selected_card_back} onChange={event => void saveCosmetics('card_back', event.target.value)}>{profile.unlocked_card_backs.map(item => <option key={item}>{item}</option>)}</select></label><fieldset className="avatar-picker"><legend>Avatar</legend><div className="avatar-choices">{profile.unlocked_avatars.map(item => <button type="button" key={item} className="avatar-choice" aria-label={avatarNames[item] || item} aria-pressed={profile.selected_avatar === item} onClick={() => void saveCosmetics('avatar', item)}><Avatar name={profile.username} avatar={item} className="avatar-choice-image" /><span>{avatarNames[item] || item}</span></button>)}</div></fieldset><p>New rewards unlock at levels 2, 3, 4, and 5.</p></section></div>}
     {status && <div className="info-banner"><Shield size={16} />{status}</div>}</>
 }
@@ -1988,7 +2073,49 @@ async function adminRequest<T>(path: string, init: RequestInit = {}): Promise<T>
 }
 
 function AdminDashboardFull() {
-  return <><AdminDashboard /><AdminAccountManagement /></>
+  return <><AdminDashboard /><AdminRulesManagement /><AdminAccountManagement /></>
+}
+
+function AdminRulesManagement() {
+  const [rules, setRules] = useState<GameRules | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  const [notice, setNotice] = useState('')
+
+  useEffect(() => {
+    let active = true
+    adminRequest<GameRules>('/api/admin/rules')
+      .then(result => { if (active) setRules(result) })
+      .catch(reason => { if (active) setError(reason instanceof Error ? reason.message : 'Could not load game rules') })
+    return () => { active = false }
+  }, [])
+
+  async function saveRules() {
+    if (!rules) return
+    setBusy(true)
+    setError('')
+    setNotice('')
+    try {
+      const saved = await adminRequest<GameRules>('/api/admin/rules', {
+        method: 'PUT',
+        body: JSON.stringify(rules),
+      })
+      setRules(saved)
+      setNotice('Default game rules saved. They will apply to new tables and quick matches.')
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'Could not save game rules')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return <section className="content-panel admin-rules-panel">
+    <div><span className="small-label">GAME CONFIGURATION</span><h2>Default house rules</h2><p>These server-side defaults apply to quick matches and new players’ rule forms. Existing games keep their current rules.</p></div>
+    {error && <div role="alert" className="info-banner">{error}</div>}
+    {notice && <div role="status" className="info-banner">{notice}</div>}
+    {!rules ? <div className="table-empty">Loading game rules…</div> : <RulesEditor rules={rules} onChange={setRules} disabled={busy} />}
+    <button type="button" className="button button-green" disabled={!rules || !isValidGameRules(rules) || busy} onClick={() => void saveRules()}>{busy ? 'Saving rules…' : 'Save default rules'}</button>
+  </section>
 }
 
 function AdminAccountManagement() {
@@ -2164,10 +2291,10 @@ function SettingsPage() {
 
 const rules = [
   ['1', 'Hold On', 'Keep the turn and play again.'],
-  ['2', 'Pick Two', 'Adds two to the penalty. It can only be blocked with another Pick Two.'],
-  ['5', 'Pick Three', 'Adds three to the penalty. It can only be blocked with another Pick Three.'],
+  ['2', 'Pick Two', 'The next player draws the table-configured penalty. Matching Pick Two cards can stack when enabled.'],
+  ['5', 'Pick Three', 'The next player draws the table-configured penalty. Matching Pick Three cards can stack when enabled.'],
   ['8', 'Suspension', 'Skip the next player.'],
-  ['14', 'General Market', 'Every opponent draws one card, then you play again.'],
+  ['14', 'General Market', 'Every opponent draws the table-configured number of cards, then you play again.'],
   ['20', 'WHOT', 'Choose the next shape. WHOT can be played at any time.'],
 ]
 function MyTablesPage() {
@@ -2291,7 +2418,7 @@ function MobileGameOnly() {
 }
 
 function HelpPage() {
-  return <><PageTitle eyebrow="HOW TO PLAY" title="Know the table." detail="These are WHOT Arena's chosen house rules, enforced by the game server." /><section className="rules-intro"><div><span className="small-label">THE OBJECT</span><h2>Be the first to play every card in your hand.</h2><p>Match the top card by shape or number, or draw one card and pass.</p></div><div className="rule-visual"><span className="rule-number">20</span><span>✦</span><small>WILD</small></div></section><div className="rules-grid">{rules.map(([number, title, description]) => <article className="rule-row" key={number}><span className={`rule-token tone-${shapeTone[number === '20' ? 'whot' : 'star']}`}>{number}</span><div><strong>{title}</strong><p>{description}</p></div><ChevronDown size={16} /></article>)}</div><div className="rules-note"><BookOpen size={17} /><div><strong>Penalty blocking and Last Card</strong><p>Pick Two only stacks on Pick Two, while Pick Three only stacks on Pick Three. A player without the matching penalty card picks the accumulated total and loses their turn. When you reach one card, press LAST CARD before the next game action or pick two cards. The CPU must declare too. Special cards 1, 2, 5, 8, 14, and 20 cannot finish a round.</p></div></div><div className="help-actions"><Link className="button button-green" to="/create"><Gamepad2 size={16} /> Start a game</Link><Link className="text-link" to="/settings">Game settings <ArrowRight size={15} /></Link></div></>
+  return <><PageTitle eyebrow="HOW TO PLAY" title="Know the table." detail="The game server enforces the Arena defaults or the rules selected by the private-room host." /><section className="rules-intro"><div><span className="small-label">THE OBJECT</span><h2>Be the first to play every card in your hand.</h2><p>Match the top card by shape or number, or draw one card and pass.</p></div><div className="rule-visual"><span className="rule-number">20</span><span>✦</span><small>WILD</small></div></section><div className="rules-grid">{rules.map(([number, title, description]) => <article className="rule-row" key={number}><span className={`rule-token tone-${shapeTone[number === '20' ? 'whot' : 'star']}`}>{number}</span><div><strong>{title}</strong><p>{description}</p></div><ChevronDown size={16} /></article>)}</div><div className="rules-note"><BookOpen size={17} /><div><strong>Penalty blocking and Last Card</strong><p>Penalty amounts and whether matching penalties may stack depend on the rules selected for the table. When a penalty cannot be continued, the player draws the accumulated total and loses their turn. When you reach one card, press LAST CARD before the next game action or pick two cards. The CPU must declare too. Special cards 1, 2, 5, 8, 14, and 20 cannot finish a round.</p></div></div><div className="help-actions"><Link className="button button-green" to="/create"><Gamepad2 size={16} /> Start a game</Link><Link className="text-link" to="/settings">Game settings <ArrowRight size={15} /></Link></div></>
 }
 
 function LoadingScreen({ message, action = false }: { message: string; action?: boolean }) {

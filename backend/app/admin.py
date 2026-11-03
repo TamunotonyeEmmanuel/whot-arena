@@ -8,15 +8,66 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from .auth import current_user, get_db
-from .database import AdminWalletTransaction, RoomMembership, User, utcnow
+from .database import (
+    AdminWalletTransaction, GameRuleSettings, RoomMembership, User, utcnow,
+)
+from .schemas import GameRulesRequest
 
 router = APIRouter(prefix="/api/admin", tags=["Admin"])
+
+DEFAULT_GAME_RULES = {
+    "cards_per_player": 5,
+    "pick_two": 2,
+    "pick_three": 3,
+    "general_market": 1,
+    "penalty_stacking": True,
+}
 
 
 def require_admin(user: User = Depends(current_user)):
     if not user.is_admin:
         raise HTTPException(status_code=403, detail="Administrator access required")
     return user
+
+
+def rules_payload(settings: GameRuleSettings | None):
+    if settings is None:
+        return DEFAULT_GAME_RULES.copy()
+    return {
+        "cards_per_player": settings.cards_per_player,
+        "pick_two": settings.pick_two,
+        "pick_three": settings.pick_three,
+        "general_market": settings.general_market,
+        "penalty_stacking": settings.penalty_stacking,
+    }
+
+
+@router.get("/rules")
+def get_admin_rules(
+    admin: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    return rules_payload(db.get(GameRuleSettings, 1))
+
+
+@router.put("/rules")
+def update_admin_rules(
+    payload: GameRulesRequest,
+    admin: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    settings = db.get(GameRuleSettings, 1)
+    if settings is None:
+        settings = GameRuleSettings(id=1)
+        db.add(settings)
+    settings.cards_per_player = payload.cards_per_player
+    settings.pick_two = payload.pick_two
+    settings.pick_three = payload.pick_three
+    settings.general_market = payload.general_market
+    settings.penalty_stacking = payload.penalty_stacking
+    db.commit()
+    db.refresh(settings)
+    return rules_payload(settings)
 
 
 class UserUpdate(BaseModel):

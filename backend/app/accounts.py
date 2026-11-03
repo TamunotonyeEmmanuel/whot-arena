@@ -4,7 +4,7 @@ import secrets
 from datetime import timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import and_, delete, or_, select
+from sqlalchemy import and_, delete, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -16,7 +16,7 @@ from .auth import create_access_token, current_user, get_db, hash_password, veri
 from .database import DirectMessage, Friendship, MatchInvitation, MatchParticipant, MatchResult, User, UserBlock, utcnow
 from .schemas import (
     AuthResponse, CosmeticsRequest, DirectMessageCreate, DirectMessageResponse,
-    GoogleCredentialRequest, LoginRequest, MatchHistoryResponse,
+    GoogleCredentialRequest, LoginRequest, MatchHistoryResponse, ProfileUpdate,
     MatchInvitationCreate, PublicPlayerResponse, RegisterRequest, TypingRequest,
     UserResponse,
 )
@@ -134,6 +134,28 @@ def google_login(payload: GoogleCredentialRequest, db: Session = Depends(get_db)
 
 @router.get("/profile", response_model=UserResponse)
 def profile(user: User = Depends(current_user)):
+    return user
+
+
+@router.put("/profile", response_model=UserResponse)
+def update_profile(payload: ProfileUpdate, user: User = Depends(current_user),
+                   db: Session = Depends(get_db)):
+    username = payload.username.strip()
+    existing = db.scalar(select(User.id).where(
+        User.id != user.id,
+        User.deleted_at.is_(None),
+        func.lower(User.username) == username.lower(),
+    ))
+    if existing is not None:
+        raise HTTPException(status_code=409, detail="Username already exists")
+
+    user.username = username
+    try:
+        db.commit()
+    except IntegrityError as error:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="Username already exists") from error
+    db.refresh(user)
     return user
 
 

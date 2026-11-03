@@ -211,6 +211,24 @@ class AdminWalletTransaction(Base):
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
 
+
+class GameRuleSettings(Base):
+
+    __tablename__ = "game_rule_settings"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, default=1)
+
+    cards_per_player: Mapped[int] = mapped_column(Integer, default=5)
+
+    pick_two: Mapped[int] = mapped_column(Integer, default=2)
+
+    pick_three: Mapped[int] = mapped_column(Integer, default=3)
+
+    general_market: Mapped[int] = mapped_column(Integer, default=1)
+
+    penalty_stacking: Mapped[bool] = mapped_column(default=True)
+
+
 class Friendship(Base):
 
     __tablename__ = "friendships"
@@ -406,6 +424,14 @@ def _add_user_deletion_timestamp_v1(connection):
     })
 
 
+def _ensure_game_rule_settings_v1(connection):
+    connection.execute(text(
+        "INSERT INTO game_rule_settings "
+        "(id, cards_per_player, pick_two, pick_three, general_market, penalty_stacking) "
+        "VALUES (1, 5, 2, 3, 1, TRUE) ON CONFLICT (id) DO NOTHING"
+    ))
+
+
 def _apply_migration(connection, name, upgrade):
     applied = connection.execute(
         text("SELECT name FROM data_migrations WHERE name = :name"),
@@ -457,6 +483,11 @@ def init_database():
             connection,
             "007_add_user_deletion_timestamp",
             _add_user_deletion_timestamp_v1,
+        )
+        _apply_migration(
+            connection,
+            "008_ensure_game_rule_settings",
+            _ensure_game_rule_settings_v1,
         )
 
 @contextmanager
