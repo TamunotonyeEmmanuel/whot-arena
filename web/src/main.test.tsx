@@ -161,7 +161,7 @@ describe('WHOT Arena web client', () => {
     expect(screen.getByRole('button', { name: /leave table/i })).toBeInTheDocument()
   })
 
-  it('shows the HTTP status when the saved table request fails', async () => {
+  it('explains that a missing saved-table endpoint is not an empty table list', async () => {
     localStorage.setItem('whot.token', 'account-token')
     localStorage.setItem('whot.user', JSON.stringify({
       id: 1, username: 'Ada', email: 'ada@example.com', wins: 0, arena_coins: 500,
@@ -170,10 +170,12 @@ describe('WHOT Arena web client', () => {
       unlocked_avatars: ['initial'], selected_theme: 'classic',
       selected_card_back: 'classic', selected_avatar: 'initial', is_admin: false,
     }))
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 500 }))
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 404 }))
     window.history.pushState({}, '', '/tables')
     render(<App />)
 
-    expect(await screen.findByRole('alert')).toHaveTextContent('Could not load your tables (HTTP 500)')
+    expect(await screen.findByText(/configured API does not have GET \/api\/tables \(HTTP 404\)/)).toBeInTheDocument()
+    expect(screen.queryByText('You are not at any table right now.')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /try again/i })).toBeInTheDocument()
   })
 })

@@ -95,6 +95,7 @@ type ArenaContextValue = {
   resumeSavedRoom: () => Promise<Session | null>
   switchActiveTable: (code: string) => Promise<Session | null>
   tables: SavedTable[]
+  tablesError: string
   activeTableCount: number
   turnNotifications: TurnNotification[]
   dismissTurnNotification: (id: number) => void
@@ -173,6 +174,7 @@ function ArenaProvider({ children }: { children: React.ReactNode }) {
   })
   const [savedSession, setSavedSession] = useState<Session | null>(() => readStored<Session>('whot.session'))
   const [tables, setTables] = useState<SavedTable[]>([])
+  const [tablesError, setTablesError] = useState('')
   const [turnNotifications, setTurnNotifications] = useState<TurnNotification[]>([])
   const [user, setUser] = useState<User | null>(() => accessToken() ? readStored<User>('whot.user') : null)
   const [error, setError] = useState('')
@@ -204,17 +206,26 @@ function ArenaProvider({ children }: { children: React.ReactNode }) {
     const token = accessToken()
     if (!token) {
       setTables([])
+      setTablesError('')
       return
     }
     try {
       const response = await fetch(`${API_URL}/api/tables`, {
         headers: { Authorization: `Bearer ${token}` },
       })
-      if (!response.ok) throw new Error(`Could not load your tables (HTTP ${response.status})`)
+      if (!response.ok) {
+        const message = response.status === 404
+          ? 'The configured API does not have GET /api/tables (HTTP 404). Deploy the latest backend and verify VITE_API_URL.'
+          : `Could not load your tables (HTTP ${response.status})`
+        throw new Error(message)
+      }
       const body = await response.json() as { tables: SavedTable[] }
       setTables(body.tables)
+      setTablesError('')
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : 'Could not load your tables')
+      const message = reason instanceof Error ? reason.message : 'Could not load your tables'
+      setTablesError(message)
+      setError(message)
     }
   }
 
@@ -708,7 +719,7 @@ function ArenaProvider({ children }: { children: React.ReactNode }) {
     }
   }
 
-  return <Context.Provider value={{ view, session, savedSession, user, error, connected, busy, voiceUrls, requestVoice, rtcSignals, sendRtcSignal, subscribeLiveAudio, clearError: () => setError(''), connectRoom, send, leaveRoom, switchAway, resumeSavedRoom, switchActiveTable, tables, activeTableCount: tables.filter(table => table.status !== 'finished').length, turnNotifications, dismissTurnNotification, refreshTables, leaveTable, authenticate, authenticateGoogle, signOut }}>{children}</Context.Provider>
+  return <Context.Provider value={{ view, session, savedSession, user, error, connected, busy, voiceUrls, requestVoice, rtcSignals, sendRtcSignal, subscribeLiveAudio, clearError: () => setError(''), connectRoom, send, leaveRoom, switchAway, resumeSavedRoom, switchActiveTable, tables, tablesError, activeTableCount: tables.filter(table => table.status !== 'finished').length, turnNotifications, dismissTurnNotification, refreshTables, leaveTable, authenticate, authenticateGoogle, signOut }}>{children}</Context.Provider>
 }
 
 function useArena() {
@@ -1966,7 +1977,7 @@ const rules = [
   ['20', 'WHOT', 'Choose the next shape. WHOT can be played at any time.'],
 ]
 function MyTablesPage() {
-  const { tables, switchActiveTable, leaveTable, refreshTables, busy } = useArena()
+  const { tables, tablesError, switchActiveTable, leaveTable, refreshTables, busy } = useArena()
   const navigate = useNavigate()
   const [confirming, setConfirming] = useState<string | null>(null)
   async function resume(table: SavedTable) {
@@ -1997,7 +2008,7 @@ function MyTablesPage() {
         </div>
       </div>
     </div>}
-    {!tables.length ? <section className="content-panel tables-empty"><div className="tables-empty-icon"><Table2 size={26} /></div><span className="small-label">NO SAVED TABLES</span><h2>You are not at any table right now.</h2><p>Join or create a room and it will appear here so you can resume later.</p><div className="tables-empty-actions"><Link className="button button-green" to="/create"><Plus size={17} /> Create a room</Link><Link className="button button-quiet" to="/join">Join with a code</Link></div></section> : <div className="tables-grid">{tables.map(table => {
+    {tablesError ? <section className="content-panel tables-empty" role="alert"><div className="tables-empty-icon"><Table2 size={26} /></div><span className="small-label">TABLE LIST UNAVAILABLE</span><h2>We could not load your tables.</h2><p>{tablesError}</p><button type="button" className="button button-outline" onClick={() => void refreshTables()} disabled={busy}><Check size={16} /> Try again</button></section> : !tables.length ? <section className="content-panel tables-empty"><div className="tables-empty-icon"><Table2 size={26} /></div><span className="small-label">NO SAVED TABLES</span><h2>You are not at any table right now.</h2><p>Join or create a room and it will appear here so you can resume later.</p><div className="tables-empty-actions"><Link className="button button-green" to="/create"><Plus size={17} /> Create a room</Link><Link className="button button-quiet" to="/join">Join with a code</Link></div></section> : <div className="tables-grid">{tables.map(table => {
       const statusLabel = table.status === 'playing' ? 'In progress' : table.status === 'lobby' ? 'Lobby' : table.status === 'finished' ? 'Finished' : 'Reconnecting'
       const statusClass = table.status === 'playing' ? 'tables-status-playing' : table.status === 'lobby' ? 'tables-status-lobby' : ''
       return <section className="content-panel table-card" key={table.code}>
