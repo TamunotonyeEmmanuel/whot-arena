@@ -1,6 +1,7 @@
 .table-frame {
   color: #f5f1e7;
-  background: linear-gradient(145deg, #211b32, #171426);
+  background:
+    radial-gradient(ellipse at 50% 35%, #174b3a 0, #10372f 52%, #092720 100%);
 }
 
 .table-frame .page-content {
@@ -24,7 +25,29 @@
 .table-frame .game-page {
   width: 100%;
   max-width: none;
+  height: auto;
   min-height: calc(100dvh - 40px);
+  overflow: visible;
+  flex: none;
+}
+
+.table-frame,
+.table-frame .main-column,
+.table-frame .page-content,
+.table-frame .game-layout,
+.table-frame .table-column {
+  height: auto;
+  overflow: visible;
+}
+
+.table-frame .game-layout {
+  min-height: 0;
+  align-items: start;
+}
+
+.table-frame .table-column {
+  min-height: 0;
+  grid-template-rows: auto auto;
 }
 
 .premium-game-header {
