@@ -3,6 +3,7 @@ import json
 from sqlalchemy import create_engine, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.dialects import postgresql
+from sqlalchemy.schema import CreateTable
 
 from app import database
 from app.game import Room, Player
@@ -78,6 +79,18 @@ def test_postgresql_datetime_migration_uses_postgresql_type():
     )
 
     assert str(sql_type) == "TIMESTAMP WITH TIME ZONE"
+
+
+def test_room_membership_table_uses_postgresql_compatible_ddl():
+    sql = str(CreateTable(database.RoomMembership.__table__).compile(
+        dialect=postgresql.dialect()
+    ))
+
+    assert "SERIAL" in sql
+    assert "TIMESTAMP WITH TIME ZONE" in sql
+    assert "DEFAULT 'active'" in sql
+    assert sql.count("DEFAULT CURRENT_TIMESTAMP") == 2
+    assert "AUTOINCREMENT" not in sql
 
 
 def test_match_key_migration_adds_unique_index_without_removing_history(tmp_path, monkeypatch):

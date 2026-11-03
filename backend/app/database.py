@@ -274,18 +274,21 @@ class RoomMembership(Base):
     status: Mapped[str] = mapped_column(
         String(16),
         default="active",
+        server_default=text("'active'"),
         nullable=False,
     )
 
     joined_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=utcnow,
+        server_default=text("CURRENT_TIMESTAMP"),
         nullable=False,
     )
 
     last_active_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=utcnow,
+        server_default=text("CURRENT_TIMESTAMP"),
         nullable=False,
     )
 
@@ -361,28 +364,7 @@ def _ensure_arena_treasury_v1(connection):
 
 
 def _add_room_memberships_v1(connection):
-    connection.execute(text(
-        "CREATE TABLE IF NOT EXISTS room_memberships ("
-        "id INTEGER PRIMARY KEY AUTOINCREMENT, "
-        "user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, "
-        "room_code VARCHAR(12) NOT NULL, "
-        "status VARCHAR(16) NOT NULL DEFAULT 'active', "
-        "joined_at DATETIME NOT NULL DEFAULT (CURRENT_TIMESTAMP), "
-        "last_active_at DATETIME NOT NULL DEFAULT (CURRENT_TIMESTAMP), "
-        "left_at DATETIME NULL)"
-    ))
-    connection.execute(text(
-        "CREATE UNIQUE INDEX IF NOT EXISTS uq_room_membership_user_room "
-        "ON room_memberships (user_id, room_code)"
-    ))
-    connection.execute(text(
-        "CREATE INDEX IF NOT EXISTS idx_room_memberships_room "
-        "ON room_memberships (room_code)"
-    ))
-    connection.execute(text(
-        "CREATE INDEX IF NOT EXISTS idx_room_memberships_user "
-        "ON room_memberships (user_id)"
-    ))
+    RoomMembership.__table__.create(bind=connection, checkfirst=True)
 
 
 def _add_google_account_id_v1(connection):
