@@ -1233,6 +1233,19 @@
   }
 }
 
+@media (min-width: 1100px) {
+  .table-frame .game-page {
+    zoom: .82;
+  }
+}
+
+@media (min-width: 1100px) and (max-height: 850px) {
+  .table-frame .page-content {
+    padding-top: 8px;
+    padding-bottom: 10px;
+  }
+}
+
 .table-frame .premium-game-controls {
   display: none !important;
 }
