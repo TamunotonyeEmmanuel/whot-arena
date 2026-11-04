@@ -1205,6 +1205,33 @@
   box-shadow: inset 0 0 0 2px #8eae78, inset 0 0 55px #071b108c, 0 9px 20px #10261933;
 }
 
+@media (min-width: 761px) {
+  .table-frame .game-page {
+    width: min(100%, 1500px);
+    margin-inline: auto;
+  }
+
+  .table-frame .hand-panel .hand-cards {
+    justify-content: center;
+    gap: 8px;
+    padding-inline: 16px;
+  }
+
+  .table-frame .hand-panel .hand-cards .whot-card {
+    width: clamp(56px, 5vw, 76px);
+    margin-inline: 0;
+    cursor: pointer;
+  }
+
+  .table-frame .hand-panel .hand-cards .whot-card:disabled {
+    cursor: not-allowed;
+  }
+}
+
+.table-frame .premium-game-controls {
+  display: none !important;
+}
+
 @media (max-width: 600px) {
   .table-frame .page-content {
     padding: 8px 8px 18px;
