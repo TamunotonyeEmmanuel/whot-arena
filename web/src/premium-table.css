@@ -316,12 +316,12 @@
   position: absolute;
   z-index: 3;
   display: grid;
-  width: clamp(112px, 14vw, 158px);
+  width: clamp(100px, 12vw, 138px);
   justify-items: center;
-  gap: 4px;
-  padding: 9px 10px;
+  gap: 3px;
+  padding: 7px 8px;
   border: 1px solid #ffffff18;
-  border-radius: 14px;
+  border-radius: 12px;
   color: #f4eddd;
   background: #10261fd9;
   box-shadow: 0 10px 22px #03130d57, inset 0 1px #ffffff12;
@@ -334,12 +334,12 @@
   position: absolute;
   z-index: 3;
   display: grid;
-  width: clamp(112px, 14vw, 158px);
+  width: clamp(100px, 12vw, 138px);
   justify-items: center;
-  gap: 4px;
-  padding: 9px 10px;
+  gap: 3px;
+  padding: 7px 8px;
   border: 1px solid #ffffff18;
-  border-radius: 14px;
+  border-radius: 12px;
   color: #f4eddd;
   background: #10261fd9;
   box-shadow: 0 10px 22px #03130d57, inset 0 1px #ffffff12;
@@ -408,8 +408,8 @@
 }
 
 .premium-player-seat .opponent-avatar {
-  width: 46px;
-  height: 46px;
+  width: 40px;
+  height: 40px;
   border: 2px solid #c7b06c;
   color: #19251d;
   background: linear-gradient(145deg, #f8e4a8, #c59b4f);
@@ -650,9 +650,9 @@
   bottom: 2.5%;
   left: 50%;
   z-index: 3;
-  width: min(300px, 43%);
+  width: min(260px, 40%);
   justify-content: start;
-  padding: 7px 12px;
+  padding: 6px 10px;
   border: 1px solid #ffffff21;
   border-radius: 14px;
   color: #f6f0e2;
@@ -667,8 +667,8 @@
 }
 
 .premium-you-seat .you-avatar {
-  width: 38px;
-  height: 38px;
+  width: 32px;
+  height: 32px;
   border: 2px solid #e8c976;
   color: #19251d;
   background: linear-gradient(145deg, #fff0bd, #c79d51);
@@ -1456,17 +1456,17 @@
   }
 
   .premium-player-seat {
-    width: clamp(88px, 25vw, 118px);
+    width: clamp(76px, 22vw, 100px);
     gap: 2px;
-    padding: 6px 6px;
-    border-radius: 11px;
+    padding: 5px;
+    border-radius: 10px;
   }
 
   .table-frame .premium-player-seat {
-    width: clamp(88px, 25vw, 118px);
+    width: clamp(76px, 22vw, 100px);
     gap: 2px;
-    padding: 6px;
-    border-radius: 11px;
+    padding: 5px;
+    border-radius: 10px;
   }
 
   .premium-player-seat.seat-top {
@@ -1484,9 +1484,9 @@
   }
 
   .premium-player-seat .opponent-avatar {
-    width: 34px;
-    height: 34px;
-    font-size: 12px;
+    width: 28px;
+    height: 28px;
+    font-size: 10px;
   }
 
   .premium-player-seat > strong {
@@ -1584,23 +1584,23 @@
 
   .premium-table-felt .premium-you-seat {
     bottom: 10%;
-    width: min(210px, 58%);
-    padding: 5px 8px;
+    width: min(190px, 54%);
+    padding: 4px 7px;
   }
 
   .premium-you-seat .you-avatar {
-    width: 31px;
-    height: 31px;
-    font-size: 11px;
+    width: 26px;
+    height: 26px;
+    font-size: 9px;
   }
 
   .premium-you-seat > div:nth-child(2) strong {
-    font-size: 9px;
+    font-size: 8px;
   }
 
   .premium-you-seat > div:nth-child(2) small,
   .premium-you-seat .turn-clock {
-    font-size: 7px;
+    font-size: 6px;
   }
 
   .premium-you-seat .turn-clock {
@@ -1727,8 +1727,8 @@
   }
 
   .table-frame .premium-player-seat {
-    width: 78px;
-    padding: 5px 4px;
+    width: 70px;
+    padding: 4px 3px;
   }
 
   .premium-table-felt .center-piles {
