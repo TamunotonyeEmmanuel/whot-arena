@@ -1,12 +1,13 @@
 .table-frame {
-  position: fixed;
-  inset: 0;
+  position: relative;
+  inset: auto;
   width: 100%;
-  height: 100dvh;
-  min-height: 0;
-  overflow: hidden;
-  overscroll-behavior: none;
-  touch-action: pan-x;
+  height: auto;
+  min-height: 100dvh;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior-y: auto;
+  touch-action: pan-y;
 }
 
 .table-frame .hand-cards .whot-card {
