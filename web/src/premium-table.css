@@ -1211,6 +1211,11 @@
     margin-inline: auto;
   }
 
+  .table-frame .premium-game-header {
+    position: relative;
+    top: auto;
+  }
+
   .table-frame .hand-panel .hand-cards {
     justify-content: center;
     gap: 8px;
