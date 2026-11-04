@@ -1255,6 +1255,65 @@
   display: none !important;
 }
 
+.table-frame .table-scoreboard {
+  position: absolute;
+  z-index: 4;
+  top: 12px;
+  left: 14px;
+  justify-items: start;
+  gap: 4px;
+  width: 148px;
+  margin: 0;
+  color: #e4eadc;
+}
+
+.table-frame .table-scoreboard > span {
+  display: block;
+  color: #d8cfaa;
+  font-size: 7px;
+  font-weight: 850;
+  letter-spacing: 1px;
+}
+
+.table-frame .table-scoreboard > div {
+  display: grid;
+  width: 100%;
+  gap: 3px;
+}
+
+.table-frame .table-scoreboard > div > span {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 1px 5px;
+  padding: 3px 6px;
+  border: 1px solid #ffffff24;
+  border-radius: 6px;
+  background: #0c2d22e8;
+  box-shadow: 0 3px 8px #03130d45;
+}
+
+.table-frame .table-scoreboard strong {
+  max-width: 100%;
+  overflow: hidden;
+  color: #f5f1e7;
+  font-size: 8px;
+  text-overflow: ellipsis;
+}
+
+.table-frame .table-scoreboard b {
+  grid-column: 2;
+  grid-row: 1 / 3;
+  color: #d5ef88;
+  font-size: 13px;
+}
+
+.table-frame .table-scoreboard small {
+  color: #b9c8b7;
+  font-size: 6px;
+}
+
 .premium-voice-button.mic-speaking {
   border-color: #8be0a8;
   color: #d8ffe4;
@@ -1443,6 +1502,38 @@
       inset 0 0 0 2px #d5b474,
       inset 0 10px 22px #e4c58224,
       inset 0 -14px 24px #061e1a8c;
+  }
+
+  .table-frame .table-scoreboard {
+    top: 8px;
+    left: 8px;
+    width: 105px;
+    gap: 3px;
+  }
+
+  .table-frame .table-scoreboard > span {
+    font-size: 6px;
+  }
+
+  .table-frame .table-scoreboard > div {
+    gap: 2px;
+  }
+
+  .table-frame .table-scoreboard > div > span {
+    padding: 2px 4px;
+    gap: 0 3px;
+  }
+
+  .table-frame .table-scoreboard strong {
+    font-size: 7px;
+  }
+
+  .table-frame .table-scoreboard b {
+    font-size: 11px;
+  }
+
+  .table-frame .table-scoreboard small {
+    font-size: 5px;
   }
 
   .premium-table-felt::before,

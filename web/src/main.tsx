@@ -1391,6 +1391,19 @@ function GameTable() {
   )
   const roundWinner = view.players.find(player => player.id === view.winner)
   const matchWinner = view.players.find(player => player.id === view.match_winner)
+  const tableScores = view.team_mode
+    ? [1, 2].map(team => ({
+      id: `team-${team}`,
+      name: `Team ${team}`,
+      wins: view.round_wins[`team-${team}`] || 0,
+      points: view.match_points[`team-${team}`] || 0,
+    }))
+    : view.players.map(player => ({
+      id: player.id,
+      name: player.name,
+      wins: view.round_wins[player.id] || 0,
+      points: view.match_points[player.id] || 0,
+    }))
   const didWinRound = view.team_mode ? me?.team === roundWinner?.team : view.winner === session?.player_id
   const winnerName = view.team_mode ? `Team ${roundWinner?.team || ''}` : roundWinner?.name || 'Arena winner'
   const championName = view.team_mode ? `Team ${matchWinner?.team || ''}` : matchWinner?.name || winnerName
@@ -1480,6 +1493,10 @@ function GameTable() {
       <div className="table-column">
       <section className={`table-felt premium-table-felt ${view.pending_draw > 0 ? 'table-penalty-active' : ''} ${isRoundOpening ? 'table-dealing' : ''}`}>
         <div className="table-stitch" />
+        <div className="match-scoreboard table-scoreboard" role="status" aria-label="Live match scoreboard">
+          <span>SCOREBOARD</span>
+          <div>{tableScores.map(score => <span key={score.id}><strong>{score.name}</strong><b>{score.points}</b><small>{score.wins} {score.wins === 1 ? 'win' : 'wins'}</small></span>)}</div>
+        </div>
         {view.is_paused && <div className="reconnect-pause" role="status" aria-live="polite">{view.pause_reason === 'disconnect' ? <Wifi size={25} /> : <Pause size={25} />}<span>PRIVATE MATCH PAUSED</span><strong>{pauseGuidance.title}</strong><small>{pauseGuidance.detail}{view.pause_reason === 'disconnect' ? ` · turn timer frozen at ${turnSeconds}` : ` · ${turnSeconds} seconds left on the turn timer`}</small><p>{pauseGuidance.instruction}</p></div>}
         <div className={`opponents-row premium-opponents opponents-${opponents.length}`}>
           {opponents.map((player, index) => (
