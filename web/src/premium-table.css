@@ -717,7 +717,7 @@
   border: 1px solid #ffffff24;
   border-radius: 10px;
   color: #eee8da;
-  background: linear-gradient(145deg, #1a6849, #12503a);
+  background: #0b3828;
   cursor: pointer;
   font-size: 10px;
   font-weight: 800;
@@ -727,6 +727,7 @@
 .premium-game-controls button:hover:not(:disabled) {
   transform: translateY(-2px);
   border-color: #e8c66f;
+  background: #14583e;
 }
 
 .premium-game-controls button:disabled {
@@ -744,34 +745,39 @@
   min-width: 144px;
   border-color: #f2d18a;
   color: #fff7e2;
-  background: linear-gradient(135deg, #1d7650, #14583e);
+  background: #0b3828;
   box-shadow: 0 5px 16px #092f2140;
 }
 
 .premium-game-controls .premium-action-draw {
   min-width: 140px;
   display: grid;
-  grid-template-columns: 28px auto;
+  position: relative;
+  grid-template-columns: 1fr;
   grid-template-rows: 1fr 1fr;
   gap: 0 8px;
-  justify-items: start;
+  justify-items: center;
   padding: 5px 11px;
-  text-align: left;
+  text-align: center;
 }
 
 .premium-action-draw .whot-card {
   width: 23px;
   height: 33px;
-  grid-row: span 2;
+  position: absolute;
+  top: 5px;
+  left: 8px;
   border-radius: 4px;
 }
 
 .premium-action-draw span {
   align-self: end;
+  justify-self: center;
 }
 
 .premium-action-draw small {
   align-self: start;
+  justify-self: center;
   color: #b6c2b8;
   font-size: 7px;
   font-weight: 600;
