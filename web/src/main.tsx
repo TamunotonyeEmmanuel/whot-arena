@@ -2,7 +2,7 @@ import React, { createContext, useCallback, useContext, useEffect, useRef, useSt
 import { createPortal } from 'react-dom'
 import { createRoot } from 'react-dom/client'
 import { BrowserRouter, Link, NavLink, Navigate, Route, Routes, useLocation, useNavigate, useParams } from 'react-router-dom'
-import { ArrowLeft, ArrowLeftRight, ArrowRight, BatteryFull, BookOpen, Check, ChevronDown, CircleHelp, Clock3, Crown, DoorOpen, Gamepad2, History, Home, LogIn, LogOut, Menu, MessageCircle, Mic, MicOff, MoreHorizontal, Moon, Pause, Play, Plus, Radio, Settings, Share2, Shield, Signal, Smartphone, Sparkles, Sun, Table2, Trophy, UserRound, Users, Volume2, Wallet, Wifi, X } from 'lucide-react'
+import { ArrowLeft, ArrowRight, BatteryFull, BookOpen, Check, ChevronDown, CircleHelp, Clock3, Crown, DoorOpen, Gamepad2, History, Home, LogIn, LogOut, Menu, MessageCircle, Mic, MicOff, MoreHorizontal, Moon, Pause, Play, Plus, Radio, Settings, Share2, Shield, Signal, Smartphone, Sparkles, Sun, Table2, Trophy, UserRound, Users, Volume2, Wallet, Wifi, X } from 'lucide-react'
 import './styles.css'
 import './live-voice-control.css'
 import './table-layout.css'
@@ -1318,8 +1318,6 @@ function GameTable() {
   const [selectedWhot, setSelectedWhot] = useState<Card | null>(null)
   const [selectedCard, setSelectedCard] = useState<Card | null>(null)
   const [shape, setShape] = useState('circle')
-  const [rulesOpen, setRulesOpen] = useState(false)
-  const [handSorted, setHandSorted] = useState(false)
   const [soundEnabled, setSoundEnabled] = useState(gameSoundsEnabled())
   const [toast, setToast] = useState('')
   const [turnSeconds, setTurnSeconds] = useState(30)
@@ -1355,15 +1353,14 @@ function GameTable() {
     }
   }, [view?.hand, myTurn, selectedCard?.id])
   useEffect(() => {
-    if (!rulesOpen && !selectedWhot) return
+    if (!selectedWhot) return
     const closeOnEscape = (event: KeyboardEvent) => {
       if (event.key !== 'Escape') return
-      setRulesOpen(false)
       setSelectedWhot(null)
     }
     window.addEventListener('keydown', closeOnEscape)
     return () => window.removeEventListener('keydown', closeOnEscape)
-  }, [rulesOpen, selectedWhot])
+  }, [selectedWhot])
   useEffect(() => {
     const syncSounds = (event: Event) => {
       setSoundEnabled((event as CustomEvent<boolean>).detail)
@@ -1386,9 +1383,7 @@ function GameTable() {
   const didWinRound = view.team_mode ? me?.team === roundWinner?.team : view.winner === session?.player_id
   const winnerName = view.team_mode ? `Team ${roundWinner?.team || ''}` : roundWinner?.name || 'Arena winner'
   const championName = view.team_mode ? `Team ${matchWinner?.team || ''}` : matchWinner?.name || winnerName
-  const displayedHand = handSorted
-    ? [...view.hand].sort((a, b) => a.shape.localeCompare(b.shape) || a.number - b.number)
-    : view.hand
+  const displayedHand = view.hand
   const missedLastCard = view.players.find(player => player.id !== session?.player_id && player.last_card_required && (!view.team_mode || player.team !== me?.team))
   const isRoundOpening = view.last_action === 'Game started' || view.last_action.includes('started')
   const wagerLocked = view.wager_locked
@@ -1470,7 +1465,6 @@ function GameTable() {
           <button type="button" className="premium-header-button" onClick={() => navigate('/tables')} aria-label="Open My Tables"><Table2 size={16} /><span>My Tables</span></button>
           <button type="button" className="premium-header-button premium-switch-button" disabled={busy} onClick={() => void switchTables()} aria-label="Switch to another table"><ArrowLeft size={15} /><span>Switch Table</span></button>
           <details className="premium-more-menu"><summary className="premium-icon-button" aria-label="More game options"><MoreHorizontal size={19} /></summary><div className="premium-menu-items">
-            <button type="button" onClick={() => setRulesOpen(true)}><BookOpen size={15} /> View game rules</button>
             {view.host === session?.player_id && !view.is_public && view.status === 'playing' && <button type="button" disabled={view.is_paused && view.pause_reason !== 'manual'} onClick={() => send('pause')}>{view.is_paused && view.pause_reason === 'manual' ? <Play size={15} /> : <Pause size={15} />}{view.is_paused && view.pause_reason === 'manual' ? 'Resume game' : 'Pause game'}</button>}
             <button type="button" onClick={exitRoom}><DoorOpen size={15} /> Leave table</button>
           </div></details>
@@ -1501,12 +1495,6 @@ function GameTable() {
         {missedLastCard && view.status === 'playing' && !view.is_paused && <button type="button" className="button button-outline" onClick={() => send('call_last', { target_id: missedLastCard.id })} aria-label={`Call ${missedLastCard.name} for missing LAST CARD; they draw two cards`}>CALL LAST CARD · +2</button>}
         <div className={`you-at-table premium-you-seat ${myTurn ? 'you-seat-turn' : ''}`}><div className={`you-avatar-wrap ${me?.voice_speaking ? 'voice-speaking' : ''}`}><Avatar name={me?.name || 'You'} avatar={me?.avatar} className="you-avatar" /><span className={`status-dot ${me?.connected ? 'online' : ''}`} /></div><div><strong>{me?.name || 'You'} <span>(you)</span>{view.team_mode && <em className={`team-tag team-tag-${me?.team}`}>TEAM {me?.team}</em>}</strong><small>{myTurn ? 'Your move' : view.status === 'finished' ? 'Round over' : 'Waiting for your turn'}{view.wager > 0 ? ` · ₦${(me?.coin_balance ?? 0).toLocaleString()}` : ''}</small></div>{myTurn && <span className="turn-clock"><Clock3 size={15} /> {turnSeconds}s · YOUR TURN</span>}</div>
       </section>
-      {view.status === 'playing' && <nav className="premium-game-controls" aria-label="Game controls">
-        <button type="button" className="premium-action-draw" disabled={!myTurn} onClick={() => myTurn && send('draw')}><CardFace back /><span>{view.pending_draw ? `Draw ${view.pending_draw} cards` : 'Draw card'}</span><small>{view.pending_draw ? 'Accept penalty' : 'Draw & pass'}</small></button>
-        <button type="button" className="premium-action-play" disabled={!myTurn || !selectedCard} onClick={playSelected}>{selectedCard?.number === 20 ? <Sparkles size={17} /> : <Play size={16} />}<span>{selectedCard?.number === 20 ? 'Pick shape' : 'Play card'}</span></button>
-        <button type="button" className="premium-action-secondary" onClick={() => setHandSorted(previous => !previous)}><ArrowLeftRight size={16} /><span>{handSorted ? 'Natural hand' : 'Sort cards'}</span></button>
-        <button type="button" className="premium-action-secondary" onClick={() => setRulesOpen(true)}><BookOpen size={16} /><span>Game rules</span></button>
-      </nav>}
       {view.status === 'finished' ? (
         <section className="round-result">
           <div className="result-icon">{didWinRound ? <Crown size={26} /> : <Trophy size={26} />}</div>
@@ -1522,7 +1510,6 @@ function GameTable() {
       </div>
       {!opponents.every(player => player.is_bot) && <LiveVoicePanel players={view.players} playerId={session?.player_id || ''} enabled={view.status === 'playing'} />}
       </div>
-      {rulesOpen && <div className="premium-dialog-scrim" onMouseDown={() => setRulesOpen(false)}><section className="premium-rules-dialog" role="dialog" aria-modal="true" aria-labelledby="premium-rules-title" onMouseDown={event => event.stopPropagation()}><button type="button" className="premium-icon-button" onClick={() => setRulesOpen(false)} aria-label="Close game rules"><X size={18} /></button><span className="small-label">CURRENT TABLE SETTINGS</span><h2 id="premium-rules-title">Game rules</h2><p>These are the rules enforced by the server for this match.</p><div className="premium-rules-list"><span>Cards per player <strong>{view.rules.cards_per_player}</strong></span><span>Pick Two penalty <strong>{view.rules.pick_two} cards</strong></span><span>Pick Three <strong>{view.rules.pick_three_enabled ? `${view.rules.pick_three} cards` : 'Disabled'}</strong></span><span>General Market <strong>{view.rules.general_market} per opponent</strong></span><span>Penalty stacking <strong>{view.rules.penalty_stacking ? 'Enabled' : 'Disabled'}</strong></span><span>Match format <strong>Single game</strong></span></div><p className="premium-rules-note">WHOT 20 may be played anytime. Tap a playable card to select it, then choose Play Card.</p><button type="button" className="button premium-action-play" onClick={() => setRulesOpen(false)}>Back to table</button></section></div>}
       {selectedWhot && createPortal(<div className="shape-modal-backdrop" onMouseDown={() => setSelectedWhot(null)}><section className="shape-modal" role="dialog" aria-modal="true" aria-labelledby="shape-modal-title" onMouseDown={event => event.stopPropagation()}><button type="button" className="icon-button shape-modal-close" onClick={() => setSelectedWhot(null)} aria-label="Cancel shape selection"><X size={18} /></button><div className="shape-modal-card"><span>20</span><strong>WHOT</strong></div><span className="small-label">WHOT 20</span><h2 id="shape-modal-title">Choose the next shape</h2><p>Every player must match the shape you select.</p><div className="shape-modal-grid">{shapes.map(item => <button type="button" key={item} className={`shape-modal-choice shape-${item} ${shape === item ? 'shape-modal-choice-active' : ''}`} onClick={() => setShape(item)} aria-pressed={shape === item}><span>{shapeGlyph[item]}</span><strong>{item}</strong></button>)}</div><button type="button" className="button button-lime shape-modal-confirm" onClick={confirmWhot}><Check size={16} /> Play WHOT · {shapeGlyph[shape]} {shape}</button></section></div>, document.body)}
     </div>
   )
