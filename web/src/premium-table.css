@@ -1173,6 +1173,25 @@
   }
 }
 
+/* Keep the whole game page in normal document flow so it can scroll. */
+.table-frame,
+.table-frame .main-column,
+.table-frame .page-content,
+.table-frame .game-page,
+.table-frame .game-layout,
+.table-frame .table-column {
+  height: auto !important;
+  min-height: 0;
+  overflow: visible !important;
+}
+
+.table-frame {
+  min-height: 100dvh;
+  overflow-x: hidden !important;
+  overflow-y: visible !important;
+  touch-action: pan-y;
+}
+
 @media (max-width: 600px) {
   .table-frame .page-content {
     padding: 8px 8px 18px;
