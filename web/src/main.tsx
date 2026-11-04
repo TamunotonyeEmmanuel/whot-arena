@@ -1396,18 +1396,26 @@ function GameTable() {
     card, view.pending_draw, view.pending_penalty, view.top, view.requested_shape,
     view.rules.penalty_stacking,
   )
+  function playCard(card: Card) {
+    if (!myTurn || !isLegal(card)) return
+    if (card.number === 20) {
+      setSelectedWhot(card)
+      return
+    }
+    send('play', { card_id: card.id })
+    setSelectedCard(null)
+  }
   function play(card: Card) {
     if (!myTurn || !isLegal(card)) return
-    setSelectedCard(previous => previous?.id === card.id ? null : card)
+    if (selectedCard?.id === card.id) {
+      playCard(card)
+      return
+    }
+    setSelectedCard(card)
   }
   function playSelected() {
     if (!myTurn || !selectedCard || !isLegal(selectedCard)) return
-    if (selectedCard.number === 20) {
-      setSelectedWhot(selectedCard)
-      return
-    }
-    send('play', { card_id: selectedCard.id })
-    setSelectedCard(null)
+    playCard(selectedCard)
   }
   function confirmWhot() {
     if (selectedWhot && myTurn && isLegal(selectedWhot)) {
@@ -1507,7 +1515,7 @@ function GameTable() {
         </section>
       ) : (
         <section className={`hand-panel ${view.pending_draw > 0 && myTurn ? 'penalty-hand' : ''}`}>
-          <div className="hand-heading"><div><span className="small-label">YOUR HAND</span><strong className={view.hand.length === 1 ? 'last-card-label' : ''}>{view.hand.length === 1 ? 'LAST CARD' : `${view.hand.length} cards`}</strong></div>{me?.last_card_required ? <button type="button" className="last-card-button" onClick={() => send('declare_last')}><Sparkles size={15} /> LAST CARD!</button> : <span className="hand-hint">{myTurn ? view.pending_draw ? view.rules.penalty_stacking ? `Select another ${view.pending_penalty} or draw ${view.pending_draw}` : `Draw ${view.pending_draw} cards (or play WHOT)` : selectedCard ? `${selectedCard.number} ${selectedCard.shape} selected` : 'Select a highlighted card, then play' : 'Cards only you can see'}</span>}</div>
+          <div className="hand-heading"><div><span className="small-label">YOUR HAND</span><strong className={view.hand.length === 1 ? 'last-card-label' : ''}>{view.hand.length === 1 ? 'LAST CARD' : `${view.hand.length} cards`}</strong></div>{me?.last_card_required ? <button type="button" className="last-card-button" onClick={() => send('declare_last')}><Sparkles size={15} /> LAST CARD!</button> : <span className="hand-hint">{myTurn ? view.pending_draw ? view.rules.penalty_stacking ? `Select another ${view.pending_penalty} or draw ${view.pending_draw}` : `Draw ${view.pending_draw} cards (or play WHOT)` : selectedCard ? `${selectedCard.number} ${selectedCard.shape} selected · tap again or press Play Card` : 'Tap a playable card twice, or select it and press Play Card' : 'Cards only you can see'}</span>}</div>
           <div className="hand-cards">{displayedHand.map((card, index) => <CardFace key={card.id} card={card} playable={myTurn && isLegal(card)} selected={selectedCard?.id === card.id} index={index} onClick={() => play(card)} />)}</div>
         </section>
       )}
