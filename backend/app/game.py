@@ -1,5 +1,4 @@
 import base64
-import random
 import secrets
 import time
 import hashlib
@@ -314,7 +313,7 @@ class Room:
                      for shape, numbers in SHAPES.items() for n in numbers]
         self.deck += [{"shape": "whot", "number": 20, "id": secrets.token_hex(5)}
                       for _ in range(5)]
-        random.shuffle(self.deck)
+        secrets.SystemRandom().shuffle(self.deck)
         for p in self.players:
             p.hand = []
             p.last_card_required = False

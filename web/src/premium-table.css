@@ -316,10 +316,10 @@
   position: absolute;
   z-index: 3;
   display: grid;
-  width: clamp(100px, 12vw, 138px);
+  width: clamp(92px, 11vw, 128px);
   justify-items: center;
-  gap: 3px;
-  padding: 7px 8px;
+  gap: 2px;
+  padding: 6px 7px;
   border: 1px solid #ffffff18;
   border-radius: 12px;
   color: #f4eddd;
@@ -334,10 +334,10 @@
   position: absolute;
   z-index: 3;
   display: grid;
-  width: clamp(100px, 12vw, 138px);
+  width: clamp(92px, 11vw, 128px);
   justify-items: center;
-  gap: 3px;
-  padding: 7px 8px;
+  gap: 2px;
+  padding: 6px 7px;
   border: 1px solid #ffffff18;
   border-radius: 12px;
   color: #f4eddd;
@@ -408,8 +408,8 @@
 }
 
 .premium-player-seat .opponent-avatar {
-  width: 40px;
-  height: 40px;
+  width: 36px;
+  height: 36px;
   border: 2px solid #c7b06c;
   color: #19251d;
   background: linear-gradient(145deg, #f8e4a8, #c59b4f);
@@ -650,9 +650,9 @@
   bottom: 2.5%;
   left: 50%;
   z-index: 3;
-  width: min(260px, 40%);
+  width: min(300px, 44%);
   justify-content: start;
-  padding: 6px 10px;
+  padding: 8px 12px;
   border: 1px solid #ffffff21;
   border-radius: 14px;
   color: #f6f0e2;
@@ -667,8 +667,8 @@
 }
 
 .premium-you-seat .you-avatar {
-  width: 32px;
-  height: 32px;
+  width: 36px;
+  height: 36px;
   border: 2px solid #e8c976;
   color: #19251d;
   background: linear-gradient(145deg, #fff0bd, #c79d51);
@@ -1456,14 +1456,14 @@
   }
 
   .premium-player-seat {
-    width: clamp(76px, 22vw, 100px);
+    width: clamp(70px, 20vw, 92px);
     gap: 2px;
     padding: 5px;
     border-radius: 10px;
   }
 
   .table-frame .premium-player-seat {
-    width: clamp(76px, 22vw, 100px);
+    width: clamp(70px, 20vw, 92px);
     gap: 2px;
     padding: 5px;
     border-radius: 10px;
@@ -1484,9 +1484,9 @@
   }
 
   .premium-player-seat .opponent-avatar {
-    width: 28px;
-    height: 28px;
-    font-size: 10px;
+    width: 26px;
+    height: 26px;
+    font-size: 9px;
   }
 
   .premium-player-seat > strong {
@@ -1584,14 +1584,14 @@
 
   .premium-table-felt .premium-you-seat {
     bottom: 10%;
-    width: min(190px, 54%);
-    padding: 4px 7px;
+    width: min(220px, 62%);
+    padding: 5px 8px;
   }
 
   .premium-you-seat .you-avatar {
-    width: 26px;
-    height: 26px;
-    font-size: 9px;
+    width: 28px;
+    height: 28px;
+    font-size: 10px;
   }
 
   .premium-you-seat > div:nth-child(2) strong {
@@ -1727,7 +1727,7 @@
   }
 
   .table-frame .premium-player-seat {
-    width: 70px;
+    width: 66px;
     padding: 4px 3px;
   }
 
