@@ -1319,11 +1319,22 @@ function GameTable() {
   const [selectedCard, setSelectedCard] = useState<Card | null>(null)
   const [shape, setShape] = useState('circle')
   const [soundEnabled, setSoundEnabled] = useState(gameSoundsEnabled())
+  const [voiceSpeaking, setVoiceSpeaking] = useState(false)
+  const [voiceMicBusy, setVoiceMicBusy] = useState(false)
   const [toast, setToast] = useState('')
   const [turnSeconds, setTurnSeconds] = useState(30)
   const [pauseSeconds, setPauseSeconds] = useState(0)
   const navigate = useNavigate()
   const myTurn = Boolean(view?.turn === session?.player_id && view?.status === 'playing' && !view?.is_paused)
+  useEffect(() => {
+    const updateVoice = (event: Event) => {
+      const state = (event as CustomEvent<{ speaking: boolean; busy: boolean }>).detail
+      setVoiceSpeaking(Boolean(state?.speaking))
+      setVoiceMicBusy(Boolean(state?.busy))
+    }
+    window.addEventListener('whot-live-mic-state', updateVoice)
+    return () => window.removeEventListener('whot-live-mic-state', updateVoice)
+  }, [])
   useEffect(() => {
     if (view?.status !== 'finished') return
     const roundWinner = view.players.find(player => player.id === view.winner)
@@ -1417,8 +1428,8 @@ function GameTable() {
   function openTableChat() {
     window.dispatchEvent(new Event('whot-open-table-chat'))
   }
-  function openVoiceControls() {
-    window.dispatchEvent(new Event('whot-open-voice-controls'))
+  function toggleTableMicrophone() {
+    window.dispatchEvent(new Event('whot-toggle-live-mic'))
   }
   function toggleGameSounds() {
     const enabled = !gameSoundsEnabled()
@@ -1455,7 +1466,7 @@ function GameTable() {
         </div>
         <div className="premium-header-actions">
           <button type="button" className="premium-header-button" onClick={openTableChat} aria-label="Open table chat"><MessageCircle size={16} /><span>Chat</span></button>
-          {!opponents.every(player => player.is_bot) && <button type="button" className="premium-header-button" onClick={openVoiceControls} aria-label="Open live voice controls"><Mic size={16} /><span>Voice</span></button>}
+          {!opponents.every(player => player.is_bot) && <button type="button" className={`premium-header-button premium-voice-button ${voiceSpeaking ? 'mic-speaking' : ''}`} disabled={view.status !== 'playing' || voiceMicBusy} onClick={toggleTableMicrophone} aria-label={voiceSpeaking ? 'Mute microphone' : 'Tap to speak'} title={voiceSpeaking ? 'Mute microphone' : 'Tap to speak'}><span className="premium-mic-wave">{voiceSpeaking ? <Mic size={16} /> : <MicOff size={16} />}</span><span>{voiceMicBusy ? 'Connecting…' : voiceSpeaking ? 'Mute' : 'Speak'}</span></button>}
           <button type="button" className="premium-icon-button" onClick={toggleGameSounds} aria-label={soundEnabled ? 'Mute game sounds' : 'Enable game sounds'} title={soundEnabled ? 'Mute game sounds' : 'Enable game sounds'}><Volume2 size={17} />{!soundEnabled && <i />}</button>
           <button type="button" className="premium-header-button" onClick={() => navigate('/tables')} aria-label="Open My Tables"><Table2 size={16} /><span>My Tables</span></button>
           <button type="button" className="premium-header-button premium-switch-button" disabled={busy} onClick={() => void switchTables()} aria-label="Switch to another table"><ArrowLeft size={15} /><span>Switch Table</span></button>
@@ -1518,12 +1529,7 @@ function LiveVoicePanel({ players, playerId, enabled }: { players: Player[]; pla
   const [directAudioPeers, setDirectAudioPeers] = useState<string[]>([])
   const [fallbackPeerIds, setFallbackPeerIds] = useState<string[]>([])
   const [playbackBlocked, setPlaybackBlocked] = useState(false)
-  const [connectionSlow, setConnectionSlow] = useState(false)
   const [voiceError, setVoiceError] = useState('')
-  const [drawerOpen, setDrawerOpen] = useState(false)
-  const [drawerTop, setDrawerTop] = useState<number | null>(null)
-  const drawerDragRef = useRef<{ startY: number; startTop: number; height: number; moved: boolean } | null>(null)
-  const suppressDrawerClickRef = useRef(false)
   const mutedRef = useRef(muted)
   mutedRef.current = muted
   const localStreamRef = useRef<MediaStream | null>(null)
@@ -1546,10 +1552,16 @@ function LiveVoicePanel({ players, playerId, enabled }: { players: Player[]; pla
   const handledAudioIdsRef = useRef(new Set<string>())
 
   useEffect(() => {
-    const openControls = () => setDrawerOpen(true)
-    window.addEventListener('whot-open-voice-controls', openControls)
-    return () => window.removeEventListener('whot-open-voice-controls', openControls)
-  }, [])
+    const toggleMicrophone = () => toggleMute()
+    window.addEventListener('whot-toggle-live-mic', toggleMicrophone)
+    return () => window.removeEventListener('whot-toggle-live-mic', toggleMicrophone)
+  }, [muted, status])
+
+  useEffect(() => {
+    window.dispatchEvent(new CustomEvent('whot-live-mic-state', {
+      detail: { speaking: status === 'live' && !muted, busy: status === 'starting' },
+    }))
+  }, [muted, status])
 
   function unlockLivePlayback() {
     const playback = relayPlaybackRef.current || new AudioContext({ latencyHint: 'playback' })
@@ -1722,7 +1734,6 @@ function LiveVoicePanel({ players, playerId, enabled }: { players: Player[]; pla
       if (peer.connectionState === 'connected') {
         setRelayFallback(remoteId, false)
         setConnectedPeers(previous => previous.includes(remoteId) ? previous : [...previous, remoteId])
-        setConnectionSlow(false)
         playGameSound('join')
       } else if (peer.connectionState === 'failed') {
         setRelayFallback(remoteId, true)
@@ -1893,12 +1904,8 @@ function LiveVoicePanel({ players, playerId, enabled }: { players: Player[]; pla
     const waitingPlayers = players.filter(player => player.id !== playerId && player.connected && player.voice_ready
       && !connectedPeers.includes(player.id) && !directAudioPeers.includes(player.id)
       && !fallbackPeerIds.includes(player.id))
-    if (!waitingPlayers.length) {
-      setConnectionSlow(false)
-      return
-    }
+    if (!waitingPlayers.length) return
     const timer = window.setTimeout(() => {
-      setConnectionSlow(true)
       for (const player of waitingPlayers) {
         if (shouldUseRelayFallback(peersRef.current.get(player.id)?.connectionState)) {
           setRelayFallback(player.id, true)
@@ -1928,39 +1935,10 @@ function LiveVoicePanel({ players, playerId, enabled }: { players: Player[]; pla
     void Promise.all([...audioRef.current.values()].map(audio => audio.play()).concat(relayPlayback ? [relayPlayback.resume()] : [])).then(() => setPlaybackBlocked(false)).catch(() => setPlaybackBlocked(true))
   }
 
-  function startDrawerDrag(event: React.PointerEvent<HTMLButtonElement>) {
-    const panel = event.currentTarget.closest('.live-voice-panel')?.getBoundingClientRect()
-    if (!panel) return
-    event.currentTarget.setPointerCapture(event.pointerId)
-    drawerDragRef.current = { startY: event.clientY, startTop: panel.top, height: panel.height, moved: false }
-  }
-
-  function moveDrawer(event: React.PointerEvent<HTMLButtonElement>) {
-    const drag = drawerDragRef.current
-    if (!drag) return
-    const distance = event.clientY - drag.startY
-    if (Math.abs(distance) > 5) drag.moved = true
-    if (!drag.moved) return
-    const maximum = Math.max(65, window.innerHeight - drag.height - 8)
-    setDrawerTop(Math.max(65, Math.min(maximum, drag.startTop + distance)))
-  }
-
-  function finishDrawerDrag() {
-    if (drawerDragRef.current?.moved) {
-      suppressDrawerClickRef.current = true
-      window.setTimeout(() => { suppressDrawerClickRef.current = false }, 0)
-    }
-    drawerDragRef.current = null
-  }
-
-  function toggleDrawer() {
-    if (suppressDrawerClickRef.current) return
-    setDrawerOpen(open => !open)
-  }
-
-  const voiceCount = players.filter(player => player.connected && !player.is_bot).length
-  const statusText = `${voiceCount} ${voiceCount === 1 ? 'player' : 'players'} connected`
-  return <aside className={`voice-panel live-voice-panel content-panel ${drawerOpen ? 'voice-drawer-open' : ''}`} style={drawerTop === null ? undefined : { top: drawerTop, bottom: 'auto' }} aria-label="Live table voice"><button type="button" className="voice-drawer-toggle" onPointerDown={startDrawerDrag} onPointerMove={moveDrawer} onPointerUp={finishDrawerDrag} onPointerCancel={finishDrawerDrag} onClick={toggleDrawer} aria-expanded={drawerOpen} aria-label={drawerOpen ? 'Close or move live voice controls' : 'Open or move live voice controls'}>{muted ? <Mic size={20} /> : <MicOff size={20} />}<ChevronDown size={14} /></button><div className="voice-heading"><span className={`voice-icon ${status === 'live' ? 'voice-live' : ''}`}><Volume2 size={17} /></span><div><strong>Live table voice</strong><small>{statusText}</small></div><span className="status-dot online" /></div><div className="live-voice-room"><button type="button" className={`live-mic-orbit ${status === 'live' && !muted ? 'mic-active' : ''}`} onClick={toggleMute} disabled={!enabled || status === 'starting' || status === 'unsupported' || status === 'failed'} aria-label={!localStreamRef.current ? 'Start live microphone' : muted ? 'Unmute live microphone' : 'Mute live microphone'}><span>{muted ? <MicOff size={27} /> : <Mic size={27} />}</span></button>{voiceError && <small className="live-mic-error" role="status">{voiceError}</small>}<strong>{status === 'starting' ? 'Opening microphone…' : muted ? 'Tap the mic to speak live' : 'You are speaking live'}</strong><small>{voiceError || (connectionSlow ? 'Direct voice connection failed. This network may require a TURN server.' : 'Nothing is recorded. Everyone at the table hears you live.')}</small></div><div className="voice-compose">{status === 'blocked' ? <button type="button" className="button button-green full-button" onClick={() => { startPromiseRef.current = null; setStatus('starting'); void startMicrophone() }}><Mic size={16} /> Allow microphone</button> : playbackBlocked ? <button type="button" className="button button-green full-button" onClick={enablePlayback}><Volume2 size={16} /> Enable speaker</button> : <button type="button" className={`button ${muted ? 'button-green' : 'button-outline'} full-button`} disabled={!enabled || status === 'starting'} onClick={toggleMute}>{muted ? <><Mic size={16} /> Tap to speak</> : <><MicOff size={16} /> Stop speaking</>}</button>}<span className="voice-hint">Live only · no recording is saved</span></div></aside>
+  return <>
+    {voiceError && <div className="live-mic-error-toast" role="status">{voiceError}</div>}
+    {playbackBlocked && <button type="button" className="live-speaker-unlock" onClick={enablePlayback}><Volume2 size={15} /> Enable speaker</button>}
+  </>
 }
 
 function SocialOverlay({ recipient, roomCode }: { recipient: string; roomCode?: string }) {
