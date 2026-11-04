@@ -305,7 +305,11 @@
 }
 
 .premium-table-felt .opponents-row {
-  display: contents;
+  position: absolute;
+  z-index: 3;
+  inset: 0;
+  display: block;
+  pointer-events: none;
 }
 
 .premium-player-seat {
@@ -342,6 +346,7 @@
   text-align: center;
   backdrop-filter: blur(8px);
   transition: border-color .2s ease, box-shadow .2s ease, transform .2s ease;
+  pointer-events: auto;
 }
 
 .table-frame .premium-player-seat > strong {
@@ -1248,6 +1253,26 @@
 
 .table-frame .premium-game-controls {
   display: none !important;
+}
+
+@media (min-width: 761px) {
+  .table-frame .sidebar,
+  .table-frame .topbar {
+    display: flex !important;
+  }
+
+  .table-frame .main-column {
+    width: auto;
+    margin-left: 246px;
+  }
+
+  .table-frame .page-content {
+    min-height: calc(100dvh - 66px);
+  }
+
+  .table-frame .game-page {
+    min-height: 0;
+  }
 }
 
 @media (max-width: 600px) {
