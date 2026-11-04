@@ -896,8 +896,8 @@ function AppFrame() {
     if (!isTable) return
     const rootOverflow = document.documentElement.style.overflow
     const bodyOverflow = document.body.style.overflow
-    document.documentElement.style.overflow = 'hidden'
-    document.body.style.overflow = 'hidden'
+    document.documentElement.style.overflow = 'auto'
+    document.body.style.overflow = 'visible'
     return () => {
       document.documentElement.style.overflow = rootOverflow
       document.body.style.overflow = bodyOverflow
