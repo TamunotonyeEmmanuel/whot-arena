@@ -7,6 +7,10 @@ import 'package:web_socket_channel/web_socket_channel.dart';
 const bg = Color(0xFF071C16);
 const green = Color(0xFF00C896);
 const gold = Color(0xFFFFD166);
+const apiBaseUrl = String.fromEnvironment('API_BASE_URL',
+    defaultValue: 'http://10.0.2.2:8000');
+String get webSocketUrl =>
+    '${apiBaseUrl.replaceFirst(RegExp(r'^http'), 'ws')}/ws';
 
 void main() => runApp(const ArenaApp());
 
@@ -36,11 +40,16 @@ class ArenaHome extends StatefulWidget {
 class _ArenaHomeState extends State<ArenaHome> {
   final name = TextEditingController(text: 'Guest');
   final roomCode = TextEditingController();
-  final server = TextEditingController(text: 'ws://10.0.2.2:8000/ws');
+  final authEmail = TextEditingController();
+  final authPassword = TextEditingController();
+  final authUsername = TextEditingController();
   WebSocketChannel? channel;
   Map<String, dynamic>? state;
   String? pid, code, reconnectToken, accessToken, error;
   bool busy = false;
+  bool initializing = true;
+  bool registering = false;
+  bool obscurePassword = true;
   bool teamMode = false;
   final Map<String, dynamic> rules = {
     'cards_per_player': 5,
@@ -62,11 +71,11 @@ class _ArenaHomeState extends State<ArenaHome> {
     if (!mounted) return;
     setState(() {
       name.text = prefs.getString('name') ?? 'Guest';
-      server.text = prefs.getString('server') ?? 'ws://10.0.2.2:8000/ws';
       pid = prefs.getString('pid');
       code = prefs.getString('code');
       reconnectToken = prefs.getString('reconnect_token');
       accessToken = prefs.getString('access_token');
+      initializing = false;
     });
     await loadGameRules();
   }
@@ -79,7 +88,8 @@ class _ArenaHomeState extends State<ArenaHome> {
       if (response.statusCode >= 400) {
         throw Exception('Request failed (${response.statusCode})');
       }
-      final values = Map<String, dynamic>.from(jsonDecode(response.body) as Map);
+      final values =
+          Map<String, dynamic>.from(jsonDecode(response.body) as Map);
       if (values['cards_per_player'] is! int ||
           values['pick_two'] is! int ||
           values['pick_three'] is! int ||
@@ -107,9 +117,8 @@ class _ArenaHomeState extends State<ArenaHome> {
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString('name', name.text);
-      await prefs.setString('server', server.text);
       await channel?.sink.close();
-      final socket = WebSocketChannel.connect(Uri.parse(server.text.trim()));
+      final socket = WebSocketChannel.connect(Uri.parse(webSocketUrl));
       await socket.ready;
       channel = socket;
       socket.stream.listen((event) async {
@@ -125,22 +134,25 @@ class _ArenaHomeState extends State<ArenaHome> {
         }
         setState(() {
           busy = false;
-          if (msg['type'] == 'state')
+          if (msg['type'] == 'state') {
             state = Map<String, dynamic>.from(msg['data'] as Map);
+          }
           if (msg['type'] == 'error') error = msg['message'] as String?;
         });
       }, onError: (Object e) {
-        if (mounted)
+        if (mounted) {
           setState(() {
             error = '$e';
             busy = false;
           });
+        }
       }, onDone: () {
-        if (mounted)
+        if (mounted) {
           setState(() {
             error = 'Disconnected. Tap Reconnect.';
             busy = false;
           });
+        }
       });
       send({
         'action': action,
@@ -154,11 +166,12 @@ class _ArenaHomeState extends State<ArenaHome> {
         if (action == 'reconnect') 'reconnect_token': reconnectToken,
       });
     } catch (e) {
-      if (mounted)
+      if (mounted) {
         setState(() {
           error = 'Connection failed: $e';
           busy = false;
         });
+      }
     }
   }
 
@@ -166,66 +179,28 @@ class _ArenaHomeState extends State<ArenaHome> {
       channel?.sink.add(jsonEncode(message));
 
   Uri apiUri(String path) {
-    final ws = Uri.parse(server.text.trim());
-    return ws.replace(
-        scheme: ws.scheme == 'wss' ? 'https' : 'http', path: path);
+    return Uri.parse('$apiBaseUrl$path');
   }
 
   Widget ruleDropdown(String key, String label, int min, int max) =>
       DropdownButtonFormField<int>(
-        value: rules[key] as int,
+        initialValue: rules[key] as int,
         decoration: InputDecoration(labelText: label),
         items: [
           for (var value = min; value <= max; value++)
             DropdownMenuItem(value: value, child: Text('$value')),
         ],
-        onChanged: busy || (key == 'pick_three' && rules['pick_three_enabled'] != true)
-            ? null
-            : (value) {
-                if (value != null) setState(() => rules[key] = value);
-              },
+        onChanged:
+            busy || (key == 'pick_three' && rules['pick_three_enabled'] != true)
+                ? null
+                : (value) {
+                    if (value != null) setState(() => rules[key] = value);
+                  },
       );
 
-  Future<void> authenticate(bool registering) async {
-    final email = TextEditingController();
-    final password = TextEditingController();
-    final username = TextEditingController();
-    final values = await showDialog<Map<String, String>>(
-        context: context,
-        builder: (context) => AlertDialog(
-              title: Text(registering ? 'Create account' : 'Sign in'),
-              content: SingleChildScrollView(
-                  child: Column(mainAxisSize: MainAxisSize.min, children: [
-                if (registering)
-                  TextField(
-                      controller: username,
-                      decoration: const InputDecoration(labelText: 'Username')),
-                TextField(
-                    controller: email,
-                    keyboardType: TextInputType.emailAddress,
-                    decoration: const InputDecoration(labelText: 'Email')),
-                TextField(
-                    controller: password,
-                    obscureText: true,
-                    decoration: const InputDecoration(labelText: 'Password')),
-              ])),
-              actions: [
-                TextButton(
-                    onPressed: () => Navigator.pop(context),
-                    child: const Text('Cancel')),
-                FilledButton(
-                    onPressed: () => Navigator.pop(context, {
-                          'email': email.text.trim(),
-                          'password': password.text,
-                          if (registering) 'username': username.text.trim(),
-                        }),
-                    child: Text(registering ? 'Register' : 'Sign in')),
-              ],
-            ));
-    email.dispose();
-    password.dispose();
-    username.dispose();
-    if (values == null || !mounted) return;
+  Future<void> authenticate(
+      bool registering, Map<String, String> values) async {
+    if (!mounted) return;
     setState(() {
       busy = true;
       error = null;
@@ -236,24 +211,28 @@ class _ArenaHomeState extends State<ArenaHome> {
           headers: {'content-type': 'application/json'},
           body: jsonEncode(values));
       final body = jsonDecode(response.body) as Map<String, dynamic>;
-      if (response.statusCode >= 400)
+      if (response.statusCode >= 400) {
         throw Exception(body['detail'] ?? 'Authentication failed');
+      }
       accessToken = body['access_token'] as String;
       final user = Map<String, dynamic>.from(body['user'] as Map);
       name.text = user['username'] as String;
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString('access_token', accessToken!);
       await prefs.setString('name', name.text);
-      if (mounted)
+      authPassword.clear();
+      if (mounted) {
         setState(() {
           busy = false;
         });
+      }
     } catch (e) {
-      if (mounted)
+      if (mounted) {
         setState(() {
           busy = false;
           error = '$e';
         });
+      }
     }
   }
 
@@ -265,8 +244,9 @@ class _ArenaHomeState extends State<ArenaHome> {
             if (!leaderboard && accessToken != null)
               'authorization': 'Bearer $accessToken'
           });
-      if (response.statusCode >= 400)
+      if (response.statusCode >= 400) {
         throw Exception('Request failed (${response.statusCode})');
+      }
       final decoded = jsonDecode(response.body);
       if (!mounted) return;
       final text = leaderboard
@@ -290,11 +270,147 @@ class _ArenaHomeState extends State<ArenaHome> {
                 ],
               ));
     } catch (e) {
-      if (mounted)
+      if (mounted) {
         setState(() {
           error = '$e';
         });
+      }
     }
+  }
+
+  Future<void> signOut() async {
+    await channel?.sink.close();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove('access_token');
+    if (!mounted) return;
+    setState(() {
+      accessToken = null;
+      state = null;
+      pid = null;
+      code = null;
+      reconnectToken = null;
+    });
+  }
+
+  Widget authScreen() => Scaffold(
+        body: SafeArea(
+          child: Center(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(24),
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 440),
+                child: AutofillGroup(
+                  child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        const ArenaLogo(size: 92, showWordmark: true),
+                        const SizedBox(height: 34),
+                        Text(
+                            registering
+                                ? 'Create your player account'
+                                : 'Welcome back',
+                            textAlign: TextAlign.center,
+                            style: Theme.of(context)
+                                .textTheme
+                                .headlineSmall
+                                ?.copyWith(fontWeight: FontWeight.w800)),
+                        const SizedBox(height: 8),
+                        Text(
+                            registering
+                                ? 'Your profile, wins and matches sync with WHOT Arena on the web.'
+                                : 'Sign in with the same account you use on the web app.',
+                            textAlign: TextAlign.center,
+                            style: const TextStyle(color: Colors.white60)),
+                        const SizedBox(height: 28),
+                        if (error != null)
+                          Card(
+                              color: Colors.red.shade900,
+                              child: Padding(
+                                  padding: const EdgeInsets.all(12),
+                                  child: Text(error!))),
+                        if (registering)
+                          TextField(
+                              controller: authUsername,
+                              textInputAction: TextInputAction.next,
+                              autofillHints: const [AutofillHints.newUsername],
+                              decoration: const InputDecoration(
+                                  labelText: 'Player name',
+                                  prefixIcon: Icon(Icons.person_outline))),
+                        if (registering) const SizedBox(height: 14),
+                        TextField(
+                            controller: authEmail,
+                            keyboardType: TextInputType.emailAddress,
+                            textInputAction: TextInputAction.next,
+                            autofillHints: const [AutofillHints.email],
+                            decoration: const InputDecoration(
+                                labelText: 'Email address',
+                                prefixIcon: Icon(Icons.mail_outline))),
+                        const SizedBox(height: 14),
+                        TextField(
+                            controller: authPassword,
+                            obscureText: obscurePassword,
+                            textInputAction: TextInputAction.done,
+                            autofillHints: [
+                              registering
+                                  ? AutofillHints.newPassword
+                                  : AutofillHints.password
+                            ],
+                            onSubmitted: (_) => submitAuth(),
+                            decoration: InputDecoration(
+                                labelText: 'Password',
+                                helperText: registering
+                                    ? 'At least 8 characters'
+                                    : null,
+                                prefixIcon: const Icon(Icons.lock_outline),
+                                suffixIcon: IconButton(
+                                    onPressed: () => setState(() =>
+                                        obscurePassword = !obscurePassword),
+                                    icon: Icon(obscurePassword
+                                        ? Icons.visibility_outlined
+                                        : Icons.visibility_off_outlined)))),
+                        const SizedBox(height: 22),
+                        button(
+                            busy
+                                ? 'PLEASE WAIT…'
+                                : registering
+                                    ? 'CREATE ACCOUNT'
+                                    : 'SIGN IN',
+                            busy ? null : submitAuth),
+                        TextButton(
+                            onPressed: busy
+                                ? null
+                                : () => setState(() {
+                                      registering = !registering;
+                                      error = null;
+                                    }),
+                            child: Text(registering
+                                ? 'Already have an account? Sign in'
+                                : 'New to the Arena? Create an account')),
+                      ]),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+
+  void submitAuth() {
+    final email = authEmail.text.trim();
+    final password = authPassword.text;
+    final username = authUsername.text.trim();
+    if (!email.contains('@') ||
+        password.isEmpty ||
+        (registering && (username.length < 3 || password.length < 8))) {
+      setState(() => error = registering
+          ? 'Enter a valid email, a 3–24 character player name, and an 8+ character password.'
+          : 'Enter your email address and password.');
+      return;
+    }
+    authenticate(registering, {
+      'email': email,
+      'password': password,
+      if (registering) 'username': username,
+    });
   }
 
   @override
@@ -302,7 +418,9 @@ class _ArenaHomeState extends State<ArenaHome> {
     channel?.sink.close();
     name.dispose();
     roomCode.dispose();
-    server.dispose();
+    authEmail.dispose();
+    authPassword.dispose();
+    authUsername.dispose();
     super.dispose();
   }
 
@@ -324,6 +442,8 @@ class _ArenaHomeState extends State<ArenaHome> {
 
   @override
   Widget build(BuildContext context) {
+    if (initializing) return const ArenaSplash();
+    if (accessToken == null) return authScreen();
     final data = state;
     return Scaffold(
       appBar: AppBar(
@@ -363,12 +483,6 @@ class _ArenaHomeState extends State<ArenaHome> {
                       controller: name,
                       maxLength: 20,
                       decoration: const InputDecoration(labelText: 'Nickname')),
-                  TextField(
-                      controller: server,
-                      onSubmitted: (_) => loadGameRules(),
-                      decoration: const InputDecoration(
-                          labelText: 'Server WebSocket URL',
-                          helperText: 'Submit the URL to reload server rule defaults')),
                   SwitchListTile(
                     contentPadding: EdgeInsets.zero,
                     title: const Text('2v2 TEAM MATCH'),
@@ -386,16 +500,15 @@ class _ArenaHomeState extends State<ArenaHome> {
                   ruleDropdown('cards_per_player', 'Cards per player', 3, 10),
                   ruleDropdown('pick_two', 'Pick Two penalty cards', 1, 10),
                   ruleDropdown('pick_three', 'Pick Three penalty cards', 1, 10),
-                  ruleDropdown(
-                      'general_market', 'General Market cards', 1, 5),
+                  ruleDropdown('general_market', 'General Market cards', 1, 5),
                   SwitchListTile(
                     contentPadding: EdgeInsets.zero,
                     title: const Text('ENABLE PICK THREE'),
                     value: rules['pick_three_enabled'] as bool,
                     onChanged: busy
                         ? null
-                        : (value) => setState(
-                            () => rules['pick_three_enabled'] = value),
+                        : (value) =>
+                            setState(() => rules['pick_three_enabled'] = value),
                   ),
                   SwitchListTile(
                     contentPadding: EdgeInsets.zero,
@@ -403,19 +516,15 @@ class _ArenaHomeState extends State<ArenaHome> {
                     value: rules['penalty_stacking'] as bool,
                     onChanged: busy
                         ? null
-                        : (value) => setState(
-                            () => rules['penalty_stacking'] = value),
+                        : (value) =>
+                            setState(() => rules['penalty_stacking'] = value),
                   ),
                   Row(children: [
                     Expanded(
-                        child: OutlinedButton(
-                            onPressed: busy ? null : () => authenticate(false),
-                            child: const Text('SIGN IN'))),
-                    const SizedBox(width: 10),
-                    Expanded(
-                        child: OutlinedButton(
-                            onPressed: busy ? null : () => authenticate(true),
-                            child: const Text('REGISTER'))),
+                        child: OutlinedButton.icon(
+                            onPressed: busy ? null : signOut,
+                            icon: const Icon(Icons.logout),
+                            label: const Text('SIGN OUT'))),
                   ]),
                   if (accessToken != null)
                     Row(children: [
@@ -561,12 +670,13 @@ class _ArenaHomeState extends State<ArenaHome> {
                                             Navigator.pop(context, s),
                                         child: Text(s.toUpperCase())))
                                     .toList()));
-                        if (shape != null)
+                        if (shape != null) {
                           send({
                             'action': 'play',
                             'card_id': card['id'],
                             'shape': shape
                           });
+                        }
                       } else {
                         send({'action': 'play', 'card_id': card['id']});
                       }
@@ -663,4 +773,64 @@ class _ArenaHomeState extends State<ArenaHome> {
             ]),
     );
   }
+}
+
+class ArenaLogo extends StatelessWidget {
+  const ArenaLogo({super.key, this.size = 64, this.showWordmark = false});
+  final double size;
+  final bool showWordmark;
+
+  @override
+  Widget build(BuildContext context) =>
+      Column(mainAxisSize: MainAxisSize.min, children: [
+        Container(
+          width: size * .72,
+          height: size,
+          decoration: BoxDecoration(
+              color: const Color(0xFFF5F0E6),
+              border: Border.all(color: gold, width: 3),
+              borderRadius: BorderRadius.circular(size * .12),
+              boxShadow: const [
+                BoxShadow(color: Colors.black38, blurRadius: 18)
+              ]),
+          transform: Matrix4.rotationZ(-.09),
+          alignment: Alignment.center,
+          child: Text('W',
+              style: TextStyle(
+                  color: const Color(0xFF174C35),
+                  fontSize: size * .48,
+                  fontWeight: FontWeight.w900)),
+        ),
+        if (showWordmark) ...[
+          const SizedBox(height: 16),
+          Text('WHOT ARENA',
+              style: TextStyle(
+                  color: Colors.white,
+                  fontSize: size * .22,
+                  fontWeight: FontWeight.w900,
+                  letterSpacing: 2.5)),
+        ]
+      ]);
+}
+
+class ArenaSplash extends StatelessWidget {
+  const ArenaSplash({super.key});
+  @override
+  Widget build(BuildContext context) => const Scaffold(
+        body: Center(
+            child: Column(mainAxisSize: MainAxisSize.min, children: [
+          ArenaLogo(size: 118, showWordmark: true),
+          SizedBox(height: 34),
+          SizedBox(
+              width: 150,
+              child: LinearProgressIndicator(
+                  minHeight: 3,
+                  color: gold,
+                  backgroundColor: Color(0xFF245044))),
+          SizedBox(height: 14),
+          Text('SETTING THE TABLE',
+              style: TextStyle(
+                  color: Colors.white54, fontSize: 11, letterSpacing: 2)),
+        ])),
+      );
 }

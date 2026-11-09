@@ -138,7 +138,7 @@ type ArenaContextValue = {
 
 const API_URL = (import.meta.env.VITE_API_URL || 'http://localhost:8000').replace(/\/$/, '')
 const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID || ''
-const WS_URL = import.meta.env.VITE_WS_URL || `${API_URL.replace(/^http/, 'ws')}/ws`
+const WS_URL = `${API_URL.replace(/^http/, 'ws')}/ws`
 const NOTIFICATION_WS_URL = `${WS_URL.replace(/\/$/, '')}/notifications`
 export function normalizeTurnUrl(value: string) {
   return value.trim().replace(/^(stuns?|turns?):\/\//i, '$1:')
@@ -921,7 +921,7 @@ function AppFrame() {
   }, [])
   return <div className={`app-frame ${isTable ? 'table-frame' : ''}`}>
     <aside className={`sidebar ${menuOpen ? 'sidebar-open' : ''}`}>
-      <Link to="/" className="brand"><span className="brand-mark">W</span><span>WHOT<span className="brand-light">ARENA</span></span></Link>
+      <Link to="/" className="brand" aria-label="WHOT Arena home"><img src="/whot-arena-logo.svg" alt="WHOT Arena" /></Link>
       <div className="side-caption">PLAY</div>
       <nav className="side-nav">{navItems.map(({ to, label, icon: Icon, badge }) => <NavLink key={to} to={to} onClick={() => setMenuOpen(false)} className={({ isActive }) => `nav-link ${isActive ? 'nav-active' : ''}`}><Icon size={18} strokeWidth={1.8} /><span>{label}</span>{badge && <span className="nav-count" aria-label={`${activeTableCount} active tables`}>{activeTableCount}</span>}</NavLink>)}</nav>
       <div className="side-caption second-caption">YOUR ACCOUNT</div>

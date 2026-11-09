@@ -10,7 +10,6 @@ This repository is prepared for a Vercel static frontend and free Render API/dat
 
 	```dotenv
 	VITE_API_URL=https://whot-arena-api.onrender.com
-	VITE_WS_URL=wss://whot-arena-api.onrender.com/ws
 	VITE_GOOGLE_CLIENT_ID=<Google OAuth Web client ID>
 	```
 
@@ -36,7 +35,6 @@ ADMIN_EMAILS=admin@example.com
 GOOGLE_CLIENT_ID=<Google OAuth Web client ID>
 CORS_ORIGINS=https://play.example.com
 VITE_API_URL=https://api.example.com
-VITE_WS_URL=wss://api.example.com/ws
 VITE_GOOGLE_CLIENT_ID=<same Google OAuth Web client ID>
 ```
 
@@ -55,7 +53,7 @@ docker compose --env-file .env ps
 
 The web container listens on port 80 internally and is published as port 8080 by default. Put a TLS reverse proxy or managed load balancer in front of it and the API. Point the public site to the frontend and route `/api/*`, `/health`, and `/ws` to the backend. The WebSocket proxy must preserve the `Upgrade` and `Connection` headers and allow long-lived upgraded connections. Use HTTPS/WSS externally; do not expose credentials over plain HTTP.
 
-For a separate static frontend host, build from `web/` with production `VITE_API_URL` and `VITE_WS_URL`, then publish `web/dist`. Configure SPA fallback to `index.html`. Set backend `CORS_ORIGINS` to the static site's exact HTTPS origin.
+For a separate static frontend host, build from `web/` with production `VITE_API_URL`, then publish `web/dist`. The WebSocket endpoint is derived automatically. Configure SPA fallback to `index.html`. Set backend `CORS_ORIGINS` to the static site's exact HTTPS origin.
 
 Voice recording requires microphone permission and a secure browser context; use HTTPS in production (localhost is treated as secure for development). Preserve WebSocket upgrades and allow frames of at least 1 MB so a 512 KB note plus base64 and JSON framing can pass safely.
 

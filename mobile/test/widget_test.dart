@@ -11,16 +11,21 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:whot_arena/main.dart';
 
 void main() {
-  testWidgets('renders guest home actions', (WidgetTester tester) async {
+  testWidgets('renders account sign-in and registration',
+      (WidgetTester tester) async {
     SharedPreferences.setMockInitialValues({});
     await tester.pumpWidget(const ArenaApp());
     await tester.pumpAndSettle();
-    expect(find.text('CREATE PRIVATE ROOM'), findsOneWidget);
-    expect(find.text('2v2 TEAM MATCH'), findsOneWidget);
-    expect(find.text('GAME RULES'), findsOneWidget);
-    expect(find.text('ENABLE PICK THREE'), findsOneWidget);
-    expect(find.text('ALLOW PENALTY STACKING'), findsOneWidget);
-    expect(find.text('QUICK MATCH'), findsOneWidget);
-    expect(find.text('JOIN ROOM'), findsOneWidget);
+    expect(find.text('WHOT ARENA'), findsOneWidget);
+    expect(find.text('Welcome back'), findsOneWidget);
+    expect(find.text('SIGN IN'), findsOneWidget);
+
+    final registerLink = find.text('New to the Arena? Create an account');
+    await tester.ensureVisible(registerLink);
+    await tester.tap(registerLink);
+    await tester.pump();
+    expect(find.text('Create your player account'), findsOneWidget);
+    expect(find.text('Player name'), findsOneWidget);
+    expect(find.text('CREATE ACCOUNT'), findsOneWidget);
   });
 }

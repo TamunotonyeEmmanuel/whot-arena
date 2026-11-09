@@ -1,6 +1,19 @@
-# whot_arena
+# WHOT Arena mobile
 
-A new Flutter project.
+Flutter client for the same FastAPI service and account database used by the
+WHOT Arena web app.
+
+The API and socket endpoints are build-time configuration, not fields exposed
+to players:
+
+```bash
+flutter run \
+  --dart-define=API_BASE_URL=https://your-api.example.com
+```
+
+For the Android emulator the development API defaults to
+`http://10.0.2.2:8000`. The socket endpoint is derived automatically from the
+API address, so players never need to enter or manage a WebSocket URL.
 
 ## Getting Started
 

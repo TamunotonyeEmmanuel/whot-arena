@@ -31,8 +31,9 @@ npm run dev
 ```
 
 Open the Vite URL shown in the terminal (normally `http://localhost:5173`). Set
-`VITE_API_URL` and `VITE_WS_URL` in `web/.env.local` if the backend is not on
-the local default. These are public build-time endpoints, never secrets. For
+`VITE_API_URL` in `web/.env.local` if the backend is not on the local default.
+The WebSocket address is derived from the API address automatically. This is a
+public build-time endpoint, never a secret. For
 deployment, see [docs/WEB_DEPLOYMENT.md](docs/WEB_DEPLOYMENT.md). Before a
 private room, solo game, or quick match, choose the table rules. Quick matches
 are paired only with players who selected the same rules.
